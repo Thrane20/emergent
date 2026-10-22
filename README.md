@@ -28,3 +28,5 @@ cargo clippy --all-targets --all-features -- -D warnings
 ```
 
 Graphics, ECS selection, behaviours, asset projects, and project mode remain later layers described in `GOALS.MD`.
+
+The next bounded engine increment is the headless transform graph described in `ITERATION_2.md`.

@@ -1,6 +1,6 @@
 # Emergent — Foundation Goals
 
-Status: design brief with an initial headless engine foundation under `src/`; staged acceptance gates remain open until fully validated.
+Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the next bounded increment is specified in `ITERATION_2.md`. Broader staged acceptance gates remain open.
 
 ## Vision
 
