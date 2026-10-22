@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" data-root=".">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Build your first Emergent scene and moving entity.">
+  <title>Emergent Guide — Hello World</title><link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.6.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <aside class="sidebar" aria-label="Guide navigation">
+    <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" aria-current="page" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a>
+    <div class="nav-label">Reference</div><a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
+    <p class="sidebar-note">This page matches the compiled <code>examples/hello_world.rs</code> example.</p>
+  </aside>
+  <div class="layout"><main class="content" id="main">
+    <div class="breadcrumbs"><span>Guide</span><span>Hello World</span></div>
+    <p class="eyebrow">One scene. One entity. One behaviour.</p><h1>Move your first entity.</h1>
+    <p class="lede">This complete game creates a scene, attaches a linear-motion behaviour to a child entity, observes its propagated transform, and exits after 120 fixed ticks.</p>
+
+    <h2>Run the checked-in example</h2>
+    <div class="code-block"><div class="code-label">Terminal</div><pre>cargo run --example hello_world</pre></div>
+    <p>The output begins with <code>Hello, Emergent!</code> and reports the entity's X position every 30 ticks.</p>
+
+    <h2 id="code">The complete program</h2>
+    <div class="code-block"><div class="code-label">examples/hello_world.rs</div><pre>use emergent::{BehaviorSpec, Engine, EngineConfig, EngineContext, EntityId, Game, Vec3};
+
+#[derive(Default)]
+struct HelloWorld {
+    mover: Option&lt;EntityId&gt;,
+}
+
+impl Game for HelloWorld {
+    fn start(&amp;mut self, context: &amp;mut EngineContext&lt;'_&gt;) {
+        let scene = context.world.spawn("Hello scene");
+        let mover = context
+            .world
+            .spawn_child(scene, "Hello mover")
+            .expect("the scene accepts its child");
+
+        context
+            .world
+            .add_behavior(
+                mover,
+                BehaviorSpec::linear_motion(
+                    Vec3::ZERO,
+                    Vec3::new(1.0, 0.0, 0.0),
+                )
+                .expect("finite motion"),
+            )
+            .expect("the entity accepts its motion behaviour");
+
+        self.mover = Some(mover);
+        println!("Hello, Emergent!");
+    }
+
+    fn fixed_update(&amp;mut self, context: &amp;mut EngineContext&lt;'_&gt;) {
+        if context.tick &gt;= 119 {
+            context.request_exit();
+        }
+    }
+
+    fn after_fixed_update(&amp;mut self, context: &amp;mut EngineContext&lt;'_&gt;) {
+        if context.tick.is_multiple_of(30) {
+            let position = context
+                .world
+                .global_transform(self.mover.expect("the game has started"))
+                .expect("the mover remains alive")
+                .translation();
+            println!("tick {:&gt;3}: x = {:.2}", context.tick, position.x);
+        }
+    }
+}
+
+fn main() -&gt; Result&lt;(), Box&lt;dyn std::error::Error&gt;&gt; {
+    Engine::new(EngineConfig::default())?
+        .run(&amp;mut HelloWorld::default())?;
+    Ok(())
+}</pre></div>
+
+    <h2 id="walkthrough">What happens each tick</h2>
+    <div class="quick-grid">
+      <article class="card"><span class="status available">1 · Own</span><h3>Spawn identity</h3><p><code>World::spawn</code> and <code>spawn_child</code> return world-scoped, generational <code>EntityId</code> handles.</p></article>
+      <article class="card"><span class="status available">2 · Compose</span><h3>Attach behaviour</h3><p><code>LinearMotion</code> owns its current position and velocity, and stages one transform write per tick.</p></article>
+      <article class="card"><span class="status available">3 · Observe</span><h3>Read after propagation</h3><p><code>after_fixed_update</code> runs after behaviour commit, lifecycle processing, and global transform propagation.</p></article>
+    </div>
+
+    <h2 id="change">Try changing it</h2>
+    <p>Change the velocity to move diagonally:</p>
+    <div class="code-block"><div class="code-label">Rust</div><pre>BehaviorSpec::linear_motion(
+    Vec3::ZERO,
+    Vec3::new(1.0, 0.5, -0.25),
+)</pre></div>
+    <p>Or replace the wall-clock run with an exact, non-sleeping test run:</p>
+    <div class="code-block"><div class="code-label">Rust</div><pre>let mut engine = Engine::new(EngineConfig::default())?;
+let mut game = HelloWorld::default();
+engine.run_ticks(&amp;mut game, 120)?;</pre></div>
+    <div class="callout"><strong>Snapshot rule:</strong> when behaviours are linked, every target reads the source's previously committed output. Link order cannot cause recursive same-tick execution.</div>
+
+    <div class="page-nav"><a href="getting-started.html"><small>Previous</small>← Getting started</a><a href="api.html"><small>Next</small>Library and API →</a></div>
+    <footer>Emergent user guide · Current engine version 0.6.0</footer>
+  </main></div>
+  <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
+</body></html>

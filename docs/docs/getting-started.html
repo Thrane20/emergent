@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en" data-root=".">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Install, build, test, and run the Emergent game engine.">
+  <title>Emergent Guide — Getting started</title><link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.6.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <aside class="sidebar" aria-label="Guide navigation">
+    <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" aria-current="page" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a>
+    <div class="nav-label">Reference</div><a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
+    <p class="sidebar-note">Default builds are headless. Enable graphics only for a visible application.</p>
+  </aside>
+  <div class="layout"><main class="content" id="main">
+    <div class="breadcrumbs"><span>Guide</span><span>Getting started</span></div>
+    <p class="eyebrow">From checkout to first tick</p><h1>Get Emergent running.</h1>
+    <p class="lede">You need a stable Rust toolchain. The default command runs the headless behaviour demo; one feature flag enables the first native graphics path.</p>
+
+    <h2>Prerequisites</h2>
+    <ul class="steps">
+      <li><h3>Install Rust with rustup</h3><p>Use the installer from <a href="https://rustup.rs/">rustup.rs</a>, then open a new terminal.</p><div class="code-block"><div class="code-label">Terminal</div><pre>rustc --version
+cargo --version</pre></div></li>
+      <li><h3>Open the repository</h3><p>All commands in this guide assume the project root as the current directory.</p><div class="code-block"><div class="code-label">Terminal</div><pre>cd /Users/iansorbello/dev/emergent</pre></div></li>
+      <li><h3>Run the headless reference game</h3><p>This compiles the lightweight core, advances 120 fixed ticks, and prints the linked leader/follower positions.</p><div class="code-block"><div class="code-label">Terminal</div><pre>cargo run --release</pre></div></li>
+    </ul>
+
+    <h2 id="graphics">Open the first 3D window</h2>
+    <p>The optional graphics feature compiles <code>winit</code>, <code>wgpu</code>, and the small renderer. The first build takes longer because it adds the native graphics stack.</p>
+    <div class="code-block"><div class="code-label">Terminal</div><pre>cargo run --release --features graphics --example first_window</pre></div>
+    <p>A window titled <strong>Emergent — First wgpu object</strong> displays a rotating coloured cube. Resize it to exercise surface and depth-target recreation, then close the window normally.</p>
+    <div class="callout"><strong>Automated smoke mode:</strong> append <code>-- --smoke</code>. The example requests a resize, renders for 120 simulation ticks, reports the adapter/backend, and closes itself.</div>
+
+    <h2 id="checks">Check the engine</h2>
+    <p>Run the default tests for the headless core. Before committing engine work, also check every target and optional feature.</p>
+    <div class="code-block"><div class="code-label">Terminal</div><pre>cargo fmt --check
+cargo test
+cargo test --release --all-features
+cargo clippy --all-targets --all-features -- -D warnings</pre></div>
+
+    <h2 id="dependency">Use the library from a local game crate</h2>
+    <p>Emergent is currently developed as a local engine project rather than a published crates.io package. Point a game crate at its checkout:</p>
+    <div class="code-block"><div class="code-label">Cargo.toml · headless</div><pre>[dependencies]
+emergent = { path = "../emergent" }</pre></div>
+    <div class="code-block"><div class="code-label">Cargo.toml · with graphics</div><pre>[dependencies]
+emergent = { path = "../emergent", features = ["graphics"] }</pre></div>
+    <div class="callout warning"><strong>Current project boundary:</strong> reusable project templates, authored scene assets, and project manifests are planned. Today, game setup is Rust code using the public library API.</div>
+
+    <h2 id="model">The first mental model</h2>
+    <table><thead><tr><th>Concept</th><th>Use it for</th><th>Key type/API</th></tr></thead><tbody>
+      <tr><td>Engine</td><td>Fixed timing, schedules, callbacks, and shutdown</td><td><code>Engine</code>, <code>Game</code></td></tr>
+      <tr><td>World</td><td>Entity ownership, components, behaviours, and transforms</td><td><code>World</code></td></tr>
+      <tr><td>Entity</td><td>Runtime object identity and hierarchy membership</td><td><code>EntityId</code></td></tr>
+      <tr><td>Behaviour</td><td>Stateful outputs and typed links between objects</td><td><code>BehaviorId</code>, <code>BehaviorSpec</code></td></tr>
+      <tr><td>ECS</td><td>Dense component data and scheduled systems</td><td><code>Component</code>, <code>SchedulePhase</code></td></tr>
+      <tr><td>Renderer</td><td>Optional copied transform data and GPU presentation</td><td><code>CubeRenderer</code></td></tr>
+    </tbody></table>
+    <div class="page-nav"><a href="index.html"><small>Previous</small>← Introduction</a><a href="hello-world.html"><small>Next</small>Hello World →</a></div>
+    <footer>Emergent user guide · Current engine version 0.6.0</footer>
+  </main></div>
+  <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
+</body></html>

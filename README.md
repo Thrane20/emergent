@@ -41,6 +41,16 @@ cargo clippy --all-targets --all-features -- -D warnings
 
 Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`.
 
+## User guide
+
+The HTML user guide lives under `docs/docs`. Serve it locally from the repository root:
+
+```sh
+python3 -m http.server 8000 --directory docs/docs
+```
+
+Then open [http://localhost:8000](http://localhost:8000). It includes the current feature overview, setup instructions, a compiled Hello World example, searchable navigation, and a curated library/API reference.
+
 Run the transform propagation baseline with:
 
 ```sh

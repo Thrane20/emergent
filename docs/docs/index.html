@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en" data-root=".">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Emergent game engine guide and current feature overview.">
+  <title>Emergent Guide — Introduction</title>
+  <link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar">
+    <button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button>
+    <a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a>
+    <span class="version-pill">v0.6.0</span><span class="topbar-spacer"></span>
+    <button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button>
+  </header>
+  <aside class="sidebar" aria-label="Guide navigation">
+    <div class="nav-label">Start here</div>
+    <a class="nav-link" aria-current="page" href="index.html"><span class="nav-icon">◇</span>Introduction</a>
+    <a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a>
+    <a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a>
+    <div class="nav-label">Reference</div>
+    <a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a>
+    <a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a>
+    <a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a>
+    <a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
+    <p class="sidebar-note">Documents the checked-in public API. Preview features are labelled explicitly.</p>
+  </aside>
+  <div class="layout">
+    <main class="content" id="main">
+      <div class="breadcrumbs"><span>Guide</span><span>Introduction</span></div>
+      <p class="eyebrow">Build from entities. Compose behaviour.</p>
+      <h1>A small engine with explicit foundations.</h1>
+      <p class="lede">Emergent is a Rust game engine built around SlotMap identity, entity hierarchies, fixed simulation, typed behaviour links, and an optional <code>wgpu</code> renderer. This guide shows what exists today and how to use it.</p>
+      <div class="hero-actions"><a class="button primary" href="getting-started.html">Get started →</a><a class="button" href="api.html">Browse the API</a></div>
+
+      <h2 id="available">Available now</h2>
+      <p>These capabilities are implemented and covered by the current validation suite.</p>
+      <div class="feature-grid">
+        <article class="card"><span class="status available">Available</span><h3>Fixed-step runtime</h3><p>Wall-clock and exact-tick execution, bounded catch-up, callbacks, and Bevy schedule phases.</p></article>
+        <article class="card"><span class="status available">Available</span><h3>Entity hierarchy</h3><p>World-scoped generational IDs, parent/child composition, reparenting, and iterative subtree removal.</p></article>
+        <article class="card"><span class="status available">Available</span><h3>3D transforms</h3><p>Translation, quaternion rotation, scale, dirty tracking, and cached global transform propagation.</p></article>
+        <article class="card"><span class="status available">Available</span><h3>Behaviour graph</h3><p>Typed links, committed snapshots, feedback safety, lifecycle handling, and three built-in behaviours.</p></article>
+        <article class="card"><span class="status available">Available</span><h3>ECS integration</h3><p>Standalone <code>bevy_ecs</code> components, resources, systems, schedules, and guarded entity lifecycle queues.</p></article>
+        <article class="card"><span class="status preview">Preview</span><h3>Native graphics</h3><p>Opt-in <code>winit</code> and <code>wgpu</code> window, indexed cube, depth buffer, resize, and Metal smoke coverage.</p></article>
+      </div>
+
+      <h2 id="architecture">How the pieces fit</h2>
+      <p>Identity and ownership stay in the SlotMap world. Dense component work stays in Bevy ECS. Rendering consumes copied values after simulation, so GPU resources never become entity identity.</p>
+      <div class="architecture" role="img" aria-label="Emergent architecture layers">
+        <div class="architecture-row"><strong>Game</strong><span>Your <code>Game</code> callbacks, components, systems, scenes, and behaviour composition.</span></div>
+        <div class="architecture-row"><strong>Simulation</strong><span>Fixed ticks, behaviour snapshots, lifecycle commit, and transform propagation.</span></div>
+        <div class="architecture-row"><strong>World</strong><span>SlotMap entity and behaviour identity, hierarchy ownership, plus Bevy component storage.</span></div>
+        <div class="architecture-row"><strong>Platform</strong><span>Optional <code>winit</code> events and <code>wgpu</code> presentation fed by copied render data.</span></div>
+      </div>
+      <div class="callout"><strong>Canonical identity:</strong> use <code>EntityId</code> and <code>BehaviorId</code> while objects are alive. SlotMap keys are runtime handles and are not durable save-file or network identifiers.</div>
+
+      <h2 id="status">Feature horizon</h2>
+      <div class="quick-grid">
+        <article class="card"><span class="status preview">Next layers</span><h3>Visible scenes</h3><p>Multiple objects, cameras as entities, mesh/material resources, visibility, extraction, and batching.</p></article>
+        <article class="card"><span class="status planned">Planned</span><h3>Game projects</h3><p>Asset folders, authored scenes, durable IDs, project-defined behaviours, and multi-platform outputs.</p></article>
+        <article class="card"><span class="status planned">Planned</span><h3>Project mode</h3><p>Paused world inspection, procedural construction preview, selection, diagnostics, and tick stepping.</p></article>
+      </div>
+
+      <div class="page-nav"><span></span><a href="getting-started.html"><small>Next</small>Getting started →</a></div>
+      <footer>Emergent user guide · Current engine version 0.6.0</footer>
+    </main>
+  </div>
+  <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog>
+  <script src="assets/guide.js"></script>
+</body>
+</html>

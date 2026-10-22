@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en" data-root=".">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Emergent library and public API guide.">
+  <title>Emergent Guide — Library and API</title><link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.6.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <aside class="sidebar" aria-label="Guide navigation">
+    <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a>
+    <div class="nav-label">Reference</div><a class="nav-link" aria-current="page" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="#graphics"><span class="nav-icon">△</span>Graphics</a>
+    <p class="sidebar-note">Signatures are curated from the public exports in the current source tree.</p>
+  </aside>
+  <div class="layout"><main class="content" id="main">
+    <div class="breadcrumbs"><span>Reference</span><span>Library and API</span></div>
+    <p class="eyebrow">Public surface · v0.6.0</p><h1>Library and API.</h1>
+    <p class="lede">A practical map of the functions and types available to a game today. Expand a method for its purpose and contract.</p>
+    <div class="callout warning"><strong>Foundation API:</strong> Emergent is evolving quickly. This guide records the checked-in 0.6.0 API; it does not promise long-term semantic version stability yet.</div>
+
+    <h2 id="engine">Engine lifecycle</h2>
+    <div class="type-grid">
+      <article class="type-card"><h3><code>Engine</code></h3><p>Owns the world, schedules, tick counter, fixed-step accumulator, and exit state.</p></article>
+      <article class="type-card"><h3><code>Game</code></h3><p>Lifecycle trait with <code>start</code>, required <code>fixed_update</code>, <code>after_fixed_update</code>, and <code>stop</code>.</p></article>
+      <article class="type-card"><h3><code>EngineConfig</code></h3><p>Configures fixed timestep, maximum frame delta, catch-up step limit, and idle sleep.</p></article>
+      <article class="type-card"><h3><code>EngineContext</code></h3><p>Provides mutable world access, current tick, fixed delta, and exit control during callbacks.</p></article>
+    </div>
+    <div class="api-group">
+      <details class="api-item" open><summary><code>Engine::new</code><span>Create an empty engine</span></summary><div class="api-detail"><code class="signature">pub fn new(config: EngineConfig) -&gt; Result&lt;Self, EngineError&gt;</code><p>Rejects a zero fixed timestep or zero catch-up limit.</p></div></details>
+      <details class="api-item"><summary><code>Engine::run</code><span>Run against wall-clock time</span></summary><div class="api-detail"><code class="signature">pub fn run&lt;G: Game&gt;(&amp;mut self, game: &amp;mut G) -&gt; Result&lt;(), EngineError&gt;</code><p>Starts the game, advances bounded fixed steps until exit is requested, sleeps briefly between steps, then calls <code>stop</code>.</p></div></details>
+      <details class="api-item"><summary><code>Engine::run_ticks</code><span>Advance exact headless ticks</span></summary><div class="api-detail"><code class="signature">pub fn run_ticks&lt;G: Game&gt;(&amp;mut self, game: &amp;mut G, ticks: u64) -&gt; Result&lt;(), EngineError&gt;</code><p>Does not sleep or read the clock. Useful for tests, tools, replay, and deterministic headless execution.</p></div></details>
+      <details class="api-item"><summary><code>Engine::start / advance_frame / stop</code><span>Integrate an external platform loop</span></summary><div class="api-detail"><code class="signature">start(&amp;mut self, game) · advance_frame(&amp;mut self, game, elapsed) · stop(&amp;mut self, game)</code><p><code>advance_frame</code> returns <code>FrameAdvance { fixed_steps, catch_up_limited }</code>. The visible window example uses this API.</p></div></details>
+      <details class="api-item"><summary><code>Engine::world / world_mut</code><span>Access the authoritative world</span></summary><div class="api-detail"><code class="signature">pub fn world(&amp;self) -&gt; &amp;World<br>pub fn world_mut(&amp;mut self) -&gt; &amp;mut World</code></div></details>
+      <details class="api-item"><summary><code>Engine::schedule_mut</code><span>Register Bevy systems</span></summary><div class="api-detail"><code class="signature">pub fn schedule_mut(&amp;mut self, phase: SchedulePhase) -&gt; &amp;mut Schedule</code><p>Phases are <code>PreFixed</code>, <code>Fixed</code>, and <code>PostFixed</code>.</p></div></details>
+    </div>
+
+    <h2 id="world">World and entities</h2>
+    <p><code>World</code> owns canonical SlotMap entity and behaviour storage plus private Bevy ECS component storage. <code>EntityId</code> is world-scoped and generational.</p>
+    <div class="api-group">
+      <details class="api-item" open><summary><code>World::new / with_capacity</code><span>Create canonical storage</span></summary><div class="api-detail"><code class="signature">pub fn new() -&gt; Self<br>pub fn with_capacity(capacity: usize) -&gt; Self</code><p>Reserve when expected entity count is known to reduce setup reallocations.</p></div></details>
+      <details class="api-item"><summary><code>World::spawn</code><span>Create a root entity</span></summary><div class="api-detail"><code class="signature">pub fn spawn(&amp;mut self, name: impl Into&lt;String&gt;) -&gt; EntityId</code></div></details>
+      <details class="api-item"><summary><code>World::spawn_child</code><span>Create and parent an entity</span></summary><div class="api-detail"><code class="signature">pub fn spawn_child(&amp;mut self, parent: EntityId, name: impl Into&lt;String&gt;) -&gt; Result&lt;EntityId, WorldError&gt;</code></div></details>
+      <details class="api-item"><summary><code>World::get / parent / children</code><span>Inspect hierarchy</span></summary><div class="api-detail"><code class="signature">get(id) -&gt; Result&lt;&amp;Entity, WorldError&gt;<br>parent(id) -&gt; Result&lt;Option&lt;EntityId&gt;, WorldError&gt;<br>children(id) -&gt; Result&lt;Vec&lt;EntityId&gt;, WorldError&gt;</code><p><code>Entity::name</code> returns the diagnostic name. The children vector is a copied snapshot.</p></div></details>
+      <details class="api-item"><summary><code>World::reparent</code><span>Move a subtree</span></summary><div class="api-detail"><code class="signature">pub fn reparent(&amp;mut self, entity: EntityId, new_parent: Option&lt;EntityId&gt;) -&gt; Result&lt;(), WorldError&gt;</code><p>Retains local transform, rejects hierarchy cycles and cross-world handles, then dirties the moved subtree.</p></div></details>
+      <details class="api-item"><summary><code>World::remove_subtree</code><span>Delete owned descendants</span></summary><div class="api-detail"><code class="signature">pub fn remove_subtree(&amp;mut self, root: EntityId) -&gt; Result&lt;usize, WorldError&gt;</code><p>Iteratively removes the root, descendants, their ECS mappings, and owned behaviours. Stale handles do not alias replacement objects.</p></div></details>
+      <details class="api-item"><summary><code>World::len / is_empty</code><span>Count live entities</span></summary><div class="api-detail"><code class="signature">pub fn len(&amp;self) -&gt; usize · pub fn is_empty(&amp;self) -&gt; bool</code></div></details>
+    </div>
+
+    <h2 id="transforms">Transforms</h2>
+    <p><code>Transform</code> stores local translation, quaternion rotation, and scale. <code>GlobalTransform</code> stores the propagated affine result.</p>
+    <div class="api-group">
+      <details class="api-item" open><summary><code>Transform</code><span>Construct local transforms</span></summary><div class="api-detail"><code class="signature">Transform::new(translation, rotation, scale)<br>Transform::from_translation(value)<br>Transform::from_rotation(value)<br>Transform::from_scale(value)</code><p>Inputs must be finite; rotation must be normalized and scale must be non-zero.</p></div></details>
+      <details class="api-item"><summary><code>World::set_local_transform</code><span>Update and dirty a subtree</span></summary><div class="api-detail"><code class="signature">pub fn set_local_transform(&amp;mut self, id: EntityId, transform: Transform) -&gt; Result&lt;(), WorldError&gt;</code></div></details>
+      <details class="api-item"><summary><code>World::local_transform / global_transform</code><span>Read transform state</span></summary><div class="api-detail"><code class="signature">local_transform(id) -&gt; Result&lt;&amp;Transform, WorldError&gt;<br>global_transform(id) -&gt; Result&lt;&amp;GlobalTransform, WorldError&gt;</code><p><code>GlobalTransform</code> provides <code>translation</code>, <code>transform_point</code>, and <code>matrix</code>.</p></div></details>
+      <details class="api-item"><summary><code>World::propagate_transforms</code><span>Commit global transforms</span></summary><div class="api-detail"><code class="signature">pub fn propagate_transforms(&amp;mut self) -&gt; PropagationStats</code><p>The normal engine tick invokes propagation automatically. Manual worlds can call it explicitly.</p></div></details>
+    </div>
+
+    <h2 id="behaviours">Behaviour composition</h2>
+    <p>Behaviours are SlotMap-owned nodes linked through typed ports. Evaluation reads the previous committed snapshot, stages outputs and transform writes, then commits together.</p>
+    <table><thead><tr><th>Built-in</th><th>Input</th><th>Output</th><th>Unavailable input</th></tr></thead><tbody>
+      <tr><td><code>linear_motion</code></td><td>None</td><td><code>position: Vec3</code></td><td>Not applicable</td></tr>
+      <tr><td><code>follow_position</code></td><td><code>target: Vec3</code></td><td><code>position: Vec3</code></td><td>Suspend and retain output</td></tr>
+      <tr><td><code>add_scalar</code></td><td><code>value: f32</code></td><td><code>value: f32</code></td><td>Use configured default</td></tr>
+    </tbody></table>
+    <div class="api-group">
+      <details class="api-item" open><summary><code>World::add_behavior</code><span>Attach a built-in behaviour</span></summary><div class="api-detail"><code class="signature">pub fn add_behavior(&amp;mut self, owner: EntityId, spec: BehaviorSpec) -&gt; Result&lt;BehaviorId, BehaviorError&gt;</code><p>An entity may own multiple behaviours, with at most one enabled transform writer in the current graph.</p></div></details>
+      <details class="api-item"><summary><code>World::connect_behaviors</code><span>Create or replace a typed link</span></summary><div class="api-detail"><code class="signature">pub fn connect_behaviors(&amp;mut self, source: BehaviorId, output: PortId, target: BehaviorId, input: PortId) -&gt; Result&lt;(), BehaviorError&gt;</code><p>Use constants from <code>behavior_ports</code>: <code>POSITION</code>, <code>TARGET</code>, and <code>VALUE</code>.</p></div></details>
+      <details class="api-item"><summary><code>World::disconnect_behavior_input</code><span>Remove a target link</span></summary><div class="api-detail"><code class="signature">pub fn disconnect_behavior_input(&amp;mut self, target: BehaviorId, input: PortId) -&gt; Result&lt;(), BehaviorError&gt;</code></div></details>
+      <details class="api-item"><summary><code>World::set_behavior_enabled</code><span>Enable or disable evaluation</span></summary><div class="api-detail"><code class="signature">pub fn set_behavior_enabled(&amp;mut self, behavior: BehaviorId, enabled: bool) -&gt; Result&lt;(), BehaviorError&gt;</code><p>A disabled behaviour retains its output but is unavailable as a link source.</p></div></details>
+      <details class="api-item"><summary><code>World::behavior_output / state / owner</code><span>Inspect a graph node</span></summary><div class="api-detail"><code class="signature">behavior_output(id) -&gt; Result&lt;BehaviorValue, BehaviorError&gt;<br>behavior_state(id) -&gt; Result&lt;BehaviorRunState, BehaviorError&gt;<br>behavior_owner(id) -&gt; Result&lt;EntityId, BehaviorError&gt;</code><p>Run states are <code>Ready</code>, <code>Suspended</code>, <code>Defaulted</code>, and <code>Disabled</code>.</p></div></details>
+      <details class="api-item"><summary><code>World::remove_behavior</code><span>Delete a behaviour node</span></summary><div class="api-detail"><code class="signature">pub fn remove_behavior(&amp;mut self, behavior: BehaviorId) -&gt; Result&lt;(), BehaviorError&gt;</code></div></details>
+    </div>
+
+    <h2 id="ecs">Components, resources, and schedules</h2>
+    <p>Emergent re-exports <code>bevy_ecs</code> and its <code>Component</code> derive. Canonical entity lifecycle remains controlled by <code>World</code>.</p>
+    <div class="api-group">
+      <details class="api-item" open><summary><code>World::insert_component / component / component_mut</code><span>Access game components</span></summary><div class="api-detail"><code class="signature">insert_component&lt;T: Component&gt;(id, value)<br>component&lt;T: Component&gt;(id)<br>component_mut&lt;T: Component&gt;(id)</code><p>The internal Bevy entity is never exposed. <code>EntityIdentity</code> is protected engine state.</p></div></details>
+      <details class="api-item"><summary><code>World::insert_resource / resource / resource_mut</code><span>Access Bevy resources</span></summary><div class="api-detail"><code class="signature">insert_resource&lt;R: Resource&gt;(value) · resource&lt;R&gt;() · resource_mut&lt;R&gt;()</code></div></details>
+      <details class="api-item"><summary><code>EntityLifecycleQueue</code><span>Request structure changes from systems</span></summary><div class="api-detail"><p>Scheduled systems call <code>spawn</code>, <code>spawn_child</code>, or <code>remove_subtree</code> on the queue. Results appear in order through <code>EntityLifecycleResults</code> after commit.</p></div></details>
+    </div>
+
+    <h2 id="graphics">Graphics preview</h2>
+    <p>Available only with <code>features = ["graphics"]</code>. The current renderer is a bounded foundation, not yet a general mesh/material API.</p>
+    <div class="api-group">
+      <details class="api-item" open><summary><code>CubeRenderer::new</code><span>Initialize wgpu for a window</span></summary><div class="api-detail"><code class="signature">pub async fn new(window: Arc&lt;Window&gt;, display: OwnedDisplayHandle) -&gt; Result&lt;Self, GraphicsError&gt;</code><p>Selects a surface-compatible adapter, creates device resources, an indexed cube pipeline, uniform buffer, and depth target.</p></div></details>
+      <details class="api-item"><summary><code>CubeRenderer::render</code><span>Present one copied model matrix</span></summary><div class="api-detail"><code class="signature">pub fn render(&amp;mut self, model: Mat4) -&gt; Result&lt;RenderOutcome, GraphicsError&gt;</code><p>Outcomes are <code>Presented</code>, <code>Reconfigured</code>, or <code>Skipped</code>.</p></div></details>
+      <details class="api-item"><summary><code>CubeRenderer::resize</code><span>Reconfigure surface-dependent resources</span></summary><div class="api-detail"><code class="signature">pub fn resize(&amp;mut self, size: PhysicalSize&lt;u32&gt;)</code><p>Zero-sized surfaces are ignored. Non-zero changes recreate the depth target.</p></div></details>
+      <details class="api-item"><summary><code>CubeRenderer::info</code><span>Report selected graphics path</span></summary><div class="api-detail"><code class="signature">pub fn info(&amp;self) -&gt; &amp;RendererInfo</code><p>Exposes adapter name, backend, and surface format for diagnostics.</p></div></details>
+    </div>
+
+    <h2 id="errors">Error types</h2>
+    <table><thead><tr><th>Type</th><th>Boundary</th><th>Examples</th></tr></thead><tbody>
+      <tr><td><code>EngineError</code></td><td>Runtime lifecycle</td><td>Invalid timing, already/not started, world integrity</td></tr>
+      <tr><td><code>WorldError</code></td><td>Entity, hierarchy, transform, ECS</td><td>Wrong world, stale entity, cycles, invalid transform</td></tr>
+      <tr><td><code>BehaviorError</code></td><td>Behaviour graph</td><td>Missing node, wrong port/type, transform-writer conflict</td></tr>
+      <tr><td><code>GraphicsError</code></td><td>Optional renderer</td><td>Adapter/device/surface creation or validation</td></tr>
+    </tbody></table>
+
+    <div class="page-nav"><a href="hello-world.html"><small>Previous</small>← Hello World</a><a href="index.html"><small>Guide home</small>Introduction →</a></div>
+    <footer>Emergent user guide · Current engine version 0.6.0</footer>
+  </main></div>
+  <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
+</body></html>
