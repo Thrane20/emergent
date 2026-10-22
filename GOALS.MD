@@ -1,6 +1,6 @@
 # Emergent — Foundation Goals
 
-Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph in `ITERATION_2.md`, ECS comparison in `ITERATION_3.md`, and production ECS integration in `ITERATION_4.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. Broader staged acceptance gates remain open.
+Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph, ECS selection and integration, behaviour graph, first wgpu object, and independent project boundary through `ITERATION_7.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. The capability catalogue now records the wider graphics, audio, simulation, content, and tooling horizon. Broader staged acceptance gates remain open.
 
 ## Vision
 
@@ -89,6 +89,38 @@ Continue measuring release-build query/update throughput, hierarchy propagation,
 - Start with a simple deterministic schedule. Same-tick dependency evaluation, graph compilation, scripting, and parallel execution require later evidence and explicit semantics.
 
 The first emergence example should compose several moving entities into a linked chain: a leader generates a target, followers consume other behaviours' committed positions, and child markers inherit their owners' transforms. Rewiring links changes the group motion without rewriting each follower. Include a bounded feedback example to prove cycles advance across ticks safely. This demonstrates composition and interaction; sophisticated autonomous behaviour is a later goal.
+
+## Engine capability catalogue
+
+Treat the major facilities expected of a game engine as first-class capability families, even before they have runtime implementations. The canonical, machine-readable catalogue is `docs/capabilities/engine-capabilities.toml`; the user guide presents the same roadmap by category. Every capability has a stable ID, owning module, delivery status, dependencies, and a concise contract. Status is one of `available`, `preview`, or `planned`; a planned entry must never be presented as a callable API.
+
+The catalogue guides module boundaries, project manifests, asset folders, type registration, documentation, and AI coding generators. Capability IDs describe engine concepts and may later appear in registries or target requirements, but they are not Rust type names, serialized SlotMap keys, or a promise that the final public API will use the current wording. Update the catalogue when an implementation lands, and link its status change to validation evidence.
+
+| Family | First-class scope |
+| --- | --- |
+| Render foundation | Windows and surfaces, adapters/devices, cameras, viewports, render extraction, render passes, visibility, culling, batching, and presentation |
+| Vector and debug geometry | Points/dots, line segments, polylines, polygons, grids, axes, bounds, gizmos, and selectable debug overlays |
+| Procedural primitives | Quads and planes, boxes/cubes, spheres, capsules, cylinders, cones, pyramids, toruses, and configurable primitive mesh generation |
+| Meshes and models | Vertex/index data, attributes, submeshes, bounds, mesh handles, model instances, level of detail, skinning data, and import-ready formats |
+| Terrain and procedural generation | Heightmap terrain, polygonal terrain, chunking, terrain level of detail, seeded Perlin/Simplex/value/Worley noise, fractal combinations, domain warping, and deterministic generation inputs |
+| Materials and textures | Shaders, materials, textures, samplers, colour spaces, normal/PBR maps, render states, and reusable GPU resource handles |
+| Lighting and shadows | Ambient, directional, point, spot, area, and environment lighting; shadow maps, cascades, point-light shadows, filtering, and explicit quality budgets |
+| Particles and effects | CPU and GPU emitters, spawn shapes, lifetime/curve data, billboards, mesh particles, trails, collision hooks, pooling, and deterministic seeds where required |
+| Animation | Skeletal clips, state machines and blending, morph targets, procedural animation, timelines, and root-motion contracts |
+| Image and post processing | HDR, exposure and tone mapping, anti-aliasing, fog, bloom, colour grading, depth effects, screen-space passes, and render-to-texture |
+| 2D and text | Sprites, atlases, tilemaps, 2D cameras, vector shapes, fonts, text layout, and world-space or screen-space text |
+| Audio | Output devices, clips and streaming, mixer buses, spatial sources/listeners, attenuation, Doppler, effects, music transitions, and bounded voice management |
+| Input | Keyboard, pointer, gamepad/joystick, touch, action mapping, rebinding, dead zones, focus, and deterministic input snapshots for fixed simulation |
+| Physics and navigation | Collision shapes and queries, rigid bodies, joints, character controllers, triggers, navmeshes, pathfinding, steering, and spatial queries |
+| UI and interaction | Retained UI hierarchy, layout, styling, widgets, HUDs, focus/navigation, accessibility hooks, picking, and project-mode inspectors |
+| Assets and authored worlds | Import, metadata, dependency tracking, caching, hot reload, scenes, reusable entities, durable IDs, validation, and platform variants |
+| Game services | Save data, localization, replay, deterministic recording, networking, replication, and platform service boundaries |
+| Tools and diagnostics | Structured logging, metrics, CPU/GPU profiling, frame capture hooks, graph inspection, debug drawing, console commands, build diagnostics, and project mode |
+| Platform and delivery | Windows/Linux/macOS adapters, output selection, packaging, capability checks, target-specific settings, and native validation |
+
+SlotMap handles remain canonical runtime identity across these families. Subsystems such as rendering, audio, physics, navigation, and assets own their resource stores and expose typed handles; entities refer to those handles through components or behaviours. Dense GPU, audio, physics, or particle work may use packed subsystem storage and internal indices, with explicit mapping back to canonical engine identity where identity is needed. Durable project assets use stable authored IDs and resolve to fresh runtime handles during loading.
+
+Keep expensive import, shader compilation, mesh processing, terrain baking, audio decoding preparation, and dependency analysis away from frame-critical paths. Runtime facilities define budgets and degradation rules for lights, shadows, particles, audio voices, streaming, and procedural work before claiming production readiness. Seeded generation must record the algorithm/version and parameters when reproducibility matters; the word “Perlin” or “random” alone is not a reproducibility contract.
 
 ### Game loop
 
@@ -295,7 +327,7 @@ Exit: behaviour changes arise from composition and links; equivalent runs with t
 
 ### Stage 2A — Game project and authoring foundation
 
-- [ ] Supply an independent game project template using only public engine APIs, with project guidance for AI generators.
+- [x] Supply an independent game project template using only public engine APIs, with project guidance for AI generators.
 - [ ] Implement minimum scene and reusable-composition loading, durable-ID resolution, type registration, and schema/graph validation.
 - [ ] Provide structured registry and graph exports plus actionable validation diagnostics.
 - [ ] Add manifest-driven output selection and build planning for Windows, Linux, and macOS, with isolated artifacts and explicit per-output prerequisite and result reporting.
@@ -315,6 +347,19 @@ Exit: a developer or AI generator can extend, validate, build, and run a headles
 - [ ] Verify native launch, resize, minimize/restore, presentation, asset loading, and clean shutdown on Windows, Linux, and macOS; record results per output.
 
 Exit: the same simulation drives both headless and visible examples; platform/runtime evidence is recorded. No rich asset pipeline is required.
+
+### Stage 3B — Render and media building blocks
+
+- [ ] Promote cameras and renderable mesh/material instances to public, SlotMap-compatible engine concepts with explicit render extraction.
+- [ ] Add points, lines, polylines, polygons, debug grids, and the initial procedural primitive set: plane, cube, sphere, cylinder, cone, pyramid, capsule, and torus.
+- [ ] Add mesh and texture resource ownership, material/shader contracts, visibility, culling, batching, and measured GPU upload rules.
+- [ ] Add seeded noise generators plus bounded heightmap and polygonal terrain examples with chunk and level-of-detail contracts.
+- [ ] Add ambient, directional, point, and spot lights followed by explicitly budgeted shadow techniques.
+- [ ] Add a bounded particle system with pooled CPU emitters first and a measured GPU path when workload evidence justifies it.
+- [ ] Establish the audio device, clip/stream, mixer-bus, and spatial source/listener boundaries without coupling audio identity to entities.
+- [ ] Publish asset formats and project folders for meshes, textures, terrain data, shaders, particles, and audio as each capability becomes available.
+
+Exit: a game project can assemble a small lit scene from procedural and asset-backed geometry, terrain, particles, and spatial sound through public engine APIs. Each shipped capability has explicit ownership, loading, performance, and platform validation evidence.
 
 ### Stage 3A — Visual project mode and game debugging
 
@@ -340,7 +385,7 @@ Exit: a small working foundation with recorded limits and a clear next-feature b
 
 ## Explicitly deferred
 
-Joystick/gamepad support and input mapping; rich 3D meshes and materials; rich media importing and streaming; sound and spatial audio; physics; animation; a full visual editor and terrain sculpting suite; runtime scripting; networking; runtime save-game/world-state serialization; time-travel debugging; seamless Rust code hot-reload; and dynamic plugins.
+The capability catalogue makes future systems first-class planning concepts without moving them into the current implementation milestone. Joystick/gamepad support and input mapping; rich 3D meshes and materials; rich media importing and streaming; production sound and spatial audio; physics; animation; a full visual editor and terrain sculpting suite; runtime scripting; networking; runtime save-game/world-state serialization; time-travel debugging; seamless Rust code hot-reload; and dynamic plugins remain deferred until their staged work begins.
 
 These inform module boundaries but are not tasks for the first foundation milestone. Basic platform event handling and minimal 3D debug geometry prove the runtime and renderer. Project folders, authored scene/composition files, asset reference resolution, custom Rust behaviours, and AI-facing graph contracts are included in the foundation. A bounded visual project mode, procedural terrain demonstration, placement authoring, and build/run/debug workflow are included in Stage 3A; advanced editor features remain deferred.
 

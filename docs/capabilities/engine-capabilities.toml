@@ -1,0 +1,376 @@
+schema_version = 1
+engine_version = "0.7.0"
+status_values = ["available", "preview", "planned"]
+
+# This is a planning and discovery contract. Only `available` entries are stable
+# enough to depend on; `preview` entries are usable experiments; `planned`
+# entries name intended engine responsibilities without claiming an API exists.
+
+[[capabilities]]
+id = "runtime.fixed-step"
+category = "runtime"
+name = "Fixed-step runtime"
+status = "available"
+owner = "runtime"
+depends_on = []
+summary = "Bounded wall-clock catch-up and exact headless tick execution."
+
+[[capabilities]]
+id = "world.entity-hierarchy"
+category = "world"
+name = "Entity hierarchy"
+status = "available"
+owner = "world"
+depends_on = []
+summary = "SlotMap-owned entity identity, parent/child composition, and scene roots."
+
+[[capabilities]]
+id = "world.transforms-3d"
+category = "world"
+name = "3D transforms"
+status = "available"
+owner = "world"
+depends_on = ["world.entity-hierarchy"]
+summary = "Local and propagated global translation, rotation, and scale."
+
+[[capabilities]]
+id = "behavior.typed-graph"
+category = "behavior"
+name = "Typed behaviour graph"
+status = "available"
+owner = "behavior"
+depends_on = ["world.entity-hierarchy", "runtime.fixed-step"]
+summary = "SlotMap behaviour identity, typed links, and committed tick snapshots."
+
+[[capabilities]]
+id = "ecs.schedules"
+category = "runtime"
+name = "ECS components and schedules"
+status = "available"
+owner = "ecs"
+depends_on = ["world.entity-hierarchy", "runtime.fixed-step"]
+summary = "Bevy ECS component storage and fixed schedule phases behind Emergent identity."
+
+[[capabilities]]
+id = "project.manifest"
+category = "assets"
+name = "Game project manifest"
+status = "available"
+owner = "project"
+depends_on = []
+summary = "Versioned project metadata, asset roots, and selected OS output declarations."
+
+[[capabilities]]
+id = "render.native-surface"
+category = "render-foundation"
+name = "Native window and GPU surface"
+status = "preview"
+owner = "render"
+depends_on = ["runtime.fixed-step"]
+summary = "Optional winit window, wgpu device/surface, resize handling, and presentation."
+
+[[capabilities]]
+id = "render.depth-geometry"
+category = "render-foundation"
+name = "Depth-tested indexed geometry"
+status = "preview"
+owner = "render"
+depends_on = ["render.native-surface", "world.transforms-3d"]
+summary = "One indexed cube rendered from copied simulation transform data."
+
+[[capabilities]]
+id = "render.cameras"
+category = "render-foundation"
+name = "Cameras and viewports"
+status = "planned"
+owner = "render"
+depends_on = ["render.native-surface", "world.transforms-3d"]
+summary = "Entity-linked cameras, projections, viewports, layers, and render targets."
+
+[[capabilities]]
+id = "render.extraction"
+category = "render-foundation"
+name = "Render extraction and passes"
+status = "planned"
+owner = "render"
+depends_on = ["render.cameras", "ecs.schedules"]
+summary = "Read-only world extraction, visibility, culling, batching, and ordered passes."
+
+[[capabilities]]
+id = "geometry.vector"
+category = "geometry"
+name = "Points, lines, and polygons"
+status = "planned"
+owner = "render"
+depends_on = ["render.cameras"]
+summary = "Dots, segments, polylines, polygons, grids, axes, bounds, and debug gizmos."
+
+[[capabilities]]
+id = "geometry.primitives"
+category = "geometry"
+name = "Procedural 3D primitives"
+status = "planned"
+owner = "geometry"
+depends_on = ["geometry.meshes"]
+summary = "Planes, cubes, spheres, capsules, cylinders, cones, pyramids, and toruses."
+
+[[capabilities]]
+id = "geometry.meshes"
+category = "geometry"
+name = "Meshes and model instances"
+status = "planned"
+owner = "render"
+depends_on = ["render.extraction"]
+summary = "Vertex/index attributes, submeshes, bounds, instances, and level of detail."
+
+[[capabilities]]
+id = "terrain.heightmap"
+category = "terrain"
+name = "Heightmap terrain"
+status = "planned"
+owner = "terrain"
+depends_on = ["geometry.meshes", "procedural.noise"]
+summary = "Bounded height fields, chunks, queries, collision handoff, and level of detail."
+
+[[capabilities]]
+id = "terrain.polygonal"
+category = "terrain"
+name = "Polygonal terrain"
+status = "planned"
+owner = "terrain"
+depends_on = ["geometry.meshes", "procedural.noise"]
+summary = "Arbitrary generated terrain surfaces with chunk and topology contracts."
+
+[[capabilities]]
+id = "procedural.noise"
+category = "terrain"
+name = "Seeded noise generators"
+status = "planned"
+owner = "procedural"
+depends_on = []
+summary = "Versioned Perlin, Simplex, value, and Worley noise with fractal and warp composition."
+
+[[capabilities]]
+id = "material.resources"
+category = "materials"
+name = "Materials and shaders"
+status = "planned"
+owner = "render"
+depends_on = ["geometry.meshes"]
+summary = "Reusable material handles, shader contracts, parameters, and render state."
+
+[[capabilities]]
+id = "texture.resources"
+category = "materials"
+name = "Textures and samplers"
+status = "planned"
+owner = "render"
+depends_on = ["render.native-surface"]
+summary = "Colour, data, normal, environment, and render-target textures with sampler state."
+
+[[capabilities]]
+id = "lighting.sources"
+category = "lighting"
+name = "Light sources"
+status = "planned"
+owner = "render"
+depends_on = ["material.resources", "render.extraction"]
+summary = "Ambient, directional, point, spot, area, and environment lighting."
+
+[[capabilities]]
+id = "lighting.shadows"
+category = "lighting"
+name = "Shadows"
+status = "planned"
+owner = "render"
+depends_on = ["lighting.sources", "render.extraction"]
+summary = "Budgeted directional cascades, point-light maps, filtering, and shadow culling."
+
+[[capabilities]]
+id = "effects.particles"
+category = "effects"
+name = "Particle systems"
+status = "planned"
+owner = "effects"
+depends_on = ["render.extraction", "material.resources"]
+summary = "Pooled CPU and GPU emitters, spawn shapes, curves, billboards, meshes, and trails."
+
+[[capabilities]]
+id = "animation.skeletal"
+category = "animation"
+name = "Skeletal animation"
+status = "planned"
+owner = "animation"
+depends_on = ["geometry.meshes", "runtime.fixed-step"]
+summary = "Skeletons, clips, blending, state machines, skinning, and root motion."
+
+[[capabilities]]
+id = "animation.shape-procedural"
+category = "animation"
+name = "Shape and procedural animation"
+status = "planned"
+owner = "animation"
+depends_on = ["geometry.meshes", "runtime.fixed-step"]
+summary = "Morph targets, timelines, curves, and procedural pose generation."
+
+[[capabilities]]
+id = "render.post-processing"
+category = "effects"
+name = "Post processing"
+status = "planned"
+owner = "render"
+depends_on = ["render.extraction", "texture.resources"]
+summary = "HDR, exposure, tone mapping, anti-aliasing, fog, bloom, and colour grading."
+
+[[capabilities]]
+id = "render.2d"
+category = "2d-text"
+name = "Sprites and tilemaps"
+status = "planned"
+owner = "render"
+depends_on = ["render.cameras", "texture.resources"]
+summary = "Sprite atlases, layers, tilemaps, and 2D camera conventions."
+
+[[capabilities]]
+id = "render.text"
+category = "2d-text"
+name = "Fonts and text"
+status = "planned"
+owner = "render"
+depends_on = ["render.2d"]
+summary = "Font assets, shaping, layout, and screen-space or world-space text."
+
+[[capabilities]]
+id = "audio.mixer"
+category = "audio"
+name = "Audio devices and mixer"
+status = "planned"
+owner = "audio"
+depends_on = []
+summary = "Output devices, mixer buses, volume policy, effects sends, and bounded voices."
+
+[[capabilities]]
+id = "audio.clips-streams"
+category = "audio"
+name = "Audio clips and streams"
+status = "planned"
+owner = "audio"
+depends_on = ["audio.mixer", "assets.pipeline"]
+summary = "Decoded clips, streamed music, playback handles, looping, and transitions."
+
+[[capabilities]]
+id = "audio.spatial"
+category = "audio"
+name = "Spatial audio"
+status = "planned"
+owner = "audio"
+depends_on = ["audio.mixer", "world.transforms-3d"]
+summary = "Sources, listeners, attenuation, panning, Doppler, and occlusion hooks."
+
+[[capabilities]]
+id = "input.actions"
+category = "input"
+name = "Input actions"
+status = "planned"
+owner = "input"
+depends_on = ["runtime.fixed-step"]
+summary = "Keyboard, pointer, gamepad, joystick, touch, mapping, rebinding, and tick snapshots."
+
+[[capabilities]]
+id = "physics.world"
+category = "simulation"
+name = "Physics and collision"
+status = "planned"
+owner = "physics"
+depends_on = ["world.transforms-3d", "ecs.schedules"]
+summary = "Shapes, queries, rigid bodies, triggers, joints, and character controllers."
+
+[[capabilities]]
+id = "navigation.paths"
+category = "simulation"
+name = "Navigation and pathfinding"
+status = "planned"
+owner = "navigation"
+depends_on = ["world.transforms-3d"]
+summary = "Navmeshes, path queries, steering, spatial queries, and dynamic obstacle updates."
+
+[[capabilities]]
+id = "ui.runtime"
+category = "ui"
+name = "Runtime UI"
+status = "planned"
+owner = "ui"
+depends_on = ["render.2d", "input.actions", "render.text"]
+summary = "Layout, styling, widgets, HUDs, focus, navigation, and accessibility hooks."
+
+[[capabilities]]
+id = "assets.pipeline"
+category = "assets"
+name = "Asset pipeline"
+status = "planned"
+owner = "assets"
+depends_on = ["project.manifest"]
+summary = "Import, metadata, dependency tracking, derived caches, hot reload, and variants."
+
+[[capabilities]]
+id = "assets.authored-worlds"
+category = "assets"
+name = "Authored scenes and entities"
+status = "planned"
+owner = "project"
+depends_on = ["project.manifest", "world.entity-hierarchy", "behavior.typed-graph"]
+summary = "Durable IDs, reusable compositions, graph validation, and runtime instantiation."
+
+[[capabilities]]
+id = "game.save-replay"
+category = "game-services"
+name = "Save data and replay"
+status = "planned"
+owner = "game-services"
+depends_on = ["runtime.fixed-step", "assets.authored-worlds"]
+summary = "Versioned save contracts, input recording, deterministic replay, and migration."
+
+[[capabilities]]
+id = "game.networking"
+category = "game-services"
+name = "Networking and replication"
+status = "planned"
+owner = "network"
+depends_on = ["runtime.fixed-step", "world.entity-hierarchy"]
+summary = "Transport boundaries, durable network identity, replication, prediction, and authority."
+
+[[capabilities]]
+id = "game.localization"
+category = "game-services"
+name = "Localization"
+status = "planned"
+owner = "localization"
+depends_on = ["assets.pipeline", "render.text", "audio.clips-streams"]
+summary = "Locale resources, formatted messages, asset variants, and language switching."
+
+[[capabilities]]
+id = "tools.diagnostics"
+category = "tools"
+name = "Diagnostics and profiling"
+status = "planned"
+owner = "tools"
+depends_on = ["runtime.fixed-step"]
+summary = "Structured logs, metrics, CPU/GPU timing, frame capture hooks, and consoles."
+
+[[capabilities]]
+id = "tools.project-mode"
+category = "tools"
+name = "Visual project mode"
+status = "planned"
+owner = "tools"
+depends_on = ["assets.authored-worlds", "render.cameras", "ui.runtime", "tools.diagnostics"]
+summary = "Paused construction preview, picking, graph inspection, editing, and tick stepping."
+
+[[capabilities]]
+id = "platform.multi-output"
+category = "platform"
+name = "Multi-platform build outputs"
+status = "planned"
+owner = "platform"
+depends_on = ["project.manifest", "assets.pipeline"]
+summary = "Independent Windows, Linux, and macOS build plans, packages, and validation results."

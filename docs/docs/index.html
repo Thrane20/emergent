@@ -12,7 +12,7 @@
   <header class="topbar">
     <button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button>
     <a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a>
-    <span class="version-pill">v0.6.0</span><span class="topbar-spacer"></span>
+    <span class="version-pill">v0.7.0</span><span class="topbar-spacer"></span>
     <button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button>
   </header>
   <aside class="sidebar" aria-label="Guide navigation">
@@ -20,7 +20,8 @@
     <a class="nav-link" aria-current="page" href="index.html"><span class="nav-icon">◇</span>Introduction</a>
     <a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a>
     <a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a>
-    <div class="nav-label">Reference</div>
+    <a class="nav-link" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
+    <div class="nav-label">Reference</div><a class="nav-link" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a>
     <a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a>
     <a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a>
     <a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a>
@@ -43,6 +44,7 @@
         <article class="card"><span class="status available">Available</span><h3>3D transforms</h3><p>Translation, quaternion rotation, scale, dirty tracking, and cached global transform propagation.</p></article>
         <article class="card"><span class="status available">Available</span><h3>Behaviour graph</h3><p>Typed links, committed snapshots, feedback safety, lifecycle handling, and three built-in behaviours.</p></article>
         <article class="card"><span class="status available">Available</span><h3>ECS integration</h3><p>Standalone <code>bevy_ecs</code> components, resources, systems, schedules, and guarded entity lifecycle queues.</p></article>
+        <article class="card"><span class="status available">Available</span><h3>Project boundary</h3><p>Independent Cargo game crates, versioned manifests, generated code, asset roots, and output declarations.</p></article>
         <article class="card"><span class="status preview">Preview</span><h3>Native graphics</h3><p>Opt-in <code>winit</code> and <code>wgpu</code> window, indexed cube, depth buffer, resize, and Metal smoke coverage.</p></article>
       </div>
 
@@ -59,12 +61,12 @@
       <h2 id="status">Feature horizon</h2>
       <div class="quick-grid">
         <article class="card"><span class="status preview">Next layers</span><h3>Visible scenes</h3><p>Multiple objects, cameras as entities, mesh/material resources, visibility, extraction, and batching.</p></article>
-        <article class="card"><span class="status planned">Planned</span><h3>Game projects</h3><p>Asset folders, authored scenes, durable IDs, project-defined behaviours, and multi-platform outputs.</p></article>
+        <article class="card"><span class="status planned">Planned</span><h3>Authored content</h3><p>Scene loading, durable node IDs, project-defined behaviours, media import, and output packaging.</p></article>
         <article class="card"><span class="status planned">Planned</span><h3>Project mode</h3><p>Paused world inspection, procedural construction preview, selection, diagnostics, and tick stepping.</p></article>
       </div>
 
       <div class="page-nav"><span></span><a href="getting-started.html"><small>Next</small>Getting started →</a></div>
-      <footer>Emergent user guide · Current engine version 0.6.0</footer>
+      <footer>Emergent user guide · Current engine version 0.7.0</footer>
     </main>
   </div>
   <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog>

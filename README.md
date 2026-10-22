@@ -31,6 +31,14 @@ It opens a native `winit` window and renders a rotating, depth-tested cube throu
 cargo run --release --features graphics --example first_window -- --smoke
 ```
 
+Run the independent reference game project with:
+
+```sh
+cargo run -p emergent-first-project
+```
+
+It validates `projects/first_project/emergent.toml`, reads a project-owned data asset, constructs its linked scene through public Emergent APIs, and advances the headless game. The checked-in project demonstrates the boundary between engine code, generated Rust, authored assets, and per-platform output declarations; authored scene expansion and output packaging remain later work.
+
 ## Check
 
 ```sh
@@ -49,7 +57,7 @@ The HTML user guide lives under `docs/docs`. Serve it locally from the repositor
 python3 -m http.server 8000 --directory docs/docs
 ```
 
-Then open [http://localhost:8000](http://localhost:8000). It includes the current feature overview, setup instructions, a compiled Hello World example, searchable navigation, and a curated library/API reference.
+Then open [http://localhost:8000](http://localhost:8000). It includes the current feature overview, setup instructions, a compiled Hello World example, the independent game-project contract, the engine capability catalogue, searchable navigation, and a curated library/API reference.
 
 Run the transform propagation baseline with:
 
@@ -57,7 +65,7 @@ Run the transform propagation baseline with:
 cargo run --release --example transform_bench
 ```
 
-Graphics, asset projects, and project mode remain later layers described in `GOALS.MD`. Coordinate and transform conventions are recorded in `docs/adr/0001-coordinate-transform-conventions.md`.
+The full capability horizon and project mode remain staged work described in `GOALS.md` and `docs/capabilities/engine-capabilities.toml`. Coordinate and transform conventions are recorded in `docs/adr/0001-coordinate-transform-conventions.md`.
 
 The completed transform-graph increment is described in `ITERATION_2.md`.
 

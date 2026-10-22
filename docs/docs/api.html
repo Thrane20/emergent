@@ -7,17 +7,17 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.6.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.7.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
   <aside class="sidebar" aria-label="Guide navigation">
-    <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a>
-    <div class="nav-label">Reference</div><a class="nav-link" aria-current="page" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="#graphics"><span class="nav-icon">△</span>Graphics</a>
+    <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
+    <div class="nav-label">Reference</div><a class="nav-link" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" aria-current="page" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="#graphics"><span class="nav-icon">△</span>Graphics</a>
     <p class="sidebar-note">Signatures are curated from the public exports in the current source tree.</p>
   </aside>
   <div class="layout"><main class="content" id="main">
     <div class="breadcrumbs"><span>Reference</span><span>Library and API</span></div>
-    <p class="eyebrow">Public surface · v0.6.0</p><h1>Library and API.</h1>
+    <p class="eyebrow">Public surface · v0.7.0</p><h1>Library and API.</h1>
     <p class="lede">A practical map of the functions and types available to a game today. Expand a method for its purpose and contract.</p>
-    <div class="callout warning"><strong>Foundation API:</strong> Emergent is evolving quickly. This guide records the checked-in 0.6.0 API; it does not promise long-term semantic version stability yet.</div>
+    <div class="callout warning"><strong>Foundation API:</strong> Emergent is evolving quickly. This guide records the checked-in 0.7.0 API; it does not promise long-term semantic version stability yet.</div>
 
     <h2 id="engine">Engine lifecycle</h2>
     <div class="type-grid">
@@ -89,16 +89,26 @@
       <details class="api-item"><summary><code>CubeRenderer::info</code><span>Report selected graphics path</span></summary><div class="api-detail"><code class="signature">pub fn info(&amp;self) -&gt; &amp;RendererInfo</code><p>Exposes adapter name, backend, and surface format for diagnostics.</p></div></details>
     </div>
 
+    <h2 id="projects">Project contract</h2>
+    <p><code>Project</code> loads a versioned <code>emergent.toml</code> without constructing runtime entities. Authored IDs and paths remain separate from SlotMap and ECS keys.</p>
+    <div class="api-group">
+      <details class="api-item" open><summary><code>Project::load</code><span>Load and validate a project root</span></summary><div class="api-detail"><code class="signature">pub fn load(root: impl AsRef&lt;Path&gt;) -&gt; Result&lt;Self, ProjectError&gt;</code><p>Validates schema version, identifiers, portable paths, containment, declared roots, entry scene, generated-code directory, unique output IDs, and at least one enabled output.</p></div></details>
+      <details class="api-item"><summary><code>Project::manifest / root / entry_scene_path</code><span>Inspect resolved project metadata</span></summary><div class="api-detail"><code class="signature">manifest(&amp;self) -&gt; &amp;ProjectManifest<br>root(&amp;self) -&gt; &amp;Path<br>entry_scene_path(&amp;self) -&gt; PathBuf</code></div></details>
+      <details class="api-item"><summary><code>Project::enabled_outputs</code><span>Inspect selected output declarations</span></summary><div class="api-detail"><code class="signature">pub fn enabled_outputs(&amp;self) -&gt; impl Iterator&lt;Item = &amp;ProjectOutput&gt;</code><p>Outputs report target OS, architecture, Rust target triple, profile, and selection. Packaging is not implemented yet.</p></div></details>
+      <details class="api-item"><summary><code>Project::asset_path / read_asset / read_text_asset</code><span>Resolve project-owned assets</span></summary><div class="api-detail"><code class="signature">asset_path(relative) -&gt; Result&lt;PathBuf, ProjectError&gt;<br>read_asset(relative) -&gt; Result&lt;Vec&lt;u8&gt;, ProjectError&gt;<br>read_text_asset(relative) -&gt; Result&lt;String, ProjectError&gt;</code><p>Paths must fall under a declared asset root and resolve within the project root.</p></div></details>
+    </div>
+
     <h2 id="errors">Error types</h2>
     <table><thead><tr><th>Type</th><th>Boundary</th><th>Examples</th></tr></thead><tbody>
       <tr><td><code>EngineError</code></td><td>Runtime lifecycle</td><td>Invalid timing, already/not started, world integrity</td></tr>
       <tr><td><code>WorldError</code></td><td>Entity, hierarchy, transform, ECS</td><td>Wrong world, stale entity, cycles, invalid transform</td></tr>
       <tr><td><code>BehaviorError</code></td><td>Behaviour graph</td><td>Missing node, wrong port/type, transform-writer conflict</td></tr>
       <tr><td><code>GraphicsError</code></td><td>Optional renderer</td><td>Adapter/device/surface creation or validation</td></tr>
+      <tr><td><code>ProjectError</code></td><td>Project manifest and assets</td><td>Schema, identifiers, paths, outputs, and I/O</td></tr>
     </tbody></table>
 
-    <div class="page-nav"><a href="hello-world.html"><small>Previous</small>← Hello World</a><a href="index.html"><small>Guide home</small>Introduction →</a></div>
-    <footer>Emergent user guide · Current engine version 0.6.0</footer>
+    <div class="page-nav"><a href="capabilities.html"><small>Previous</small>← Capability map</a><a href="index.html"><small>Guide home</small>Introduction →</a></div>
+    <footer>Emergent user guide · Current engine version 0.7.0</footer>
   </main></div>
   <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
 </body></html>

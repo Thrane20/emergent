@@ -1,0 +1,7 @@
+schema_version = 1
+id = "main"
+builder = "emergent.first-project.generated.main_scene"
+
+# This file establishes the durable entry-scene asset. Runtime scene
+# interpretation is deliberately deferred; src/generated/main_scene.rs builds
+# the equivalent scene through public engine APIs in this iteration.

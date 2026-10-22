@@ -2,6 +2,13 @@ const pages = [
   { title: "Introduction", section: "Guide", url: "index.html", terms: "features architecture slotmap overview emergent" },
   { title: "Getting started", section: "Guide", url: "getting-started.html", terms: "install rust run cargo graphics setup" },
   { title: "Hello World", section: "Guide", url: "hello-world.html", terms: "example game behavior entity scene linear motion" },
+  { title: "Game projects", section: "Guide", url: "projects.html", terms: "manifest generated code assets output independent crate" },
+  { title: "Capability map", section: "Reference", url: "capabilities.html", terms: "roadmap categories graphics audio sound geometry terrain lighting shadows particles input physics animation tools" },
+  { title: "Vector geometry", section: "Capabilities", url: "capabilities.html#geometry", terms: "dots points lines polylines polygons vector primitive cube torus pyramid mesh" },
+  { title: "Terrain and noise", section: "Capabilities", url: "capabilities.html#terrain", terms: "heightmap polygonal poly terrain perlin simplex worley procedural generation" },
+  { title: "Lighting and effects", section: "Capabilities", url: "capabilities.html#look", terms: "lights shadows particles materials textures animation post processing" },
+  { title: "Audio", section: "Capabilities", url: "capabilities.html#audio", terms: "sound mixer clips stream music spatial listener attenuation doppler" },
+  { title: "Simulation services", section: "Capabilities", url: "capabilities.html#simulation", terms: "input joystick gamepad physics collision navigation ui" },
   { title: "Library and API", section: "Reference", url: "api.html", terms: "engine world methods structs enums reference" },
   { title: "Engine lifecycle", section: "API", url: "api.html#engine", terms: "Engine Game EngineConfig run run_ticks advance_frame" },
   { title: "World and entities", section: "API", url: "api.html#world", terms: "World EntityId spawn child subtree hierarchy" },
@@ -9,6 +16,7 @@ const pages = [
   { title: "Behaviours", section: "API", url: "api.html#behaviours", terms: "BehaviorSpec link port linear motion follow scalar snapshot" },
   { title: "ECS integration", section: "API", url: "api.html#ecs", terms: "bevy component resource schedule lifecycle queue" },
   { title: "Graphics preview", section: "API", url: "api.html#graphics", terms: "wgpu winit CubeRenderer render resize feature" },
+  { title: "Project contract", section: "API", url: "api.html#projects", terms: "Project ProjectManifest output asset path schema" },
 ];
 
 const root = document.documentElement.dataset.root || ".";

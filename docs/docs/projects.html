@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en" data-root=".">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Create and run an independent Emergent game project.">
+  <title>Emergent Guide — Game projects</title><link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.7.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <aside class="sidebar" aria-label="Guide navigation">
+    <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" aria-current="page" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
+    <div class="nav-label">Reference</div><a class="nav-link" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
+    <p class="sidebar-note">The checked-in reference is <code>projects/first_project</code>.</p>
+  </aside>
+  <div class="layout"><main class="content" id="main">
+    <div class="breadcrumbs"><span>Guide</span><span>Game projects</span></div>
+    <p class="eyebrow">Engine boundary · project ownership</p><h1>Build on Emergent.</h1>
+    <p class="lede">A game is an independent Cargo package. It depends on Emergent's public API while owning its code, generated modules, assets, entry scene declaration, and selected platform outputs.</p>
+
+    <h2 id="run">Run the reference project</h2>
+    <div class="code-block"><div class="code-label">Terminal · repository root</div><pre>cargo run -p emergent-first-project</pre></div>
+    <p>The executable loads and validates its <code>emergent.toml</code>, reads a project-owned speed value, constructs a linked behaviour scene through public engine APIs, and runs it headlessly.</p>
+    <div class="callout warning"><strong>Current boundary:</strong> the manifest and paths are validated, while the scene and entity TOML files are declarations for later authored-graph loading. Generated Rust constructs the runtime scene in this iteration.</div>
+
+    <h2 id="layout">Project layout</h2>
+    <div class="code-block"><div class="code-label">projects/first_project</div><pre>Cargo.toml
+emergent.toml
+AGENTS.md
+src/
+  main.rs
+  game.rs
+  generated/
+assets/
+  scenes/
+  entities/
+  data/
+  textures/
+  models/
+  audio/
+tests/</pre></div>
+    <div class="quick-grid">
+      <article class="card"><span class="status available">Project</span><h3>Authored ownership</h3><p>The game owns source and assets. Engine internals remain private, and engine source does not change for each game.</p></article>
+      <article class="card"><span class="status available">Generated</span><h3>Reviewable Rust</h3><p>AI-generated modules are ordinary files under <code>src/generated</code> and use only public Emergent handles and APIs.</p></article>
+      <article class="card"><span class="status available">Portable</span><h3>Validated paths</h3><p>Project paths are relative, remain within the project root, and use portable names without parent traversal.</p></article>
+    </div>
+
+    <h2 id="manifest">Manifest contract</h2>
+    <div class="code-block"><div class="code-label">emergent.toml</div><pre>schema_version = 1
+id = "emergent.first-project"
+name = "Emergent First Project"
+entry_scene = "assets/scenes/main.scene.toml"
+generated_code = "src/generated"
+asset_roots = ["assets"]
+
+[[outputs]]
+id = "macos-arm64-dev"
+os = "macos"
+architecture = "aarch64"
+rust_target = "aarch64-apple-darwin"
+profile = "development"
+enabled = true</pre></div>
+    <p>An output records intent. This iteration exposes and validates output declarations; it does not cross-compile, package, sign, or prove a target runtime.</p>
+
+    <h2 id="code-builders">Contract for code builders</h2>
+    <ol class="steps">
+      <li><h3>Read before editing</h3><p>Inspect <code>emergent.toml</code>, project <code>AGENTS.md</code>, existing generated modules, and the capability catalogue.</p></li>
+      <li><h3>Use canonical handles</h3><p>Build entity and behaviour graphs through public <code>World</code> APIs. Never serialize SlotMap or Bevy entity keys into assets.</p></li>
+      <li><h3>Keep assets declarative</h3><p>Put project data beneath a declared asset root and generated Rust beneath the configured generated-code directory.</p></li>
+      <li><h3>Validate the whole project</h3><p>Run workspace tests and the project binary so manifest, asset, generated-code, and runtime boundaries are checked together.</p></li>
+    </ol>
+
+    <div class="page-nav"><a href="hello-world.html"><small>Previous</small>← Hello World</a><a href="capabilities.html"><small>Next</small>Capability map →</a></div>
+    <footer>Emergent user guide · Current engine version 0.7.0</footer>
+  </main></div>
+  <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
+</body></html>

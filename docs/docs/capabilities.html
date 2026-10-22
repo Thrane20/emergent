@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en" data-root=".">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="The Emergent game-engine capability map across graphics, sound, simulation, content, and tooling.">
+  <title>Emergent Guide — Capability map</title><link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.7.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <aside class="sidebar" aria-label="Guide navigation">
+    <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
+    <div class="nav-label">Reference</div><a class="nav-link" aria-current="page" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
+    <p class="sidebar-note">Planning source: <code>docs/capabilities/engine-capabilities.toml</code>.</p>
+  </aside>
+  <div class="layout"><main class="content wide-content" id="main">
+    <div class="breadcrumbs"><span>Reference</span><span>Capability map</span></div>
+    <p class="eyebrow">Available · preview · planned</p><h1>The engine horizon.</h1>
+    <p class="lede">This map names the facilities Emergent intends to own as first-class concepts. It shows direction without pretending planned systems are implemented APIs.</p>
+    <div class="legend"><span class="status available">Available</span><span class="status preview">Preview</span><span class="status planned">Planned</span></div>
+    <div class="callout"><strong>Identity rule:</strong> entities keep canonical SlotMap identity. Render, audio, physics, navigation, terrain, and asset modules own packed resources and expose typed handles at explicit boundaries.</div>
+
+    <nav class="category-index" aria-label="Capability categories">
+      <a href="#foundation">Foundation</a><a href="#geometry">Geometry</a><a href="#terrain">Terrain</a><a href="#look">Look &amp; effects</a><a href="#audio">Audio</a><a href="#simulation">Simulation</a><a href="#content">Content</a><a href="#tools">Tools &amp; delivery</a>
+    </nav>
+
+    <section class="capability-section" id="foundation">
+      <div class="section-heading"><p class="eyebrow">Runtime and rendering</p><h2>Foundation</h2></div>
+      <div class="capability-grid">
+        <article class="capability-card"><span class="status available">Available</span><h3>World &amp; runtime</h3><p>SlotMap hierarchy, 3D transforms, typed behaviour graph, fixed ticks, and Bevy ECS schedules.</p><code>world · behavior · runtime · ecs</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Native GPU surface</h3><p><code>winit</code> lifecycle and <code>wgpu</code> presentation with depth-tested indexed geometry.</p><code>render.native-surface</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Cameras &amp; viewports</h3><p>Perspective and orthographic cameras, layers, viewports, render targets, and camera selection.</p><code>render.cameras</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Extraction &amp; passes</h3><p>Read-only render extraction, visibility, culling, batching, ordered passes, and presentation.</p><code>render.extraction</code></article>
+      </div>
+    </section>
+
+    <section class="capability-section" id="geometry">
+      <div class="section-heading"><p class="eyebrow">Shape vocabulary</p><h2>Geometry</h2></div>
+      <div class="capability-grid">
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Vector dots, lines &amp; polys</h3><p>Points, segments, polylines, filled or outlined polygons, grids, axes, bounds, and debug gizmos.</p><code>geometry.vector</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Procedural primitives</h3><p>Plane, cube, sphere, capsule, cylinder, cone, pyramid, and torus with explicit generation parameters.</p><code>geometry.primitives</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Meshes</h3><p>Vertex/index attributes, normals, tangents, UVs, submeshes, bounds, instances, and level of detail.</p><code>geometry.meshes</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Models &amp; deformation</h3><p>Model composition, skinning inputs, morph targets, model-level bounds, and import-ready structures.</p><code>geometry.meshes · animation</code></article>
+      </div>
+    </section>
+
+    <section class="capability-section" id="terrain">
+      <div class="section-heading"><p class="eyebrow">Constructed worlds</p><h2>Terrain &amp; procedural generation</h2></div>
+      <div class="capability-grid">
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Heightmap terrain</h3><p>Bounded height fields, chunk meshes, height queries, collision handoff, and terrain level of detail.</p><code>terrain.heightmap</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Polygonal terrain</h3><p>Arbitrary generated surfaces with explicit topology, chunk boundaries, rebuilds, and seam policy.</p><code>terrain.polygonal</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Noise generators</h3><p>Seeded and versioned Perlin, Simplex, value, and Worley noise with fractal combinations and domain warping.</p><code>procedural.noise</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Streaming &amp; LOD</h3><p>Bounded chunk construction, visibility, background preparation, cancellation, caching, and level transitions.</p><code>terrain · assets</code></article>
+      </div>
+    </section>
+
+    <section class="capability-section" id="look">
+      <div class="section-heading"><p class="eyebrow">Surface, light, and motion</p><h2>Look &amp; effects</h2></div>
+      <div class="capability-grid">
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Materials &amp; textures</h3><p>Shaders, material parameters, PBR maps, samplers, colour spaces, reusable GPU handles, and render state.</p><code>material.resources · texture.resources</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Light sources</h3><p>Ambient, directional, point, spot, area, and image-based environment lighting.</p><code>lighting.sources</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Shadows</h3><p>Directional cascades, point-light maps, filtering, culling, and explicit quality and frame budgets.</p><code>lighting.shadows</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Particles</h3><p>Pooled CPU and GPU emitters, spawn shapes, lifetime curves, billboards, mesh particles, trails, and collision hooks.</p><code>effects.particles</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Animation</h3><p>Skeletal clips, blending, state machines, skinning, root motion, morph targets, curves, and procedural poses.</p><code>animation</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Post processing</h3><p>HDR, exposure, tone mapping, anti-aliasing, fog, bloom, colour grading, and render-to-texture.</p><code>render.post-processing</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>2D &amp; text</h3><p>Sprites, atlases, tilemaps, 2D cameras, fonts, text shaping, and world-space or screen-space text.</p><code>render.2d · render.text</code></article>
+      </div>
+    </section>
+
+    <section class="capability-section" id="audio">
+      <div class="section-heading"><p class="eyebrow">Soundscape</p><h2>Audio</h2></div>
+      <div class="capability-grid">
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Device &amp; mixer</h3><p>Output selection, buses, gain policy, effects sends, priorities, pooling, and bounded voice allocation.</p><code>audio.mixer</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Clips, streams &amp; music</h3><p>Decoded short clips, streamed tracks, looping, playback handles, transitions, and background preparation.</p><code>audio.clips-streams</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Spatial sound</h3><p>Entity-linked sources and listeners, attenuation, panning, Doppler, zones, and occlusion hooks.</p><code>audio.spatial</code></article>
+      </div>
+    </section>
+
+    <section class="capability-section" id="simulation">
+      <div class="section-heading"><p class="eyebrow">Player and world interaction</p><h2>Simulation services</h2></div>
+      <div class="capability-grid">
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Input actions</h3><p>Keyboard, pointer, joystick/gamepad, touch, remapping, dead zones, focus, and fixed-tick snapshots.</p><code>input.actions</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Physics &amp; collision</h3><p>Shapes, queries, rigid bodies, triggers, joints, collision layers, and character controllers.</p><code>physics.world</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Navigation</h3><p>Navmeshes, path queries, steering, spatial queries, and bounded dynamic obstacle updates.</p><code>navigation.paths</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Runtime UI</h3><p>Layout, styling, widgets, HUDs, focus/navigation, picking, and accessibility hooks.</p><code>ui.runtime</code></article>
+      </div>
+    </section>
+
+    <section class="capability-section" id="content">
+      <div class="section-heading"><p class="eyebrow">Projects and durable data</p><h2>Content &amp; game services</h2></div>
+      <div class="capability-grid">
+        <article class="capability-card"><span class="status available">Available</span><h3>Project contract</h3><p>Independent crate, versioned manifest, validated asset roots, generated-code boundary, and output declarations.</p><code>project.manifest</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Asset pipeline</h3><p>Import metadata, dependency tracking, derived caches, hot reload, target variants, and streaming policy.</p><code>assets.pipeline</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Authored worlds</h3><p>Durable scene IDs, reusable entity compositions, graph validation, link resolution, and coherent instantiation.</p><code>assets.authored-worlds</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Save, replay &amp; networking</h3><p>Versioned saves, input recordings, replay, network identities, replication, prediction, and authority.</p><code>game.save-replay · game.networking</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Localization</h3><p>Locale resources, formatted messages, translated audio and assets, and runtime language switching.</p><code>game.localization</code></article>
+      </div>
+    </section>
+
+    <section class="capability-section" id="tools">
+      <div class="section-heading"><p class="eyebrow">Inspect, ship, verify</p><h2>Tools &amp; delivery</h2></div>
+      <div class="capability-grid">
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Diagnostics &amp; profiling</h3><p>Structured logs, metrics, CPU/GPU timing, allocation evidence, frame capture hooks, and consoles.</p><code>tools.diagnostics</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Visual project mode</h3><p>Paused construction preview, cameras, picking, hierarchy and graph inspection, editing, and tick stepping.</p><code>tools.project-mode</code></article>
+        <article class="capability-card"><span class="status planned">Planned</span><h3>Multi-platform outputs</h3><p>Independent Windows, Linux, and macOS plans, packages, capability checks, and native validation results.</p><code>platform.multi-output</code></article>
+      </div>
+    </section>
+
+    <h2 id="status-contract">How to read status</h2>
+    <table><thead><tr><th>Status</th><th>Meaning</th><th>Safe assumption</th></tr></thead><tbody>
+      <tr><td><span class="status available">Available</span></td><td>Implemented and covered by the current validation suite.</td><td>Use the documented public API.</td></tr>
+      <tr><td><span class="status preview">Preview</span></td><td>Runnable implementation with a deliberately narrow contract or incomplete platform evidence.</td><td>Experiment and expect change.</td></tr>
+      <tr><td><span class="status planned">Planned</span></td><td>Named engine responsibility with intended ownership and dependencies; no runtime API is implied.</td><td>Use it for planning and avoid generated calls to it.</td></tr>
+    </tbody></table>
+
+    <div class="page-nav"><a href="projects.html"><small>Previous</small>← Game projects</a><a href="api.html"><small>Next</small>Library and API →</a></div>
+    <footer>Emergent user guide · Current engine version 0.7.0</footer>
+  </main></div>
+  <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
+</body></html>
