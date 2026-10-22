@@ -244,11 +244,11 @@ The first project-mode example should use a small game-defined procedural height
 
 ## Windows, Linux, and macOS 3D foundation
 
-Chosen graphics foundation: `wgpu` for GPU access. The planned window/platform companion is `winit`, with Emergent providing the 3D scene and rendering layer. `wgpu` is a graphics foundation, not a complete scene engine. This choice retains control of the SlotMap/entity architecture and enables a deliberately small renderer first. Dependency versions and native runtime compatibility still require validation.
+Chosen graphics foundation: `wgpu` for GPU access and `winit` for native window events, with Emergent providing the 3D scene and rendering layer. The first integration pins `wgpu` 30.0.1 and stable `winit` 0.30.13 behind the optional `graphics` feature. `wgpu` is a graphics foundation, not a complete scene engine. This choice retains control of the SlotMap/entity architecture and enables a deliberately small renderer first.
 
 Bevy's renderer is built on `wgpu`, making Bevy a relevant reference for ECS-to-render extraction and rendering architecture. ADR 0002 selects standalone `bevy_ecs` to supply component storage and scheduling while Emergent builds its own `wgpu` renderer. That integration requires explicit extraction of simulation data into render data; using `bevy_ecs` alone does not supply Bevy's renderer or an automatic graphics bridge. Reusing `bevy_render` would be a separate architectural decision with its own dependency and ownership implications.
 
-The upstream `wgpu` platform matrix documents native Windows, Linux, and macOS support: Vulkan on Windows and Linux, Direct3D 12 on Windows, and Metal on macOS. `winit` also supports all three operating systems. These are documented capabilities, not verified Emergent runtime results.
+The upstream `wgpu` platform matrix documents native Windows, Linux, and macOS support: Vulkan on Windows and Linux, Direct3D 12 on Windows, and Metal on macOS. `winit` also supports all three operating systems. Emergent's first window, indexed cube, depth target, resize, fixed simulation, and clean shutdown have been verified locally on Apple Silicon through Metal. Windows and Linux remain documented capabilities pending Emergent runtime evidence.
 
 - Target Windows, Linux, and macOS as required native platforms. Validate Linux under both X11 and Wayland where available, and macOS through Metal. Record the OS version, architecture, backend, and GPU actually tested.
 - Define minimum OS versions and supported CPU architectures during Stage 0, including whether macOS outputs cover Apple Silicon, Intel, or both. Keep graphics requirements within a tested common feature set and validate optional capabilities per adapter.
@@ -308,7 +308,7 @@ Exit: a developer or AI generator can extend, validate, build, and run a headles
 
 ### Stage 3 — Minimal visible 3D foundation
 
-- [ ] Connect platform events and the renderer to the existing headless-capable runtime.
+- [x] Connect platform events and the renderer to the existing headless-capable runtime.
 - [ ] Display the composition example with a camera, depth-tested geometry, and inherited transforms.
 - [ ] Launch the independently authored sample game through its project entry scene and asset roots.
 - [ ] Build and package the sample project's selected Windows, Linux, and macOS outputs from the same source and authored scene graph using suitable runners.

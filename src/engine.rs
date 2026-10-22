@@ -32,6 +32,8 @@ impl Default for EngineConfig {
 pub enum EngineError {
     ZeroFixedTimestep,
     ZeroStepLimit,
+    AlreadyStarted,
+    NotStarted,
     World(WorldError),
 }
 
@@ -40,6 +42,8 @@ impl fmt::Display for EngineError {
         match self {
             Self::ZeroFixedTimestep => formatter.write_str("fixed timestep must be non-zero"),
             Self::ZeroStepLimit => formatter.write_str("max steps per frame must be non-zero"),
+            Self::AlreadyStarted => formatter.write_str("engine is already started"),
+            Self::NotStarted => formatter.write_str("engine has not been started"),
             Self::World(error) => write!(formatter, "world integrity error: {error}"),
         }
     }
@@ -66,6 +70,13 @@ pub enum SchedulePhase {
 pub struct SimulationTime {
     pub tick: u64,
     pub fixed_delta: Duration,
+}
+
+/// Result of advancing a running engine by one render-frame duration.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct FrameAdvance {
+    pub fixed_steps: u32,
+    pub catch_up_limited: bool,
 }
 
 #[derive(Default)]
@@ -122,6 +133,8 @@ pub struct Engine {
     schedules: EngineSchedules,
     tick: u64,
     exit_requested: bool,
+    started: bool,
+    accumulator: Duration,
 }
 
 impl Engine {
@@ -139,6 +152,8 @@ impl Engine {
             schedules: EngineSchedules::default(),
             tick: 0,
             exit_requested: false,
+            started: false,
+            accumulator: Duration::ZERO,
         })
     }
 
@@ -158,12 +173,75 @@ impl Engine {
         self.schedules.get_mut(phase)
     }
 
+    pub fn exit_requested(&self) -> bool {
+        self.exit_requested
+    }
+
+    /// Starts a game so an external platform loop can advance it frame by frame.
+    pub fn start<G: Game>(&mut self, game: &mut G) -> Result<(), EngineError> {
+        if self.started {
+            return Err(EngineError::AlreadyStarted);
+        }
+        self.exit_requested = false;
+        self.accumulator = Duration::ZERO;
+        {
+            let mut context = self.context();
+            game.start(&mut context);
+        }
+        self.world.propagate_transforms();
+        self.world.validate_component_mappings()?;
+        self.started = true;
+        Ok(())
+    }
+
+    /// Advances fixed simulation using elapsed time supplied by a platform loop.
+    pub fn advance_frame<G: Game>(
+        &mut self,
+        game: &mut G,
+        elapsed: Duration,
+    ) -> Result<FrameAdvance, EngineError> {
+        if !self.started {
+            return Err(EngineError::NotStarted);
+        }
+
+        self.accumulator += elapsed.min(self.config.max_frame_delta);
+        let mut fixed_steps = 0;
+        while self.accumulator >= self.config.fixed_timestep
+            && fixed_steps < self.config.max_steps_per_frame
+            && !self.exit_requested
+        {
+            self.update_once(game)?;
+            self.accumulator -= self.config.fixed_timestep;
+            fixed_steps += 1;
+        }
+
+        let catch_up_limited = fixed_steps == self.config.max_steps_per_frame
+            && self.accumulator >= self.config.fixed_timestep;
+        if catch_up_limited {
+            self.accumulator = self.accumulator.min(self.config.fixed_timestep);
+        }
+
+        Ok(FrameAdvance {
+            fixed_steps,
+            catch_up_limited,
+        })
+    }
+
+    /// Stops a game previously started through either engine loop.
+    pub fn stop<G: Game>(&mut self, game: &mut G) {
+        if self.started {
+            let mut context = self.context();
+            game.stop(&mut context);
+            self.started = false;
+            self.accumulator = Duration::ZERO;
+        }
+    }
+
     /// Runs against wall-clock time until the game requests exit.
     pub fn run<G: Game>(&mut self, game: &mut G) -> Result<(), EngineError> {
-        self.begin(game)?;
+        self.start(game)?;
 
         let mut previous = Instant::now();
-        let mut accumulator = Duration::ZERO;
 
         while !self.exit_requested {
             let now = Instant::now();
@@ -171,59 +249,34 @@ impl Engine {
                 .duration_since(previous)
                 .min(self.config.max_frame_delta);
             previous = now;
-            accumulator += elapsed;
-
-            let mut steps = 0;
-            while accumulator >= self.config.fixed_timestep
-                && steps < self.config.max_steps_per_frame
-                && !self.exit_requested
-            {
-                if let Err(error) = self.update_once(game) {
-                    self.end(game);
-                    return Err(error);
-                }
-                accumulator -= self.config.fixed_timestep;
-                steps += 1;
+            if let Err(error) = self.advance_frame(game, elapsed) {
+                self.stop(game);
+                return Err(error);
             }
 
-            if steps == self.config.max_steps_per_frame {
-                accumulator = accumulator.min(self.config.fixed_timestep);
-            }
-
-            if !self.exit_requested && accumulator < self.config.fixed_timestep {
-                let until_next_step = self.config.fixed_timestep - accumulator;
+            if !self.exit_requested && self.accumulator < self.config.fixed_timestep {
+                let until_next_step = self.config.fixed_timestep - self.accumulator;
                 thread::sleep(until_next_step.min(self.config.idle_sleep));
             }
         }
 
-        self.end(game);
+        self.stop(game);
         Ok(())
     }
 
     /// Advances an exact number of ticks without sleeping or reading the clock.
     pub fn run_ticks<G: Game>(&mut self, game: &mut G, ticks: u64) -> Result<(), EngineError> {
-        self.begin(game)?;
+        self.start(game)?;
         for _ in 0..ticks {
             if self.exit_requested {
                 break;
             }
             if let Err(error) = self.update_once(game) {
-                self.end(game);
+                self.stop(game);
                 return Err(error);
             }
         }
-        self.end(game);
-        Ok(())
-    }
-
-    fn begin<G: Game>(&mut self, game: &mut G) -> Result<(), EngineError> {
-        self.exit_requested = false;
-        {
-            let mut context = self.context();
-            game.start(&mut context);
-        }
-        self.world.propagate_transforms();
-        self.world.validate_component_mappings()?;
+        self.stop(game);
         Ok(())
     }
 
@@ -251,11 +304,6 @@ impl Engine {
         }
         self.tick = self.tick.saturating_add(1);
         Ok(())
-    }
-
-    fn end<G: Game>(&mut self, game: &mut G) {
-        let mut context = self.context();
-        game.stop(&mut context);
     }
 
     fn context(&mut self) -> EngineContext<'_> {
@@ -339,6 +387,44 @@ mod tests {
             Engine::new(zero_steps),
             Err(EngineError::ZeroStepLimit)
         ));
+    }
+
+    #[test]
+    fn external_frame_loop_uses_bounded_fixed_catch_up() {
+        let config = EngineConfig {
+            fixed_timestep: Duration::from_millis(10),
+            max_steps_per_frame: 2,
+            ..EngineConfig::default()
+        };
+        let mut engine = Engine::new(config).unwrap();
+        let mut game = CounterGame::default();
+
+        assert_eq!(
+            engine.advance_frame(&mut game, Duration::ZERO),
+            Err(EngineError::NotStarted)
+        );
+        engine.start(&mut game).unwrap();
+        assert_eq!(engine.start(&mut game), Err(EngineError::AlreadyStarted));
+        assert_eq!(
+            engine
+                .advance_frame(&mut game, Duration::from_millis(35))
+                .unwrap(),
+            FrameAdvance {
+                fixed_steps: 2,
+                catch_up_limited: true,
+            }
+        );
+        assert_eq!(
+            engine.advance_frame(&mut game, Duration::ZERO).unwrap(),
+            FrameAdvance {
+                fixed_steps: 1,
+                catch_up_limited: false,
+            }
+        );
+        assert!(engine.exit_requested());
+        engine.stop(&mut game);
+
+        assert_eq!((game.starts, game.updates, game.stops), (1, 3, 1));
     }
 
     #[derive(Component)]

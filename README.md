@@ -19,6 +19,18 @@ cargo run
 
 The reference game creates a leader and two followers. Typed behaviour links make each follower track the previous entity's committed position. It advances at 60 simulation ticks per second, reports all three positions, and exits after 120 ticks.
 
+Run the first visible 3D example with:
+
+```sh
+cargo run --release --features graphics --example first_window
+```
+
+It opens a native `winit` window and renders a rotating, depth-tested cube through `wgpu`. The cube is a canonical Emergent entity; the renderer receives a copied global transform after fixed simulation. Use the self-closing platform smoke mode with:
+
+```sh
+cargo run --release --features graphics --example first_window -- --smoke
+```
+
 ## Check
 
 ```sh
@@ -26,6 +38,8 @@ cargo fmt --check
 cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
+
+Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`.
 
 Run the transform propagation baseline with:
 

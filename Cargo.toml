@@ -1,15 +1,27 @@
 [package]
 name = "emergent"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2021"
 description = "The foundation of the Emergent game engine"
 license = "MIT OR Apache-2.0"
 
+[features]
+default = []
+graphics = ["dep:bytemuck", "dep:pollster", "dep:wgpu", "dep:winit"]
+
 [dependencies]
 bevy_ecs = { version = "0.20.0", default-features = false, features = ["std"] }
+bytemuck = { version = "1.25.2", features = ["derive"], optional = true }
 glam = "0.34.1"
+pollster = { version = "1.0.1", optional = true }
 slotmap = "1.1.1"
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "gles", "vulkan", "wgsl"], optional = true }
+winit = { version = "0.30.13", optional = true }
 
 [dev-dependencies]
 hecs = "0.11.2"
+
+[[example]]
+name = "first_window"
+required-features = ["graphics"]
 
