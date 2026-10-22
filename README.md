@@ -36,3 +36,11 @@ cargo run --release --example transform_bench
 Graphics, ECS selection, behaviours, asset projects, and project mode remain later layers described in `GOALS.MD`. Coordinate and transform conventions are recorded in `docs/adr/0001-coordinate-transform-conventions.md`.
 
 The completed transform-graph increment is described in `ITERATION_2.md`.
+
+The development-only ECS comparison harness can be run with:
+
+```sh
+cargo run --release --example ecs_compare -- all
+```
+
+The resulting standalone `bevy_ecs` direction, including its costs and SlotMap integration rules, is recorded in `ITERATION_3.md` and `docs/adr/0002-ecs-direction.md`.

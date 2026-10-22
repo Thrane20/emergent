@@ -1,6 +1,6 @@
 # Emergent — Foundation Goals
 
-Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph in `ITERATION_2.md` is complete. Broader staged acceptance gates remain open.
+Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph in `ITERATION_2.md` and ECS comparison in `ITERATION_3.md` are complete. Standalone `bevy_ecs` is the selected production direction for components and systems, with integration still pending. Broader staged acceptance gates remain open.
 
 ## Vision
 
@@ -52,9 +52,9 @@ Math and headless simulation must not require a window or graphics device. Futur
 
 ### SlotMap and ECS responsibilities
 
-SlotMap is authoritative for Emergent entity identity, parent/child relationships, scene membership, and behaviour identities. Keep these contracts stable while evaluating how components and systems should run.
+SlotMap is authoritative for Emergent entity identity, parent/child relationships, scene membership, and behaviour identities. Keep these contracts stable while integrating the selected component and system layer.
 
-Investigate both `hecs` and standalone `bevy_ecs` early:
+Iteration 3 evaluated `hecs`, standalone `bevy_ecs`, and focused SlotMap storage:
 
 | Candidate | Why evaluate it | Questions to resolve |
 | --- | --- | --- |
@@ -62,7 +62,7 @@ Investigate both `hecs` and standalone `bevy_ecs` early:
 | `bevy_ecs` | ECS with systems, scheduling, and change detection | Do its capabilities justify dependency, integration, and execution costs for our workloads? |
 | SlotMap plus focused component storage | A small comparison baseline using our existing identity model | Where does custom query and scheduling work outweigh its simplicity? |
 
-This is an evaluation commitment, not a decision to ship two ECS implementations. Select one production direction after equivalent prototypes and recorded evidence. Do not build a universal ECS abstraction in anticipation of switching forever.
+ADR 0002 selects standalone `bevy_ecs` for general component storage, queries, resources, and scheduling. `hecs` is deferred, and SlotMap remains the focused identity, hierarchy, and specialized-storage foundation. Do not build a universal ECS abstraction.
 
 If an ECS is adopted, its entity IDs remain internal storage handles mapped to Emergent SlotMap keys. Define creation, deletion, rollback on failed creation, and mapping cleanup at explicit commit points. Keep hierarchy data authoritative in one place; do not maintain independent competing parent/child graphs in SlotMap and the ECS. Measure the indirection and memory cost of this arrangement. If it proves unsuitable, raise the architectural conflict before changing SlotMap's role.
 
@@ -236,7 +236,7 @@ The first project-mode example should use a small game-defined procedural height
 
 Chosen graphics foundation: `wgpu` for GPU access. The planned window/platform companion is `winit`, with Emergent providing the 3D scene and rendering layer. `wgpu` is a graphics foundation, not a complete scene engine. This choice retains control of the SlotMap/entity architecture and enables a deliberately small renderer first. Dependency versions and native runtime compatibility still require validation.
 
-Bevy's renderer is built on `wgpu`, making Bevy a relevant reference for ECS-to-render extraction and rendering architecture. Standalone `bevy_ecs` can supply component storage and scheduling while Emergent builds its own `wgpu` renderer. That integration requires explicit extraction of simulation data into render data; using `bevy_ecs` alone does not supply Bevy's renderer or an automatic graphics bridge. Keep the `hecs` versus `bevy_ecs` evaluation open and assess this boundary in the spike. Reusing `bevy_render` would be a separate architectural decision with its own dependency and ownership implications.
+Bevy's renderer is built on `wgpu`, making Bevy a relevant reference for ECS-to-render extraction and rendering architecture. ADR 0002 selects standalone `bevy_ecs` to supply component storage and scheduling while Emergent builds its own `wgpu` renderer. That integration requires explicit extraction of simulation data into render data; using `bevy_ecs` alone does not supply Bevy's renderer or an automatic graphics bridge. Reusing `bevy_render` would be a separate architectural decision with its own dependency and ownership implications.
 
 The upstream `wgpu` platform matrix documents native Windows, Linux, and macOS support: Vulkan on Windows and Linux, Direct3D 12 on Windows, and Metal on macOS. `winit` also supports all three operating systems. These are documented capabilities, not verified Emergent runtime results.
 
@@ -258,7 +258,7 @@ If a higher-level rendering framework becomes necessary, evaluate it against the
 - [ ] Define the game project manifest, authored scene/composition format, durable identity scopes, registration/schema export, and graph inspection/validation contract with a tiny project fixture.
 - [ ] Define build-output graph nodes, OS/architecture support, minimum OS versions, per-target configuration, artifact layout, and required build/verification runners.
 - [ ] Define construction versus simulation schedules, project/play transitions, authoring edit persistence, external-file conflict handling, and the minimum project-mode tool interface.
-- [ ] Prototype equivalent representative workloads with `hecs`, `bevy_ecs`, and a focused SlotMap baseline; select and justify the component/system direction.
+- [x] Prototype equivalent representative workloads with `hecs`, `bevy_ecs`, and a focused SlotMap baseline; select and justify the component/system direction.
 - [ ] Include simulation-to-render extraction in the ECS comparison, using the chosen `wgpu` foundation and retaining authoritative SlotMap identities.
 - [ ] Verify the chosen graphics/window dependency combination with a minimal Windows, Linux, and macOS smoke example.
 - [ ] Record target hardware, workload sizes, simulation rate, and provisional frame-time and memory budgets before making performance claims.
