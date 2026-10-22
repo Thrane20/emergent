@@ -1,6 +1,6 @@
 [package]
 name = "emergent"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 description = "The foundation of the Emergent game engine"
 license = "MIT OR Apache-2.0"
@@ -29,5 +29,9 @@ hecs = "0.11.2"
 
 [[example]]
 name = "first_window"
+required-features = ["graphics"]
+
+[[example]]
+name = "geometry_gallery"
 required-features = ["graphics"]
 

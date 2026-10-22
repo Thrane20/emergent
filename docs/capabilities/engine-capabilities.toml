@@ -1,5 +1,5 @@
 schema_version = 1
-engine_version = "0.7.0"
+engine_version = "0.8.0"
 status_values = ["available", "preview", "planned"]
 
 # This is a planning and discovery contract. Only `available` entries are stable
@@ -97,13 +97,40 @@ depends_on = ["render.cameras", "ecs.schedules"]
 summary = "Read-only world extraction, visibility, culling, batching, and ordered passes."
 
 [[capabilities]]
+id = "geometry.point"
+category = "geometry"
+name = "Points"
+status = "available"
+owner = "geometry"
+depends_on = ["render.native-surface"]
+summary = "Validated finite points rendered as visible solid markers with explicit radius and colour."
+
+[[capabilities]]
+id = "geometry.line"
+category = "geometry"
+name = "Lines"
+status = "available"
+owner = "geometry"
+depends_on = ["render.native-surface"]
+summary = "Validated line segments rendered as solid prisms with explicit radius and colour."
+
+[[capabilities]]
+id = "geometry.polygon"
+category = "geometry"
+name = "Convex polygons"
+status = "available"
+owner = "geometry"
+depends_on = ["render.native-surface"]
+summary = "Validated planar convex polygons triangulated from ordered vertices."
+
+[[capabilities]]
 id = "geometry.vector"
 category = "geometry"
-name = "Points, lines, and polygons"
+name = "Vector and debug geometry"
 status = "planned"
 owner = "render"
-depends_on = ["render.cameras"]
-summary = "Dots, segments, polylines, polygons, grids, axes, bounds, and debug gizmos."
+depends_on = ["geometry.point", "geometry.line", "geometry.polygon", "render.cameras"]
+summary = "Polylines, concave and outlined polygons, grids, axes, bounds, and debug gizmos."
 
 [[capabilities]]
 id = "geometry.primitives"
@@ -117,11 +144,20 @@ summary = "Planes, cubes, spheres, capsules, cylinders, cones, pyramids, and tor
 [[capabilities]]
 id = "geometry.meshes"
 category = "geometry"
-name = "Meshes and model instances"
+name = "Indexed colour meshes"
+status = "available"
+owner = "render"
+depends_on = ["render.native-surface"]
+summary = "Validated coloured vertices, 32-bit triangle indices, renderer-owned buffers, and transformed instances."
+
+[[capabilities]]
+id = "geometry.models"
+category = "geometry"
+name = "Models and advanced meshes"
 status = "planned"
 owner = "render"
-depends_on = ["render.extraction"]
-summary = "Vertex/index attributes, submeshes, bounds, instances, and level of detail."
+depends_on = ["geometry.meshes", "render.extraction"]
+summary = "Normals, tangents, UVs, submeshes, bounds, model composition, and level of detail."
 
 [[capabilities]]
 id = "terrain.heightmap"

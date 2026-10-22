@@ -1,6 +1,6 @@
 # Emergent — Foundation Goals
 
-Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph, ECS selection and integration, behaviour graph, first wgpu object, and independent project boundary through `ITERATION_7.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. The capability catalogue now records the wider graphics, audio, simulation, content, and tooling horizon. Broader staged acceptance gates remain open.
+Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph, ECS selection and integration, behaviour graph, first wgpu object, independent project boundary, and first-class geometry through `ITERATION_8.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. The capability catalogue records the wider graphics, audio, simulation, content, and tooling horizon. Broader staged acceptance gates remain open.
 
 ## Vision
 
@@ -350,6 +350,7 @@ Exit: the same simulation drives both headless and visible examples; platform/ru
 
 ### Stage 3B — Render and media building blocks
 
+- [x] Implement validated CPU models and renderer-owned SlotMap resources for a point, solid line segment, convex polygon, and indexed colour mesh.
 - [ ] Promote cameras and renderable mesh/material instances to public, SlotMap-compatible engine concepts with explicit render extraction.
 - [ ] Add points, lines, polylines, polygons, debug grids, and the initial procedural primitive set: plane, cube, sphere, cylinder, cone, pyramid, capsule, and torus.
 - [ ] Add mesh and texture resource ownership, material/shader contracts, visibility, culling, batching, and measured GPU upload rules.

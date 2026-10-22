@@ -1,26 +1,44 @@
 use std::error::Error;
 use std::fmt;
+use std::num::NonZeroU64;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use bytemuck::{Pod, Zeroable};
 use glam::{Mat4, Vec3, Vec4};
+use slotmap::{new_key_type, SlotMap};
 use wgpu::util::DeviceExt;
 use winit::dpi::PhysicalSize;
 use winit::event_loop::OwnedDisplayHandle;
 use winit::window::Window;
 
+use crate::{Geometry, Line, Mesh, Point, Polygon};
+
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+const INITIAL_INSTANCE_CAPACITY: usize = 64;
+static NEXT_RENDERER_ID: AtomicU64 = AtomicU64::new(1);
+
+new_key_type! {
+    struct GeometryKey;
+}
+
+/// Renderer-scoped runtime identity for uploaded geometry.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct GeometryId {
+    renderer: u64,
+    key: GeometryKey,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Vertex {
     position: [f32; 3],
-    color: [f32; 3],
+    color: [f32; 4],
 }
 
 impl Vertex {
     const ATTRIBUTES: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
 
     fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -31,50 +49,28 @@ impl Vertex {
     }
 }
 
-const CUBE_VERTICES: [Vertex; 8] = [
-    Vertex {
-        position: [-1.0, -1.0, 1.0],
-        color: [0.95, 0.25, 0.20],
-    },
-    Vertex {
-        position: [1.0, -1.0, 1.0],
-        color: [0.20, 0.80, 0.35],
-    },
-    Vertex {
-        position: [1.0, 1.0, 1.0],
-        color: [0.20, 0.45, 1.00],
-    },
-    Vertex {
-        position: [-1.0, 1.0, 1.0],
-        color: [0.95, 0.75, 0.20],
-    },
-    Vertex {
-        position: [-1.0, -1.0, -1.0],
-        color: [0.70, 0.25, 0.90],
-    },
-    Vertex {
-        position: [1.0, -1.0, -1.0],
-        color: [0.20, 0.85, 0.90],
-    },
-    Vertex {
-        position: [1.0, 1.0, -1.0],
-        color: [0.95, 0.45, 0.65],
-    },
-    Vertex {
-        position: [-1.0, 1.0, -1.0],
-        color: [0.75, 0.85, 0.95],
-    },
-];
-
-const CUBE_INDICES: [u16; 36] = [
-    0, 1, 2, 0, 2, 3, 1, 5, 6, 1, 6, 2, 5, 4, 7, 5, 7, 6, 4, 0, 3, 4, 3, 7, 3, 2, 6, 3, 6, 7, 4, 5,
-    1, 4, 1, 0,
-];
-
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct ObjectUniform {
     model_view_projection: [[f32; 4]; 4],
+}
+
+struct GpuMesh {
+    vertex_buffer: wgpu::Buffer,
+    index_buffer: wgpu::Buffer,
+    index_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GeometryInstance {
+    pub geometry: GeometryId,
+    pub model: Mat4,
+}
+
+impl GeometryInstance {
+    pub fn new(geometry: GeometryId, model: Mat4) -> Self {
+        Self { geometry, model }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -90,6 +86,9 @@ pub enum GraphicsError {
     NoAdapter(String),
     RequestDevice(String),
     UnsupportedSurface,
+    MissingGeometry(GeometryId),
+    NonFiniteModelMatrix { instance: usize },
+    TooManyInstances(usize),
     SurfaceLost,
     SurfaceValidation,
 }
@@ -105,6 +104,15 @@ impl fmt::Display for GraphicsError {
             Self::UnsupportedSurface => {
                 formatter.write_str("selected adapter does not support the window surface")
             }
+            Self::MissingGeometry(id) => write!(formatter, "geometry handle {id:?} is unavailable"),
+            Self::NonFiniteModelMatrix { instance } => write!(
+                formatter,
+                "geometry instance {instance} has a non-finite model matrix"
+            ),
+            Self::TooManyInstances(count) => write!(
+                formatter,
+                "cannot address {count} geometry instances in one frame"
+            ),
             Self::SurfaceLost => formatter.write_str("window surface was lost"),
             Self::SurfaceValidation => formatter.write_str("window surface validation failed"),
         }
@@ -120,8 +128,8 @@ pub enum RenderOutcome {
     Skipped,
 }
 
-/// Minimal renderer for the first Emergent 3D object.
-pub struct CubeRenderer {
+/// Renderer-owned, depth-tested storage for uploaded geometry.
+pub struct GeometryRenderer {
     instance: wgpu::Instance,
     window: Arc<Window>,
     surface: wgpu::Surface<'static>,
@@ -129,15 +137,19 @@ pub struct CubeRenderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
-    vertex_buffer: wgpu::Buffer,
-    index_buffer: wgpu::Buffer,
+    uniform_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
+    uniform_stride: u64,
+    uniform_capacity: usize,
+    uniform_bytes: Vec<u8>,
+    renderer_id: u64,
+    geometry: SlotMap<GeometryKey, GpuMesh>,
     depth_view: wgpu::TextureView,
     info: RendererInfo,
 }
 
-impl CubeRenderer {
+impl GeometryRenderer {
     pub async fn new(
         window: Arc<Window>,
         display: OwnedDisplayHandle,
@@ -175,44 +187,40 @@ impl CubeRenderer {
         surface.configure(&device, &config);
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("Emergent cube shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/cube.wgsl").into()),
+            label: Some("Emergent geometry shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/geometry.wgsl").into()),
         });
-        let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Emergent object uniform"),
-            contents: bytemuck::bytes_of(&ObjectUniform {
-                model_view_projection: Mat4::IDENTITY.to_cols_array_2d(),
-            }),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
+        let uniform_size = std::mem::size_of::<ObjectUniform>() as u64;
+        let uniform_stride = align_up(
+            uniform_size,
+            device.limits().min_uniform_buffer_offset_alignment as u64,
+        );
         let uniform_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("Emergent object uniform layout"),
+            label: Some("Emergent geometry uniform layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
                 visibility: wgpu::ShaderStages::VERTEX,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+                    has_dynamic_offset: true,
+                    min_binding_size: NonZeroU64::new(uniform_size),
                 },
                 count: None,
             }],
         });
-        let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Emergent object uniform bind group"),
-            layout: &uniform_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
-        });
+        let (uniform_buffer, uniform_bind_group) = create_uniform_resources(
+            &device,
+            &uniform_layout,
+            uniform_stride,
+            INITIAL_INSTANCE_CAPACITY,
+        );
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("Emergent cube pipeline layout"),
+            label: Some("Emergent geometry pipeline layout"),
             bind_group_layouts: &[Some(&uniform_layout)],
             immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Emergent cube pipeline"),
+            label: Some("Emergent geometry pipeline"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -240,22 +248,12 @@ impl CubeRenderer {
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
                     format: config.format,
-                    blend: Some(wgpu::BlendState::REPLACE),
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
             }),
             multiview_mask: None,
             cache: None,
-        });
-        let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Emergent cube vertices"),
-            contents: bytemuck::cast_slice(&CUBE_VERTICES),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
-        let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Emergent cube indices"),
-            contents: bytemuck::cast_slice(&CUBE_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
         });
         let depth_view = create_depth_view(&device, size);
         let adapter_info = adapter.get_info();
@@ -273,10 +271,14 @@ impl CubeRenderer {
             queue,
             config,
             pipeline,
-            vertex_buffer,
-            index_buffer,
+            uniform_layout,
             uniform_buffer,
             uniform_bind_group,
+            uniform_stride,
+            uniform_capacity: INITIAL_INSTANCE_CAPACITY,
+            uniform_bytes: vec![0; uniform_stride as usize * INITIAL_INSTANCE_CAPACITY],
+            renderer_id: NEXT_RENDERER_ID.fetch_add(1, Ordering::Relaxed),
+            geometry: SlotMap::with_key(),
             depth_view,
             info,
         })
@@ -284,6 +286,40 @@ impl CubeRenderer {
 
     pub fn info(&self) -> &RendererInfo {
         &self.info
+    }
+
+    pub fn insert(&mut self, geometry: &Geometry) -> GeometryId {
+        let (vertices, indices) = tessellate(geometry);
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Emergent geometry vertices"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Emergent geometry indices"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+        let key = self.geometry.insert(GpuMesh {
+            vertex_buffer,
+            index_buffer,
+            index_count: indices.len() as u32,
+        });
+        GeometryId {
+            renderer: self.renderer_id,
+            key,
+        }
+    }
+
+    pub fn remove(&mut self, geometry: GeometryId) -> bool {
+        geometry.renderer == self.renderer_id && self.geometry.remove(geometry.key).is_some()
+    }
+    pub fn contains(&self, geometry: GeometryId) -> bool {
+        geometry.renderer == self.renderer_id && self.geometry.contains_key(geometry.key)
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
@@ -296,7 +332,30 @@ impl CubeRenderer {
         self.depth_view = create_depth_view(&self.device, size);
     }
 
-    pub fn render(&mut self, model: Mat4) -> Result<RenderOutcome, GraphicsError> {
+    pub fn render(
+        &mut self,
+        instances: &[GeometryInstance],
+    ) -> Result<RenderOutcome, GraphicsError> {
+        self.validate_instances(instances)?;
+        self.ensure_uniform_capacity(instances.len())?;
+        let aspect = self.config.width as f32 / self.config.height as f32;
+        let view_matrix = look_at_rh(Vec3::new(7.0, 5.0, 9.0), Vec3::ZERO, Vec3::Y);
+        let projection = perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 100.0);
+        for (index, instance) in instances.iter().enumerate() {
+            let uniform = ObjectUniform {
+                model_view_projection: (projection * view_matrix * instance.model)
+                    .to_cols_array_2d(),
+            };
+            let offset = index * self.uniform_stride as usize;
+            let bytes = bytemuck::bytes_of(&uniform);
+            self.uniform_bytes[offset..offset + bytes.len()].copy_from_slice(bytes);
+        }
+        if !instances.is_empty() {
+            let byte_count = instances.len() * self.uniform_stride as usize;
+            self.queue
+                .write_buffer(&self.uniform_buffer, 0, &self.uniform_bytes[..byte_count]);
+        }
+
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
             wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
@@ -304,7 +363,7 @@ impl CubeRenderer {
                 frame
             }
             wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(RenderOutcome::Skipped);
+                return Ok(RenderOutcome::Skipped)
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
                 self.surface.configure(&self.device, &self.config);
@@ -319,32 +378,23 @@ impl CubeRenderer {
                 return Ok(RenderOutcome::Reconfigured);
             }
             wgpu::CurrentSurfaceTexture::Validation => {
-                return Err(GraphicsError::SurfaceValidation);
+                return Err(GraphicsError::SurfaceValidation)
             }
         };
 
-        let aspect = self.config.width as f32 / self.config.height as f32;
-        let view = look_at_rh(Vec3::new(4.0, 3.0, 6.0), Vec3::ZERO, Vec3::Y);
-        let projection = perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 100.0);
-        let uniform = ObjectUniform {
-            model_view_projection: (projection * view * model).to_cols_array_2d(),
-        };
-        self.queue
-            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniform));
-
-        let view = frame
+        let surface_view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Emergent frame encoder"),
+                label: Some("Emergent geometry frame encoder"),
             });
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Emergent cube pass"),
+                label: Some("Emergent geometry pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &surface_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -370,18 +420,215 @@ impl CubeRenderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.uniform_bind_group, &[]);
-            pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-            pass.set_index_buffer(self.index_buffer.slice(..), wgpu::IndexFormat::Uint16);
-            pass.draw_indexed(0..CUBE_INDICES.len() as u32, 0, 0..1);
+            for (index, instance) in instances.iter().enumerate() {
+                let offset = u32::try_from(index as u64 * self.uniform_stride)
+                    .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
+                let mesh = &self.geometry[instance.geometry.key];
+                pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
         }
         self.queue.submit(Some(encoder.finish()));
         self.window.pre_present_notify();
         self.queue.present(frame);
         Ok(RenderOutcome::Presented)
     }
+
+    fn validate_instances(&self, instances: &[GeometryInstance]) -> Result<(), GraphicsError> {
+        for (index, instance) in instances.iter().enumerate() {
+            if !self.contains(instance.geometry) {
+                return Err(GraphicsError::MissingGeometry(instance.geometry));
+            }
+            if !instance.model.is_finite() {
+                return Err(GraphicsError::NonFiniteModelMatrix { instance: index });
+            }
+        }
+        Ok(())
+    }
+
+    fn ensure_uniform_capacity(&mut self, required: usize) -> Result<(), GraphicsError> {
+        if required <= self.uniform_capacity {
+            return Ok(());
+        }
+        let capacity = required
+            .checked_next_power_of_two()
+            .ok_or(GraphicsError::TooManyInstances(required))?;
+        let maximum = u32::MAX as u64 / self.uniform_stride + 1;
+        if capacity as u64 > maximum {
+            return Err(GraphicsError::TooManyInstances(required));
+        }
+        let (buffer, bind_group) = create_uniform_resources(
+            &self.device,
+            &self.uniform_layout,
+            self.uniform_stride,
+            capacity,
+        );
+        self.uniform_buffer = buffer;
+        self.uniform_bind_group = bind_group;
+        self.uniform_capacity = capacity;
+        self.uniform_bytes = vec![0; self.uniform_stride as usize * capacity];
+        Ok(())
+    }
 }
 
+/// Compatibility wrapper for the original one-cube example.
+pub struct CubeRenderer {
+    renderer: GeometryRenderer,
+    cube: GeometryId,
+}
+
+impl CubeRenderer {
+    pub async fn new(
+        window: Arc<Window>,
+        display: OwnedDisplayHandle,
+    ) -> Result<Self, GraphicsError> {
+        let mut renderer = GeometryRenderer::new(window, display).await?;
+        let cube = renderer.insert(&Geometry::Mesh(
+            Mesh::cube(1.0).expect("the built-in cube must be valid"),
+        ));
+        Ok(Self { renderer, cube })
+    }
+    pub fn info(&self) -> &RendererInfo {
+        self.renderer.info()
+    }
+    pub fn resize(&mut self, size: PhysicalSize<u32>) {
+        self.renderer.resize(size);
+    }
+    pub fn render(&mut self, model: Mat4) -> Result<RenderOutcome, GraphicsError> {
+        self.renderer
+            .render(&[GeometryInstance::new(self.cube, model)])
+    }
+}
+
+fn create_uniform_resources(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    stride: u64,
+    capacity: usize,
+) -> (wgpu::Buffer, wgpu::BindGroup) {
+    let buffer = device.create_buffer(&wgpu::BufferDescriptor {
+        label: Some("Emergent geometry instance uniforms"),
+        size: stride * capacity as u64,
+        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+        mapped_at_creation: false,
+    });
+    let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("Emergent geometry uniform bind group"),
+        layout,
+        entries: &[wgpu::BindGroupEntry {
+            binding: 0,
+            resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                buffer: &buffer,
+                offset: 0,
+                size: NonZeroU64::new(std::mem::size_of::<ObjectUniform>() as u64),
+            }),
+        }],
+    });
+    (buffer, bind_group)
+}
+
+fn tessellate(geometry: &Geometry) -> (Vec<Vertex>, Vec<u32>) {
+    match geometry {
+        Geometry::Point(point) => tessellate_point(*point),
+        Geometry::Line(line) => tessellate_line(*line),
+        Geometry::Polygon(polygon) => tessellate_polygon(polygon),
+        Geometry::Mesh(mesh) => tessellate_mesh(mesh),
+    }
+}
+
+fn tessellate_point(point: Point) -> (Vec<Vertex>, Vec<u32>) {
+    let center = point.position();
+    let radius = point.radius();
+    let positions = [
+        center + Vec3::X * radius,
+        center - Vec3::X * radius,
+        center + Vec3::Y * radius,
+        center - Vec3::Y * radius,
+        center + Vec3::Z * radius,
+        center - Vec3::Z * radius,
+    ];
+    let color = point.color().components();
+    let vertices = positions
+        .into_iter()
+        .map(|position| Vertex {
+            position: position.to_array(),
+            color,
+        })
+        .collect();
+    let indices = vec![
+        0, 2, 4, 4, 2, 1, 1, 2, 5, 5, 2, 0, 0, 4, 3, 4, 1, 3, 1, 5, 3, 5, 0, 3,
+    ];
+    (vertices, indices)
+}
+
+fn tessellate_line(line: Line) -> (Vec<Vertex>, Vec<u32>) {
+    let direction = (line.end() - line.start()).normalize();
+    let helper = if direction.dot(Vec3::Y).abs() < 0.9 {
+        Vec3::Y
+    } else {
+        Vec3::X
+    };
+    let side = direction.cross(helper).normalize() * line.radius();
+    let up = direction.cross(side).normalize() * line.radius();
+    let positions = [
+        line.start() - side - up,
+        line.start() + side - up,
+        line.start() + side + up,
+        line.start() - side + up,
+        line.end() - side - up,
+        line.end() + side - up,
+        line.end() + side + up,
+        line.end() - side + up,
+    ];
+    let color = line.color().components();
+    let vertices = positions
+        .into_iter()
+        .map(|position| Vertex {
+            position: position.to_array(),
+            color,
+        })
+        .collect();
+    let indices = vec![
+        0, 2, 1, 0, 3, 2, 4, 5, 6, 4, 6, 7, 0, 1, 5, 0, 5, 4, 1, 2, 6, 1, 6, 5, 2, 3, 7, 2, 7, 6,
+        3, 0, 4, 3, 4, 7,
+    ];
+    (vertices, indices)
+}
+
+fn tessellate_polygon(polygon: &Polygon) -> (Vec<Vertex>, Vec<u32>) {
+    let color = polygon.color().components();
+    let vertices = polygon
+        .vertices()
+        .iter()
+        .map(|position| Vertex {
+            position: position.to_array(),
+            color,
+        })
+        .collect();
+    let mut indices = Vec::with_capacity((polygon.vertices().len() - 2) * 3);
+    for index in 1..polygon.vertices().len() - 1 {
+        indices.extend_from_slice(&[0, index as u32, index as u32 + 1]);
+    }
+    (vertices, indices)
+}
+
+fn tessellate_mesh(mesh: &Mesh) -> (Vec<Vertex>, Vec<u32>) {
+    let vertices = mesh
+        .vertices()
+        .iter()
+        .map(|vertex| Vertex {
+            position: vertex.position().to_array(),
+            color: vertex.color().components(),
+        })
+        .collect();
+    (vertices, mesh.indices().to_vec())
+}
+
+fn align_up(value: u64, alignment: u64) -> u64 {
+    value.div_ceil(alignment) * alignment
+}
 fn non_zero_size(size: PhysicalSize<u32>) -> PhysicalSize<u32> {
     PhysicalSize::new(size.width.max(1), size.height.max(1))
 }
@@ -431,6 +678,7 @@ fn create_depth_view(device: &wgpu::Device, size: PhysicalSize<u32>) -> wgpu::Te
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{Color, MeshVertex};
 
     #[test]
     fn clamps_zero_surface_dimensions_for_initial_configuration() {
@@ -447,5 +695,64 @@ mod tests {
         let far = projection * Vec4::new(0.0, 0.0, -100.0, 1.0);
         assert!((near.z / near.w).abs() < 1.0e-5);
         assert!((far.z / far.w - 1.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn tessellates_every_geometry_family_to_valid_triangles() {
+        let point = Geometry::from(Point::new(Vec3::ZERO, 0.2, Color::RED).unwrap());
+        let line = Geometry::from(
+            Line::new(Vec3::ZERO, Vec3::new(2.0, 1.0, -1.0), 0.1, Color::GREEN).unwrap(),
+        );
+        let polygon = Geometry::from(
+            Polygon::new(
+                vec![Vec3::ZERO, Vec3::X, Vec3::X + Vec3::Y, Vec3::Y],
+                Color::BLUE,
+            )
+            .unwrap(),
+        );
+        let mesh = Geometry::from(
+            Mesh::new(
+                vec![
+                    MeshVertex::new(Vec3::ZERO, Color::RED).unwrap(),
+                    MeshVertex::new(Vec3::X, Color::GREEN).unwrap(),
+                    MeshVertex::new(Vec3::Y, Color::BLUE).unwrap(),
+                ],
+                vec![0, 1, 2],
+            )
+            .unwrap(),
+        );
+        for geometry in [&point, &line, &polygon, &mesh] {
+            let (vertices, indices) = tessellate(geometry);
+            assert!(!vertices.is_empty());
+            assert!(!indices.is_empty());
+            assert!(indices.len().is_multiple_of(3));
+            assert!(indices
+                .iter()
+                .all(|index| (*index as usize) < vertices.len()));
+        }
+    }
+
+    #[test]
+    fn slotmap_geometry_handles_become_stale_without_aliasing() {
+        let mut storage = SlotMap::<GeometryKey, ()>::with_key();
+        let removed_key = storage.insert(());
+        let removed = GeometryId {
+            renderer: 7,
+            key: removed_key,
+        };
+        assert_eq!(storage.remove(removed.key), Some(()));
+        let replacement = GeometryId {
+            renderer: 7,
+            key: storage.insert(()),
+        };
+        assert_ne!(removed, replacement);
+        assert!(!storage.contains_key(removed.key));
+    }
+
+    #[test]
+    fn aligns_dynamic_uniform_offsets() {
+        assert_eq!(align_up(64, 256), 256);
+        assert_eq!(align_up(256, 256), 256);
+        assert_eq!(align_up(257, 256), 512);
     }
 }

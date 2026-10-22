@@ -31,6 +31,14 @@ It opens a native `winit` window and renders a rotating, depth-tested cube throu
 cargo run --release --features graphics --example first_window -- --smoke
 ```
 
+Run the first-class geometry gallery with:
+
+```sh
+cargo run --release --features graphics --example geometry_gallery
+```
+
+It renders a solid point marker, line segment, convex polygon, and custom indexed mesh as four independently transformed entities. Add `-- --smoke` for the self-closing native validation run.
+
 Run the independent reference game project with:
 
 ```sh
@@ -47,7 +55,7 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`.
+Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`. The point, line, polygon, mesh, and renderer ownership contracts are recorded in `ITERATION_8.md`.
 
 ## User guide
 

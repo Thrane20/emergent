@@ -15,7 +15,7 @@ const pages = [
   { title: "Transforms", section: "API", url: "api.html#transforms", terms: "Transform GlobalTransform Vec3 Quat reparent propagation" },
   { title: "Behaviours", section: "API", url: "api.html#behaviours", terms: "BehaviorSpec link port linear motion follow scalar snapshot" },
   { title: "ECS integration", section: "API", url: "api.html#ecs", terms: "bevy component resource schedule lifecycle queue" },
-  { title: "Graphics preview", section: "API", url: "api.html#graphics", terms: "wgpu winit CubeRenderer render resize feature" },
+  { title: "Graphics and geometry", section: "API", url: "api.html#graphics", terms: "wgpu winit GeometryRenderer GeometryId GeometryInstance Point Line Polygon Mesh render resize" },
   { title: "Project contract", section: "API", url: "api.html#projects", terms: "Project ProjectManifest output asset path schema" },
 ];
 
