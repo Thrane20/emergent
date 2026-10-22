@@ -56,6 +56,17 @@ Observed ranges across those runs:
 
 The Bevy lookup result had one large outlier; its median and range are both retained rather than hiding that variability.
 
+A later confirmation run, invoked through the documented command on the same machine, produced the same checksum for all candidates and measured:
+
+| Candidate | Native dense update | Canonical-handle lookup | Spawn/despawn churn |
+| --- | ---: | ---: | ---: |
+| SlotMap + `SecondaryMap` | 126.56 us | 159.73 us | 6.70 ns/op |
+| `hecs` | 217.70 us | 375.74 us | 16.22 ns/op |
+| `bevy_ecs` direct query | 78.51 us | 523.25 us | 26.89 ns/op |
+| `bevy_ecs` scheduled system | 63.82 us | n/a | n/a |
+
+Run-to-run variation changed the absolute values but preserved the decision-relevant result: Bevy led dense scheduled work, while SlotMap led canonical lookup and structural churn.
+
 Separate `/usr/bin/time -l` runs measured maximum resident set size for the same binary operating in one mode. Because the binary contains every candidate and macOS demand-pages code, these values are comparative observations rather than precise storage accounting:
 
 | Mode | Maximum resident set size |

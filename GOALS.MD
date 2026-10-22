@@ -1,6 +1,6 @@
 # Emergent — Foundation Goals
 
-Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph in `ITERATION_2.md` and ECS comparison in `ITERATION_3.md` are complete. Standalone `bevy_ecs` is the selected production direction for components and systems, with integration still pending. Broader staged acceptance gates remain open.
+Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph in `ITERATION_2.md` and ECS comparison in `ITERATION_3.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. Production integration is still pending. Broader staged acceptance gates remain open.
 
 ## Vision
 
@@ -64,9 +64,19 @@ Iteration 3 evaluated `hecs`, standalone `bevy_ecs`, and focused SlotMap storage
 
 ADR 0002 selects standalone `bevy_ecs` for general component storage, queries, resources, and scheduling. `hecs` is deferred, and SlotMap remains the focused identity, hierarchy, and specialized-storage foundation. Do not build a universal ECS abstraction.
 
-If an ECS is adopted, its entity IDs remain internal storage handles mapped to Emergent SlotMap keys. Define creation, deletion, rollback on failed creation, and mapping cleanup at explicit commit points. Keep hierarchy data authoritative in one place; do not maintain independent competing parent/child graphs in SlotMap and the ECS. Measure the indirection and memory cost of this arrangement. If it proves unsuitable, raise the architectural conflict before changing SlotMap's role.
+This foundation decision is locked in for implementation:
 
-Compare release-build query/update throughput, hierarchy propagation, structural churn, behaviour-link lookup, allocation and memory costs, scheduling control, ergonomics, and build/dependency burden. Include mapping costs in the timed workload. Pin the tested crate versions and Rust toolchain when the spike begins; no versions or compatibility results are established by this brief.
+- Use native Bevy queries and schedules for dense frame work.
+- Use typed SlotMap keys for public identity, ownership graphs, parent/child relationships, scene membership, and behaviour identity.
+- Map SlotMap keys to internal Bevy entities at explicit lifecycle commit points; canonical lookup is a boundary operation, not the normal dense-update path.
+- Keep specialised packed or subsystem-owned storage available when profiling demonstrates a need.
+- Do not continue routine comparison work or retain interchangeable ECS backends. Reopen ADR 0002 only if production integration cannot preserve the identity and hierarchy invariants, a representative engine workload shows an unacceptable frame-time or memory regression against an agreed budget, or a required target cannot support the selected dependency.
+
+The release comparison on 2026-10-22 used 100,000 entities and produced the same checksum (`20624950.238`) for every candidate. The confirmation run measured Bevy scheduled dense updates at 63.82 us per iteration, Bevy direct queries at 78.51 us, SlotMap dense updates at 126.56 us, and `hecs` dense updates at 217.70 us. SlotMap remained strongest for canonical lookup (159.73 us) and spawn/despawn churn (6.70 ns per operation), supporting the split of responsibilities above. These are local microbenchmark results, not universal performance guarantees; the complete method, repeated-run medians, memory observations, and limitations are in `docs/research/iteration-3-ecs-comparison.md`.
+
+During integration, Bevy entity IDs remain internal storage handles mapped to Emergent SlotMap keys. Define creation, deletion, rollback on failed creation, and mapping cleanup at explicit commit points. Keep hierarchy data authoritative in one place; do not maintain independent competing parent/child graphs in SlotMap and the ECS. Measure the indirection and memory cost of this arrangement. If it proves unsuitable, raise the architectural conflict before changing SlotMap's role.
+
+Continue measuring release-build query/update throughput, hierarchy propagation, structural churn, behaviour-link lookup, allocation and memory costs as the real engine integration develops. Include mapping costs where they occur, pin dependency versions, and record the Rust toolchain with each performance result. These measurements validate and tune the chosen architecture; they do not keep the original candidate selection perpetually open.
 
 ### Behaviours and emergence
 

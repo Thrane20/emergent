@@ -1,6 +1,6 @@
 # ADR 0002: Use standalone Bevy ECS for components and systems
 
-Status: accepted as the production direction; integration is deferred to a separate iteration.
+Status: accepted and locked in as the production direction; integration is deferred to a separate iteration.
 
 ## Decision
 
@@ -9,6 +9,8 @@ Emergent will plan around standalone `bevy_ecs` for general component storage, q
 SlotMap remains authoritative for engine identity, entity hierarchy, scene membership, and behaviour identity. A Bevy entity is an internal component-storage handle mapped from an Emergent key. Emergent will not mirror its parent/child graph into Bevy relationships.
 
 Use minimal Bevy ECS features initially: `default-features = false` with `std`. Add multithreading, reflection, serialization, tracing, or debug stepping only through separate evidence-backed decisions.
+
+This decision ends the routine ECS comparison. Reconsider it only if production integration cannot preserve Emergent's SlotMap identity and hierarchy invariants, representative workloads exceed an agreed frame-time or memory budget because of the integration, or a required platform cannot support the dependency.
 
 ## Why
 
