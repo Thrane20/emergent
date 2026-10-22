@@ -240,6 +240,7 @@ impl Engine {
         }
         self.world
             .run_component_schedule(&mut self.schedules.fixed)?;
+        self.world.evaluate_behaviors(self.config.fixed_timestep)?;
         self.world.commit_lifecycle_commands();
         self.world.propagate_transforms();
         self.world

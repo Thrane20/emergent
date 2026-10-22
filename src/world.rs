@@ -2,6 +2,7 @@ use std::any::TypeId;
 use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Duration;
 
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::{Component, Mutable};
@@ -13,6 +14,12 @@ use bevy_ecs::schedule::Schedule;
 use bevy_ecs::world::{DeferredWorld, World as EcsWorld};
 use glam::{Affine3A, Mat4, Quat, Vec3};
 use slotmap::{new_key_type, SecondaryMap, SlotMap};
+
+use crate::behavior::{BehaviorGraph, BehaviorTransformWrite};
+use crate::{
+    BehaviorError, BehaviorEvaluationStats, BehaviorId, BehaviorRunState, BehaviorSpec,
+    BehaviorValue, PortId,
+};
 
 new_key_type! {
     struct EntityKey;
@@ -297,6 +304,7 @@ pub struct World {
     components: EcsWorld,
     unauthorized_entity_query:
         QueryState<EcsEntity, (Without<EntityIdentity>, Without<IsResource>)>,
+    behaviors: BehaviorGraph,
     transform_stack: Vec<EntityKey>,
 }
 
@@ -318,12 +326,14 @@ impl World {
         components.insert_resource(ComponentIntegrity::default());
         let unauthorized_entity_query = components
             .query_filtered::<EcsEntity, (Without<EntityIdentity>, Without<IsResource>)>();
+        let id = NEXT_WORLD_ID.fetch_add(1, Ordering::Relaxed);
         Self {
-            id: NEXT_WORLD_ID.fetch_add(1, Ordering::Relaxed),
+            id,
             entities: SlotMap::with_capacity_and_key(capacity),
             component_entities: SecondaryMap::with_capacity(capacity),
             components,
             unauthorized_entity_query,
+            behaviors: BehaviorGraph::new(id),
             transform_stack: Vec::with_capacity(capacity),
         }
     }
@@ -334,6 +344,10 @@ impl World {
 
     pub fn is_empty(&self) -> bool {
         self.entities.is_empty()
+    }
+
+    pub fn behavior_count(&self) -> usize {
+        self.behaviors.len()
     }
 
     pub fn spawn(&mut self, name: impl Into<String>) -> EntityId {
@@ -419,6 +433,84 @@ impl World {
 
     pub fn resource_mut<R: Resource<Mutability = Mutable>>(&mut self) -> Option<Mut<'_, R>> {
         self.components.get_resource_mut::<R>()
+    }
+
+    pub fn add_behavior(
+        &mut self,
+        owner: EntityId,
+        spec: BehaviorSpec,
+    ) -> Result<BehaviorId, BehaviorError> {
+        if self.key_for(owner).is_err() {
+            return Err(BehaviorError::InvalidOwner(owner));
+        }
+        let initial_translation = spec.initial_translation();
+        let behavior = self.behaviors.add(owner, spec)?;
+        if let Some(translation) = initial_translation {
+            let current = *self
+                .local_transform(owner)
+                .expect("validated behaviour owner");
+            let transform = Transform::new(translation, current.rotation, current.scale);
+            if self.set_local_transform(owner, transform).is_err() {
+                self.behaviors
+                    .remove(behavior)
+                    .expect("new behaviour must roll back");
+                return Err(BehaviorError::InvalidConfiguration);
+            }
+        }
+        Ok(behavior)
+    }
+
+    pub fn remove_behavior(&mut self, behavior: BehaviorId) -> Result<(), BehaviorError> {
+        self.behaviors.remove(behavior)
+    }
+
+    pub fn connect_behaviors(
+        &mut self,
+        source: BehaviorId,
+        output: PortId,
+        target: BehaviorId,
+        input: PortId,
+    ) -> Result<(), BehaviorError> {
+        self.behaviors.connect(source, output, target, input)
+    }
+
+    pub fn disconnect_behavior_input(
+        &mut self,
+        target: BehaviorId,
+        input: PortId,
+    ) -> Result<(), BehaviorError> {
+        self.behaviors.disconnect(target, input)
+    }
+
+    pub fn set_behavior_enabled(
+        &mut self,
+        behavior: BehaviorId,
+        enabled: bool,
+    ) -> Result<(), BehaviorError> {
+        self.behaviors.set_enabled(behavior, enabled)
+    }
+
+    pub fn behavior_output(&self, behavior: BehaviorId) -> Result<BehaviorValue, BehaviorError> {
+        self.behaviors.output(behavior)
+    }
+
+    pub fn behavior_state(&self, behavior: BehaviorId) -> Result<BehaviorRunState, BehaviorError> {
+        self.behaviors.state(behavior)
+    }
+
+    pub fn behavior_owner(&self, behavior: BehaviorId) -> Result<EntityId, BehaviorError> {
+        self.behaviors.owner(behavior)
+    }
+
+    pub fn evaluate_behaviors(
+        &mut self,
+        fixed_delta: Duration,
+    ) -> Result<BehaviorEvaluationStats, WorldError> {
+        let stats = self.behaviors.evaluate(fixed_delta);
+        let writes = self.behaviors.take_transform_writes();
+        let result = self.apply_behavior_transform_writes(&writes);
+        self.behaviors.restore_transform_writes(writes);
+        result.map(|()| stats)
     }
 
     pub fn parent(&self, id: EntityId) -> Result<Option<EntityId>, WorldError> {
@@ -534,6 +626,12 @@ impl World {
                 .children
                 .retain(|child| *child != root_key);
         }
+
+        for index in 0..self.transform_stack.len() {
+            let key = self.transform_stack[index];
+            self.behaviors.remove_owner(self.id_for(key));
+        }
+        self.behaviors.compact_order();
 
         self.components
             .resource_mut::<ComponentIntegrity>()
@@ -697,6 +795,20 @@ impl World {
         self.transform_stack.reserve(additional);
     }
 
+    fn apply_behavior_transform_writes(
+        &mut self,
+        writes: &[BehaviorTransformWrite],
+    ) -> Result<(), WorldError> {
+        for write in writes {
+            let current = *self.local_transform(write.owner)?;
+            self.set_local_transform(
+                write.owner,
+                Transform::new(write.translation, current.rotation, current.scale),
+            )?;
+        }
+        Ok(())
+    }
+
     fn key_for(&self, id: EntityId) -> Result<EntityKey, WorldError> {
         if id.world != self.id {
             return Err(WorldError::WrongWorld(id));
@@ -786,6 +898,7 @@ mod tests {
     use std::f32::consts::FRAC_PI_2;
 
     use super::*;
+    use crate::behavior_ports;
 
     fn assert_vec3_close(actual: Vec3, expected: Vec3) {
         assert!(
@@ -1057,5 +1170,342 @@ mod tests {
         assert_eq!(world.len(), 1);
         world.validate_component_mappings().unwrap();
         assert!(world.resource::<EntityLifecycleQueue>().unwrap().is_empty());
+    }
+
+    fn vector_output(world: &World, behavior: BehaviorId) -> Vec3 {
+        let BehaviorValue::Vector(value) = world.behavior_output(behavior).unwrap() else {
+            panic!("expected vector behaviour output");
+        };
+        value
+    }
+
+    fn scalar_output(world: &World, behavior: BehaviorId) -> f32 {
+        let BehaviorValue::Scalar(value) = world.behavior_output(behavior).unwrap() else {
+            panic!("expected scalar behaviour output");
+        };
+        value
+    }
+
+    #[test]
+    fn evaluates_linked_motion_from_the_previous_snapshot() {
+        let mut world = World::new();
+        let leader_entity = world.spawn("leader");
+        let first_entity = world.spawn("first follower");
+        let second_entity = world.spawn("second follower");
+        let leader = world
+            .add_behavior(
+                leader_entity,
+                BehaviorSpec::linear_motion(Vec3::ZERO, Vec3::X).unwrap(),
+            )
+            .unwrap();
+        let first = world
+            .add_behavior(
+                first_entity,
+                BehaviorSpec::follow_position(Vec3::NEG_X, 10.0).unwrap(),
+            )
+            .unwrap();
+        let second = world
+            .add_behavior(
+                second_entity,
+                BehaviorSpec::follow_position(Vec3::new(-2.0, 0.0, 0.0), 10.0).unwrap(),
+            )
+            .unwrap();
+        world
+            .connect_behaviors(
+                leader,
+                behavior_ports::POSITION,
+                first,
+                behavior_ports::TARGET,
+            )
+            .unwrap();
+        world
+            .connect_behaviors(
+                first,
+                behavior_ports::POSITION,
+                second,
+                behavior_ports::TARGET,
+            )
+            .unwrap();
+
+        let stats = world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_eq!(stats.evaluated, 3);
+        assert_eq!(stats.transform_writes, 3);
+        assert_vec3_close(vector_output(&world, leader), Vec3::X);
+        assert_vec3_close(vector_output(&world, first), Vec3::ZERO);
+        assert_vec3_close(vector_output(&world, second), Vec3::NEG_X);
+
+        world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_vec3_close(vector_output(&world, leader), Vec3::new(2.0, 0.0, 0.0));
+        assert_vec3_close(vector_output(&world, first), Vec3::X);
+        assert_vec3_close(vector_output(&world, second), Vec3::ZERO);
+        assert_vec3_close(
+            world.local_transform(second_entity).unwrap().translation,
+            Vec3::ZERO,
+        );
+    }
+
+    #[test]
+    fn feedback_advances_once_per_tick_and_disconnection_uses_default() {
+        let mut world = World::new();
+        let entity = world.spawn("feedback");
+        let behavior = world
+            .add_behavior(entity, BehaviorSpec::add_scalar(0.0, 1.0, 10.0).unwrap())
+            .unwrap();
+        world
+            .connect_behaviors(
+                behavior,
+                behavior_ports::VALUE,
+                behavior,
+                behavior_ports::VALUE,
+            )
+            .unwrap();
+
+        world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_eq!(scalar_output(&world, behavior), 1.0);
+        world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_eq!(scalar_output(&world, behavior), 2.0);
+
+        world
+            .disconnect_behavior_input(behavior, behavior_ports::VALUE)
+            .unwrap();
+        let stats = world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_eq!(scalar_output(&world, behavior), 11.0);
+        assert_eq!(stats.defaulted, 1);
+        assert_eq!(
+            world.behavior_state(behavior).unwrap(),
+            BehaviorRunState::Defaulted
+        );
+    }
+
+    #[test]
+    fn deleted_source_becomes_unavailable_and_stale_behavior_does_not_alias() {
+        let mut world = World::new();
+        let source_entity = world.spawn("source");
+        let follower_entity = world.spawn("follower");
+        let source = world
+            .add_behavior(
+                source_entity,
+                BehaviorSpec::linear_motion(Vec3::ZERO, Vec3::X).unwrap(),
+            )
+            .unwrap();
+        let follower = world
+            .add_behavior(
+                follower_entity,
+                BehaviorSpec::follow_position(Vec3::NEG_X, 1.0).unwrap(),
+            )
+            .unwrap();
+        world
+            .connect_behaviors(
+                source,
+                behavior_ports::POSITION,
+                follower,
+                behavior_ports::TARGET,
+            )
+            .unwrap();
+
+        assert_eq!(world.remove_subtree(source_entity).unwrap(), 1);
+        let replacement_entity = world.spawn("replacement source");
+        let replacement = world
+            .add_behavior(
+                replacement_entity,
+                BehaviorSpec::linear_motion(Vec3::splat(100.0), Vec3::ZERO).unwrap(),
+            )
+            .unwrap();
+        assert_ne!(source, replacement);
+        assert!(matches!(
+            world.behavior_output(source),
+            Err(BehaviorError::MissingBehavior(_))
+        ));
+
+        let stats = world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_eq!(stats.suspended, 1);
+        assert_eq!(
+            world.behavior_state(follower).unwrap(),
+            BehaviorRunState::Suspended
+        );
+        assert_vec3_close(vector_output(&world, follower), Vec3::NEG_X);
+    }
+
+    #[test]
+    fn validates_port_types_and_transform_writer_conflicts() {
+        let mut world = World::new();
+        let entity = world.spawn("entity");
+        let scalar = world
+            .add_behavior(entity, BehaviorSpec::add_scalar(0.0, 1.0, 0.0).unwrap())
+            .unwrap();
+        let writer = world
+            .add_behavior(
+                entity,
+                BehaviorSpec::linear_motion(Vec3::ZERO, Vec3::X).unwrap(),
+            )
+            .unwrap();
+        let follower_entity = world.spawn("follower");
+        let follower = world
+            .add_behavior(
+                follower_entity,
+                BehaviorSpec::follow_position(Vec3::ZERO, 1.0).unwrap(),
+            )
+            .unwrap();
+
+        assert_eq!(
+            world.connect_behaviors(
+                scalar,
+                behavior_ports::VALUE,
+                follower,
+                behavior_ports::TARGET,
+            ),
+            Err(BehaviorError::PortTypeMismatch {
+                source: crate::BehaviorValueType::Scalar,
+                target: crate::BehaviorValueType::Vector,
+            })
+        );
+        assert_eq!(
+            world.add_behavior(
+                entity,
+                BehaviorSpec::follow_position(Vec3::ZERO, 1.0).unwrap(),
+            ),
+            Err(BehaviorError::TransformWriterConflict(entity))
+        );
+
+        world.set_behavior_enabled(writer, false).unwrap();
+        let replacement_writer = world
+            .add_behavior(
+                entity,
+                BehaviorSpec::follow_position(Vec3::ZERO, 1.0).unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            world.set_behavior_enabled(writer, true),
+            Err(BehaviorError::TransformWriterConflict(entity))
+        );
+        assert_eq!(world.behavior_owner(replacement_writer).unwrap(), entity);
+    }
+
+    #[test]
+    fn rewires_links_and_suspends_when_the_new_source_is_disabled() {
+        let mut world = World::new();
+        let first_entity = world.spawn("first source");
+        let second_entity = world.spawn("second source");
+        let follower_entity = world.spawn("follower");
+        let first = world
+            .add_behavior(
+                first_entity,
+                BehaviorSpec::linear_motion(Vec3::X, Vec3::ZERO).unwrap(),
+            )
+            .unwrap();
+        let second = world
+            .add_behavior(
+                second_entity,
+                BehaviorSpec::linear_motion(Vec3::NEG_X, Vec3::ZERO).unwrap(),
+            )
+            .unwrap();
+        let follower = world
+            .add_behavior(
+                follower_entity,
+                BehaviorSpec::follow_position(Vec3::ZERO, 10.0).unwrap(),
+            )
+            .unwrap();
+
+        world
+            .connect_behaviors(
+                first,
+                behavior_ports::POSITION,
+                follower,
+                behavior_ports::TARGET,
+            )
+            .unwrap();
+        world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_vec3_close(vector_output(&world, follower), Vec3::X);
+
+        world
+            .connect_behaviors(
+                second,
+                behavior_ports::POSITION,
+                follower,
+                behavior_ports::TARGET,
+            )
+            .unwrap();
+        world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_vec3_close(vector_output(&world, follower), Vec3::NEG_X);
+
+        world.set_behavior_enabled(second, false).unwrap();
+        let stats = world.evaluate_behaviors(Duration::from_secs(1)).unwrap();
+        assert_eq!(stats.suspended, 1);
+        assert_eq!(
+            world.behavior_state(second).unwrap(),
+            BehaviorRunState::Disabled
+        );
+        assert_eq!(
+            world.behavior_state(follower).unwrap(),
+            BehaviorRunState::Suspended
+        );
+        assert_vec3_close(vector_output(&world, follower), Vec3::NEG_X);
+    }
+
+    #[test]
+    fn scene_teardown_removes_owned_behaviors() {
+        let mut world = World::new();
+        let scene = world.spawn("scene");
+        let child = world.spawn_child(scene, "child").unwrap();
+        let scene_behavior = world
+            .add_behavior(
+                scene,
+                BehaviorSpec::linear_motion(Vec3::ZERO, Vec3::ZERO).unwrap(),
+            )
+            .unwrap();
+        let child_behavior = world
+            .add_behavior(child, BehaviorSpec::add_scalar(0.0, 1.0, 0.0).unwrap())
+            .unwrap();
+
+        assert_eq!(world.remove_subtree(scene).unwrap(), 2);
+        assert_eq!(world.behavior_count(), 0);
+        assert!(matches!(
+            world.behavior_output(scene_behavior),
+            Err(BehaviorError::MissingBehavior(_))
+        ));
+        assert!(matches!(
+            world.behavior_output(child_behavior),
+            Err(BehaviorError::MissingBehavior(_))
+        ));
+    }
+
+    #[test]
+    fn equivalent_behavior_runs_are_deterministic() {
+        fn run() -> (Vec3, Vec3) {
+            let mut world = World::new();
+            let leader_entity = world.spawn("leader");
+            let follower_entity = world.spawn("follower");
+            let leader = world
+                .add_behavior(
+                    leader_entity,
+                    BehaviorSpec::linear_motion(Vec3::ZERO, Vec3::new(0.25, 0.5, -0.75)).unwrap(),
+                )
+                .unwrap();
+            let follower = world
+                .add_behavior(
+                    follower_entity,
+                    BehaviorSpec::follow_position(Vec3::splat(-1.0), 2.0).unwrap(),
+                )
+                .unwrap();
+            world
+                .connect_behaviors(
+                    leader,
+                    behavior_ports::POSITION,
+                    follower,
+                    behavior_ports::TARGET,
+                )
+                .unwrap();
+            for _ in 0..600 {
+                world
+                    .evaluate_behaviors(Duration::from_secs_f64(1.0 / 60.0))
+                    .unwrap();
+            }
+            (
+                vector_output(&world, leader),
+                vector_output(&world, follower),
+            )
+        }
+
+        assert_eq!(run(), run());
     }
 }

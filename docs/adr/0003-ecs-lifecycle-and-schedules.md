@@ -18,10 +18,11 @@ The first queue contract does not provide pending handles. A command batch canno
 2. Run `PreFixed`.
 3. Run the compatibility `Game::fixed_update` callback.
 4. Run `Fixed`.
-5. Commit `EntityLifecycleQueue` in insertion order and publish results.
-6. Propagate the authoritative SlotMap transform graph.
-7. Run `PostFixed`.
-8. Run `Game::after_fixed_update` and advance the tick counter.
+5. Evaluate behaviours from their committed input snapshots and apply staged transform writes.
+6. Commit `EntityLifecycleQueue` in insertion order and publish results.
+7. Propagate the authoritative SlotMap transform graph.
+8. Run `PostFixed`.
+9. Run `Game::after_fixed_update` and advance the tick counter.
 
 ## Integrity and failure handling
 

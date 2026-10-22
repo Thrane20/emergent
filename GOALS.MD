@@ -286,10 +286,10 @@ Exit: tests cover cycle rejection, stale keys, world boundaries, deep hierarchie
 
 ### Stage 2 — Behaviour composition and simulation
 
-- [ ] Implement behaviour attachment, typed linking, initial values, committed snapshots, and stable execution/commit rules.
+- [x] Implement behaviour attachment, typed linking, initial values, committed snapshots, and stable execution/commit rules.
 - [ ] Add fixed-step timing, bounded catch-up, pause, and headless tick control.
-- [ ] Build the linked-motion composition example and a feedback-cycle example.
-- [ ] Exercise link rewiring, target deletion, disabled behaviours, and scene teardown.
+- [x] Build the linked-motion composition example and a feedback-cycle example.
+- [x] Exercise link rewiring, target deletion, disabled behaviours, and scene teardown.
 
 Exit: behaviour changes arise from composition and links; equivalent runs with the same initial state and inputs reproduce results within the documented numerical tolerance. Feedback cannot trigger recursive or unbounded within-tick execution.
 
