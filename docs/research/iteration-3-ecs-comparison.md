@@ -6,7 +6,7 @@ Recorded: 2026-10-22
 
 Adopt standalone `bevy_ecs` as the planned component-storage and system-scheduling layer in a later production iteration. Keep SlotMap as the authoritative identity and hierarchy layer. Do not adopt `hecs` or build a general interchangeable-ECS abstraction.
 
-This is an architecture direction based on a bounded spike. `bevy_ecs` remains a development-only dependency until a separate integration design establishes lifecycle transactions, scheduling phases, and the exact mapping API.
+This was an architecture direction based on a bounded spike. Iteration 4 subsequently promoted `bevy_ecs` to a production dependency after defining lifecycle transactions, scheduling phases, and the mapping API.
 
 ## Versions and configuration
 

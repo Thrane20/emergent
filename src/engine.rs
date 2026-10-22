@@ -3,7 +3,10 @@ use std::fmt;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::World;
+use bevy_ecs::resource::Resource;
+use bevy_ecs::schedule::Schedule;
+
+use crate::{World, WorldError};
 
 /// Configuration for the fixed-step engine loop.
 #[derive(Clone, Copy, Debug)]
@@ -29,6 +32,7 @@ impl Default for EngineConfig {
 pub enum EngineError {
     ZeroFixedTimestep,
     ZeroStepLimit,
+    World(WorldError),
 }
 
 impl fmt::Display for EngineError {
@@ -36,11 +40,50 @@ impl fmt::Display for EngineError {
         match self {
             Self::ZeroFixedTimestep => formatter.write_str("fixed timestep must be non-zero"),
             Self::ZeroStepLimit => formatter.write_str("max steps per frame must be non-zero"),
+            Self::World(error) => write!(formatter, "world integrity error: {error}"),
         }
     }
 }
 
 impl Error for EngineError {}
+
+impl From<WorldError> for EngineError {
+    fn from(error: WorldError) -> Self {
+        Self::World(error)
+    }
+}
+
+/// Fixed-tick schedule positions owned by the engine.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SchedulePhase {
+    PreFixed,
+    Fixed,
+    PostFixed,
+}
+
+/// Current fixed-step timing exposed to Bevy systems.
+#[derive(Clone, Copy, Debug, Resource)]
+pub struct SimulationTime {
+    pub tick: u64,
+    pub fixed_delta: Duration,
+}
+
+#[derive(Default)]
+struct EngineSchedules {
+    pre_fixed: Schedule,
+    fixed: Schedule,
+    post_fixed: Schedule,
+}
+
+impl EngineSchedules {
+    fn get_mut(&mut self, phase: SchedulePhase) -> &mut Schedule {
+        match phase {
+            SchedulePhase::PreFixed => &mut self.pre_fixed,
+            SchedulePhase::Fixed => &mut self.fixed,
+            SchedulePhase::PostFixed => &mut self.post_fixed,
+        }
+    }
+}
 
 /// The interface implemented by a game using the Emergent loop.
 pub trait Game {
@@ -76,6 +119,7 @@ impl EngineContext<'_> {
 pub struct Engine {
     config: EngineConfig,
     world: World,
+    schedules: EngineSchedules,
     tick: u64,
     exit_requested: bool,
 }
@@ -92,6 +136,7 @@ impl Engine {
         Ok(Self {
             config,
             world: World::new(),
+            schedules: EngineSchedules::default(),
             tick: 0,
             exit_requested: false,
         })
@@ -109,9 +154,13 @@ impl Engine {
         self.tick
     }
 
+    pub fn schedule_mut(&mut self, phase: SchedulePhase) -> &mut Schedule {
+        self.schedules.get_mut(phase)
+    }
+
     /// Runs against wall-clock time until the game requests exit.
-    pub fn run<G: Game>(&mut self, game: &mut G) {
-        self.begin(game);
+    pub fn run<G: Game>(&mut self, game: &mut G) -> Result<(), EngineError> {
+        self.begin(game)?;
 
         let mut previous = Instant::now();
         let mut accumulator = Duration::ZERO;
@@ -129,7 +178,10 @@ impl Engine {
                 && steps < self.config.max_steps_per_frame
                 && !self.exit_requested
             {
-                self.update_once(game);
+                if let Err(error) = self.update_once(game) {
+                    self.end(game);
+                    return Err(error);
+                }
                 accumulator -= self.config.fixed_timestep;
                 steps += 1;
             }
@@ -145,40 +197,59 @@ impl Engine {
         }
 
         self.end(game);
+        Ok(())
     }
 
     /// Advances an exact number of ticks without sleeping or reading the clock.
-    pub fn run_ticks<G: Game>(&mut self, game: &mut G, ticks: u64) {
-        self.begin(game);
+    pub fn run_ticks<G: Game>(&mut self, game: &mut G, ticks: u64) -> Result<(), EngineError> {
+        self.begin(game)?;
         for _ in 0..ticks {
             if self.exit_requested {
                 break;
             }
-            self.update_once(game);
+            if let Err(error) = self.update_once(game) {
+                self.end(game);
+                return Err(error);
+            }
         }
         self.end(game);
+        Ok(())
     }
 
-    fn begin<G: Game>(&mut self, game: &mut G) {
+    fn begin<G: Game>(&mut self, game: &mut G) -> Result<(), EngineError> {
         self.exit_requested = false;
         {
             let mut context = self.context();
             game.start(&mut context);
         }
         self.world.propagate_transforms();
+        self.world.validate_component_mappings()?;
+        Ok(())
     }
 
-    fn update_once<G: Game>(&mut self, game: &mut G) {
+    fn update_once<G: Game>(&mut self, game: &mut G) -> Result<(), EngineError> {
+        self.world.insert_resource(SimulationTime {
+            tick: self.tick,
+            fixed_delta: self.config.fixed_timestep,
+        });
+        self.world
+            .run_component_schedule(&mut self.schedules.pre_fixed)?;
         {
             let mut context = self.context();
             game.fixed_update(&mut context);
         }
+        self.world
+            .run_component_schedule(&mut self.schedules.fixed)?;
+        self.world.commit_lifecycle_commands();
         self.world.propagate_transforms();
+        self.world
+            .run_component_schedule(&mut self.schedules.post_fixed)?;
         {
             let mut context = self.context();
             game.after_fixed_update(&mut context);
         }
         self.tick = self.tick.saturating_add(1);
+        Ok(())
     }
 
     fn end<G: Game>(&mut self, game: &mut G) {
@@ -198,7 +269,12 @@ impl Engine {
 
 #[cfg(test)]
 mod tests {
+    use bevy_ecs::prelude::{
+        Commands, Component, Entity as EcsEntity, Query, Res, ResMut, Resource, With,
+    };
+
     use super::*;
+    use crate::EntityId;
 
     #[derive(Default)]
     struct CounterGame {
@@ -234,7 +310,7 @@ mod tests {
         let mut engine = Engine::new(EngineConfig::default()).unwrap();
         let mut game = CounterGame::default();
 
-        engine.run_ticks(&mut game, 10);
+        engine.run_ticks(&mut game, 10).unwrap();
 
         assert_eq!(game.starts, 1);
         assert_eq!(game.updates, 3);
@@ -262,5 +338,174 @@ mod tests {
             Engine::new(zero_steps),
             Err(EngineError::ZeroStepLimit)
         ));
+    }
+
+    #[derive(Component)]
+    struct Position(f32);
+
+    #[derive(Component)]
+    struct Velocity(f32);
+
+    #[derive(Default, Resource)]
+    struct PhaseLog(Vec<&'static str>);
+
+    fn prepare(mut log: ResMut<PhaseLog>, time: Res<SimulationTime>) {
+        assert_eq!(time.tick, 0);
+        assert_eq!(time.fixed_delta, Duration::from_millis(10));
+        log.0.push("pre");
+    }
+
+    fn simulate(
+        mut bodies: Query<(&mut Position, &Velocity)>,
+        mut queue: ResMut<crate::EntityLifecycleQueue>,
+        mut log: ResMut<PhaseLog>,
+    ) {
+        for (mut position, velocity) in &mut bodies {
+            position.0 += velocity.0;
+        }
+        queue.spawn("scheduled spawn");
+        log.0.push("fixed");
+    }
+
+    fn observe(results: Res<crate::EntityLifecycleResults>, mut log: ResMut<PhaseLog>) {
+        assert!(matches!(
+            results.as_slice(),
+            [crate::EntityLifecycleResult::Spawned(_)]
+        ));
+        log.0.push("post");
+    }
+
+    struct ScheduledGame {
+        entity: EntityId,
+    }
+
+    impl Game for ScheduledGame {
+        fn fixed_update(&mut self, context: &mut EngineContext<'_>) {
+            context
+                .world
+                .resource_mut::<PhaseLog>()
+                .unwrap()
+                .0
+                .push("game");
+        }
+
+        fn after_fixed_update(&mut self, context: &mut EngineContext<'_>) {
+            assert_eq!(
+                context
+                    .world
+                    .component::<Position>(self.entity)
+                    .unwrap()
+                    .unwrap()
+                    .0,
+                3.0
+            );
+            context
+                .world
+                .resource_mut::<PhaseLog>()
+                .unwrap()
+                .0
+                .push("after");
+        }
+    }
+
+    #[test]
+    fn runs_schedules_and_commits_lifecycle_between_fixed_and_post_fixed() {
+        let config = EngineConfig {
+            fixed_timestep: Duration::from_millis(10),
+            ..EngineConfig::default()
+        };
+        let mut engine = Engine::new(config).unwrap();
+        let entity = engine.world_mut().spawn("body");
+        engine
+            .world_mut()
+            .insert_component(entity, Position(1.0))
+            .unwrap();
+        engine
+            .world_mut()
+            .insert_component(entity, Velocity(2.0))
+            .unwrap();
+        engine.world_mut().insert_resource(PhaseLog::default());
+        engine
+            .schedule_mut(SchedulePhase::PreFixed)
+            .add_systems(prepare);
+        engine
+            .schedule_mut(SchedulePhase::Fixed)
+            .add_systems(simulate);
+        engine
+            .schedule_mut(SchedulePhase::PostFixed)
+            .add_systems(observe);
+
+        engine.run_ticks(&mut ScheduledGame { entity }, 1).unwrap();
+
+        assert_eq!(engine.world().len(), 2);
+        assert_eq!(
+            engine.world().resource::<PhaseLog>().unwrap().0,
+            ["pre", "game", "fixed", "post", "after"]
+        );
+        engine.world().validate_component_mappings().unwrap();
+    }
+
+    fn unsupported_direct_spawn(mut commands: Commands) {
+        commands.spawn_empty();
+    }
+
+    #[derive(Default)]
+    struct EmptyGame;
+
+    impl Game for EmptyGame {
+        fn fixed_update(&mut self, _context: &mut EngineContext<'_>) {}
+    }
+
+    #[test]
+    fn rejects_direct_ecs_entity_lifecycle_changes() {
+        let mut engine = Engine::new(EngineConfig::default()).unwrap();
+        engine
+            .schedule_mut(SchedulePhase::Fixed)
+            .add_systems(unsupported_direct_spawn);
+
+        let error = engine.run_ticks(&mut EmptyGame, 1).unwrap_err();
+        assert_eq!(
+            error,
+            EngineError::World(WorldError::ComponentStoreCardinality)
+        );
+    }
+
+    fn unsupported_identity_removal(
+        mut commands: Commands,
+        identities: Query<EcsEntity, With<crate::EntityIdentity>>,
+    ) {
+        for entity in &identities {
+            commands.entity(entity).remove::<crate::EntityIdentity>();
+        }
+    }
+
+    #[test]
+    fn rejects_removing_engine_owned_identity_in_a_schedule() {
+        let mut engine = Engine::new(EngineConfig::default()).unwrap();
+        engine.world_mut().spawn("canonical");
+        engine
+            .schedule_mut(SchedulePhase::Fixed)
+            .add_systems(unsupported_identity_removal);
+
+        let error = engine.run_ticks(&mut EmptyGame, 1).unwrap_err();
+        assert_eq!(
+            error,
+            EngineError::World(WorldError::UnsupportedComponentLifecycle)
+        );
+    }
+
+    fn unsupported_engine_resource_removal(mut commands: Commands) {
+        commands.remove_resource::<crate::EntityLifecycleQueue>();
+    }
+
+    #[test]
+    fn rejects_removing_engine_owned_resources_in_a_schedule() {
+        let mut engine = Engine::new(EngineConfig::default()).unwrap();
+        engine
+            .schedule_mut(SchedulePhase::PreFixed)
+            .add_systems(unsupported_engine_resource_removal);
+
+        let error = engine.run_ticks(&mut EmptyGame, 1).unwrap_err();
+        assert_eq!(error, EngineError::World(WorldError::MissingEngineResource));
     }
 }

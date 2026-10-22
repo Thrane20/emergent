@@ -1,9 +1,18 @@
+use std::any::TypeId;
 use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use bevy_ecs::change_detection::Mut;
+use bevy_ecs::component::{Component, Mutable};
+use bevy_ecs::entity::Entity as EcsEntity;
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::query::{QueryState, Without};
+use bevy_ecs::resource::{IsResource, Resource};
+use bevy_ecs::schedule::Schedule;
+use bevy_ecs::world::{DeferredWorld, World as EcsWorld};
 use glam::{Affine3A, Mat4, Quat, Vec3};
-use slotmap::{new_key_type, SlotMap};
+use slotmap::{new_key_type, SecondaryMap, SlotMap};
 
 new_key_type! {
     struct EntityKey;
@@ -16,6 +25,113 @@ const NORMALIZED_EPSILON: f32 = 1.0e-4;
 pub struct EntityId {
     world: u64,
     key: EntityKey,
+}
+
+/// The canonical Emergent identity attached to an entity's component storage.
+///
+/// Systems may read this component to cross from a dense ECS query to an
+/// Emergent graph boundary. Its value cannot be constructed or changed outside
+/// the engine.
+#[derive(Clone, Copy, Component, Debug, Eq, Hash, PartialEq)]
+#[component(on_remove = identity_removed)]
+pub struct EntityIdentity(EntityId);
+
+impl EntityIdentity {
+    pub const fn id(self) -> EntityId {
+        self.0
+    }
+}
+
+#[derive(Debug, Default, Resource)]
+struct ComponentIntegrity {
+    identity_removal_allowed: bool,
+    unauthorized_identity_removal: bool,
+}
+
+fn identity_removed(mut world: DeferredWorld, _context: HookContext) {
+    if let Some(mut integrity) = world.get_resource_mut::<ComponentIntegrity>() {
+        if !integrity.identity_removal_allowed {
+            integrity.unauthorized_identity_removal = true;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EntityLifecycleCommandKind {
+    Spawn,
+    SpawnChild,
+    RemoveSubtree,
+}
+
+#[derive(Debug)]
+enum EntityLifecycleCommand {
+    Spawn { name: String },
+    SpawnChild { parent: EntityId, name: String },
+    RemoveSubtree { root: EntityId },
+}
+
+/// Structural changes requested by scheduled component systems.
+///
+/// The engine commits these commands in insertion order after the `Fixed`
+/// schedule. The buffer is retained and reused between ticks.
+#[derive(Debug, Default, Resource)]
+pub struct EntityLifecycleQueue {
+    commands: Vec<EntityLifecycleCommand>,
+}
+
+impl EntityLifecycleQueue {
+    pub fn spawn(&mut self, name: impl Into<String>) {
+        self.commands
+            .push(EntityLifecycleCommand::Spawn { name: name.into() });
+    }
+
+    pub fn spawn_child(&mut self, parent: EntityId, name: impl Into<String>) {
+        self.commands.push(EntityLifecycleCommand::SpawnChild {
+            parent,
+            name: name.into(),
+        });
+    }
+
+    pub fn remove_subtree(&mut self, root: EntityId) {
+        self.commands
+            .push(EntityLifecycleCommand::RemoveSubtree { root });
+    }
+
+    pub fn len(&self) -> usize {
+        self.commands.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.commands.is_empty()
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum EntityLifecycleResult {
+    Spawned(EntityId),
+    Removed {
+        root: EntityId,
+        count: usize,
+    },
+    Failed {
+        command: EntityLifecycleCommandKind,
+        error: WorldError,
+    },
+}
+
+#[derive(Debug, Default, Resource)]
+pub struct EntityLifecycleResults {
+    results: Vec<EntityLifecycleResult>,
+}
+
+impl EntityLifecycleResults {
+    pub fn as_slice(&self) -> &[EntityLifecycleResult] {
+        &self.results
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.results.is_empty()
+    }
 }
 
 /// An entity's authored transform relative to its parent.
@@ -131,6 +247,12 @@ pub enum WorldError {
     MissingEntity(EntityId),
     HierarchyCycle,
     InvalidTransform,
+    ComponentMappingMissing(EntityId),
+    ComponentMappingCorrupt(EntityId),
+    ComponentStoreCardinality,
+    UnsupportedComponentLifecycle,
+    MissingEngineResource,
+    ProtectedComponent,
 }
 
 impl fmt::Display for WorldError {
@@ -141,6 +263,27 @@ impl fmt::Display for WorldError {
             Self::HierarchyCycle => formatter.write_str("parenting would create a hierarchy cycle"),
             Self::InvalidTransform => formatter
                 .write_str("transform values must be finite and rotations must be normalized"),
+            Self::ComponentMappingMissing(id) => {
+                write!(formatter, "entity {id:?} has no component-storage mapping")
+            }
+            Self::ComponentMappingCorrupt(id) => {
+                write!(
+                    formatter,
+                    "entity {id:?} has a corrupt component-storage mapping"
+                )
+            }
+            Self::ComponentStoreCardinality => formatter.write_str(
+                "component storage entity count does not match canonical entity storage",
+            ),
+            Self::UnsupportedComponentLifecycle => formatter.write_str(
+                "a scheduled system changed engine-owned component entity lifecycle directly",
+            ),
+            Self::MissingEngineResource => {
+                formatter.write_str("a scheduled system removed an engine-owned ECS resource")
+            }
+            Self::ProtectedComponent => {
+                formatter.write_str("the canonical entity identity component is engine-owned")
+            }
         }
     }
 }
@@ -150,6 +293,10 @@ impl Error for WorldError {}
 pub struct World {
     id: u64,
     entities: SlotMap<EntityKey, Entity>,
+    component_entities: SecondaryMap<EntityKey, EcsEntity>,
+    components: EcsWorld,
+    unauthorized_entity_query:
+        QueryState<EcsEntity, (Without<EntityIdentity>, Without<IsResource>)>,
     transform_stack: Vec<EntityKey>,
 }
 
@@ -165,9 +312,18 @@ impl World {
     }
 
     pub fn with_capacity(capacity: usize) -> Self {
+        let mut components = EcsWorld::new();
+        components.insert_resource(EntityLifecycleQueue::default());
+        components.insert_resource(EntityLifecycleResults::default());
+        components.insert_resource(ComponentIntegrity::default());
+        let unauthorized_entity_query = components
+            .query_filtered::<EcsEntity, (Without<EntityIdentity>, Without<IsResource>)>();
         Self {
             id: NEXT_WORLD_ID.fetch_add(1, Ordering::Relaxed),
             entities: SlotMap::with_capacity_and_key(capacity),
+            component_entities: SecondaryMap::with_capacity(capacity),
+            components,
+            unauthorized_entity_query,
             transform_stack: Vec::with_capacity(capacity),
         }
     }
@@ -189,7 +345,10 @@ impl World {
             parent: None,
             children: Vec::new(),
         });
-        self.id_for(key)
+        let id = self.id_for(key);
+        let component_entity = self.components.spawn(EntityIdentity(id)).id();
+        self.component_entities.insert(key, component_entity);
+        id
     }
 
     pub fn spawn_child(
@@ -208,6 +367,58 @@ impl World {
     pub fn get(&self, id: EntityId) -> Result<&Entity, WorldError> {
         let key = self.key_for(id)?;
         Ok(&self.entities[key])
+    }
+
+    /// Adds or replaces an ordinary game component on an entity.
+    pub fn insert_component<T: Component>(
+        &mut self,
+        id: EntityId,
+        component: T,
+    ) -> Result<(), WorldError> {
+        if TypeId::of::<T>() == TypeId::of::<EntityIdentity>() {
+            return Err(WorldError::ProtectedComponent);
+        }
+        let component_entity = self.component_entity_for(id)?;
+        self.components
+            .entity_mut(component_entity)
+            .insert(component);
+        Ok(())
+    }
+
+    pub fn component<T: Component>(&self, id: EntityId) -> Result<Option<&T>, WorldError> {
+        let component_entity = self.component_entity_for(id)?;
+        Ok(self.components.get::<T>(component_entity))
+    }
+
+    pub fn component_mut<T: Component<Mutability = Mutable>>(
+        &mut self,
+        id: EntityId,
+    ) -> Result<Option<Mut<'_, T>>, WorldError> {
+        let component_entity = self.component_entity_for(id)?;
+        Ok(self.components.get_mut::<T>(component_entity))
+    }
+
+    pub fn remove_component<T: Component>(&mut self, id: EntityId) -> Result<bool, WorldError> {
+        if TypeId::of::<T>() == TypeId::of::<EntityIdentity>() {
+            return Err(WorldError::ProtectedComponent);
+        }
+        let component_entity = self.component_entity_for(id)?;
+        let mut entity = self.components.entity_mut(component_entity);
+        let existed = entity.contains::<T>();
+        entity.remove::<T>();
+        Ok(existed)
+    }
+
+    pub fn insert_resource<R: Resource>(&mut self, resource: R) {
+        self.components.insert_resource(resource);
+    }
+
+    pub fn resource<R: Resource>(&self) -> Option<&R> {
+        self.components.get_resource::<R>()
+    }
+
+    pub fn resource_mut<R: Resource<Mutability = Mutable>>(&mut self) -> Option<Mut<'_, R>> {
+        self.components.get_resource_mut::<R>()
     }
 
     pub fn parent(&self, id: EntityId) -> Result<Option<EntityId>, WorldError> {
@@ -300,22 +511,129 @@ impl World {
     /// Removes an entity and its complete owned subtree without recursion.
     pub fn remove_subtree(&mut self, root: EntityId) -> Result<usize, WorldError> {
         let root_key = self.key_for(root)?;
+
+        self.prepare_transform_stack();
+        self.transform_stack.push(root_key);
+        let mut cursor = 0;
+        while cursor < self.transform_stack.len() {
+            let key = self.transform_stack[cursor];
+            for child_index in 0..self.entities[key].children.len() {
+                let child = self.entities[key].children[child_index];
+                self.transform_stack.push(child);
+            }
+            cursor += 1;
+        }
+
+        for index in 0..self.transform_stack.len() {
+            let key = self.transform_stack[index];
+            self.validate_component_entity(self.id_for(key), key)?;
+        }
+
         if let Some(parent) = self.entities[root_key].parent {
             self.entities[parent]
                 .children
                 .retain(|child| *child != root_key);
         }
 
-        self.prepare_transform_stack();
-        self.transform_stack.push(root_key);
-        let mut removed = 0;
-        while let Some(key) = self.transform_stack.pop() {
-            if let Some(entity) = self.entities.remove(key) {
-                self.transform_stack.extend(entity.children);
-                removed += 1;
-            }
+        self.components
+            .resource_mut::<ComponentIntegrity>()
+            .identity_removal_allowed = true;
+        for index in 0..self.transform_stack.len() {
+            let key = self.transform_stack[index];
+            let component_entity = self
+                .component_entities
+                .remove(key)
+                .expect("validated mapping");
+            let removed = self.components.despawn(component_entity);
+            debug_assert!(removed, "validated component entity disappeared");
+        }
+        self.components
+            .resource_mut::<ComponentIntegrity>()
+            .identity_removal_allowed = false;
+
+        let removed = self.transform_stack.len();
+        for index in 0..removed {
+            let key = self.transform_stack[index];
+            let entity = self.entities.remove(key);
+            debug_assert!(entity.is_some(), "collected entity disappeared");
         }
         Ok(removed)
+    }
+
+    /// Performs a complete diagnostic check of the SlotMap-to-ECS mapping.
+    ///
+    /// This scans every entity and is intended for tests, diagnostics, and
+    /// explicit integrity checks rather than normal dense frame work.
+    pub fn validate_component_mappings(&self) -> Result<(), WorldError> {
+        self.validate_component_store_entities()?;
+        for (key, _) in &self.entities {
+            self.validate_component_entity(self.id_for(key), key)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn run_component_schedule(
+        &mut self,
+        schedule: &mut Schedule,
+    ) -> Result<(), WorldError> {
+        schedule.run(&mut self.components);
+        self.validate_component_mapping_counts()?;
+        if self
+            .unauthorized_entity_query
+            .iter(&self.components)
+            .next()
+            .is_some()
+        {
+            return Err(WorldError::ComponentStoreCardinality);
+        }
+        if cfg!(debug_assertions) {
+            self.validate_component_mappings()?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_lifecycle_commands(&mut self) {
+        let mut commands = {
+            let mut queue = self.components.resource_mut::<EntityLifecycleQueue>();
+            std::mem::take(&mut queue.commands)
+        };
+        let mut results = {
+            let mut published = self.components.resource_mut::<EntityLifecycleResults>();
+            let mut results = std::mem::take(&mut published.results);
+            results.clear();
+            results
+        };
+
+        for command in commands.drain(..) {
+            match command {
+                EntityLifecycleCommand::Spawn { name } => {
+                    results.push(EntityLifecycleResult::Spawned(self.spawn(name)));
+                }
+                EntityLifecycleCommand::SpawnChild { parent, name } => {
+                    match self.spawn_child(parent, name) {
+                        Ok(id) => results.push(EntityLifecycleResult::Spawned(id)),
+                        Err(error) => results.push(EntityLifecycleResult::Failed {
+                            command: EntityLifecycleCommandKind::SpawnChild,
+                            error,
+                        }),
+                    }
+                }
+                EntityLifecycleCommand::RemoveSubtree { root } => match self.remove_subtree(root) {
+                    Ok(count) => results.push(EntityLifecycleResult::Removed { root, count }),
+                    Err(error) => results.push(EntityLifecycleResult::Failed {
+                        command: EntityLifecycleCommandKind::RemoveSubtree,
+                        error,
+                    }),
+                },
+            }
+        }
+
+        self.components
+            .resource_mut::<EntityLifecycleQueue>()
+            .commands = commands;
+        self.components
+            .resource_mut::<EntityLifecycleResults>()
+            .results = results;
     }
 
     /// Updates cached global transforms in root-to-leaf order.
@@ -387,6 +705,72 @@ impl World {
             return Err(WorldError::MissingEntity(id));
         }
         Ok(id.key)
+    }
+
+    fn component_entity_for(&self, id: EntityId) -> Result<EcsEntity, WorldError> {
+        let key = self.key_for(id)?;
+        self.validate_component_entity(id, key)
+    }
+
+    fn validate_component_entity(
+        &self,
+        id: EntityId,
+        key: EntityKey,
+    ) -> Result<EcsEntity, WorldError> {
+        let component_entity = self
+            .component_entities
+            .get(key)
+            .copied()
+            .ok_or(WorldError::ComponentMappingMissing(id))?;
+        let identity = self
+            .components
+            .get::<EntityIdentity>(component_entity)
+            .ok_or(WorldError::ComponentMappingCorrupt(id))?;
+        if identity.id() != id {
+            return Err(WorldError::ComponentMappingCorrupt(id));
+        }
+        Ok(component_entity)
+    }
+
+    fn validate_component_mapping_counts(&self) -> Result<(), WorldError> {
+        let integrity = self
+            .components
+            .get_resource::<ComponentIntegrity>()
+            .ok_or(WorldError::MissingEngineResource)?;
+        if !self.components.contains_resource::<EntityLifecycleQueue>()
+            || !self
+                .components
+                .contains_resource::<EntityLifecycleResults>()
+        {
+            return Err(WorldError::MissingEngineResource);
+        }
+        if integrity.unauthorized_identity_removal {
+            return Err(WorldError::UnsupportedComponentLifecycle);
+        }
+        if self.entities.len() != self.component_entities.len() {
+            return Err(WorldError::ComponentStoreCardinality);
+        }
+
+        Ok(())
+    }
+
+    fn validate_component_store_entities(&self) -> Result<(), WorldError> {
+        self.validate_component_mapping_counts()?;
+        let mut component_entity_count = 0;
+        for entity in self.components.iter_entities() {
+            if entity.contains::<IsResource>() {
+                continue;
+            }
+            component_entity_count += 1;
+            if !entity.contains::<EntityIdentity>() {
+                return Err(WorldError::ComponentStoreCardinality);
+            }
+        }
+        if component_entity_count == self.entities.len() {
+            Ok(())
+        } else {
+            Err(WorldError::ComponentStoreCardinality)
+        }
     }
 
     fn id_for(&self, key: EntityKey) -> EntityId {
@@ -596,5 +980,82 @@ mod tests {
         );
         assert_eq!(world.remove_subtree(root).unwrap(), DEPTH);
         assert!(world.is_empty());
+    }
+
+    #[derive(Component, Debug, Eq, PartialEq)]
+    struct Health(u32);
+
+    #[test]
+    fn keeps_component_identity_coherent_through_subtree_removal_and_slot_reuse() {
+        let mut world = World::new();
+        let root = world.spawn("root");
+        let child = world.spawn_child(root, "child").unwrap();
+        world.insert_component(root, Health(100)).unwrap();
+        world.insert_component(child, Health(50)).unwrap();
+
+        assert_eq!(world.component::<Health>(root).unwrap(), Some(&Health(100)));
+        assert_eq!(
+            world
+                .component::<EntityIdentity>(child)
+                .unwrap()
+                .copied()
+                .map(EntityIdentity::id),
+            Some(child)
+        );
+        assert_eq!(
+            world.insert_component(root, EntityIdentity(root)),
+            Err(WorldError::ProtectedComponent)
+        );
+        world.validate_component_mappings().unwrap();
+
+        assert_eq!(world.remove_subtree(root).unwrap(), 2);
+        assert!(matches!(
+            world.component::<Health>(child),
+            Err(WorldError::MissingEntity(_))
+        ));
+
+        let replacement = world.spawn("replacement");
+        assert_ne!(replacement, root);
+        world.insert_component(replacement, Health(75)).unwrap();
+        assert_eq!(
+            world.component::<Health>(replacement).unwrap(),
+            Some(&Health(75))
+        );
+        assert!(matches!(
+            world.component::<Health>(root),
+            Err(WorldError::MissingEntity(_))
+        ));
+        world.validate_component_mappings().unwrap();
+    }
+
+    #[test]
+    fn commits_lifecycle_commands_in_order_and_reports_failures() {
+        let mut world = World::new();
+        let doomed = world.spawn("doomed");
+        let foreign_parent = World::new().spawn("foreign");
+        {
+            let mut queue = world.resource_mut::<EntityLifecycleQueue>().unwrap();
+            queue.spawn("created");
+            queue.spawn_child(foreign_parent, "invalid child");
+            queue.remove_subtree(doomed);
+        }
+
+        world.commit_lifecycle_commands();
+
+        let results = world.resource::<EntityLifecycleResults>().unwrap();
+        assert!(matches!(
+            results.as_slice(),
+            [
+                EntityLifecycleResult::Spawned(_),
+                EntityLifecycleResult::Failed {
+                    command: EntityLifecycleCommandKind::SpawnChild,
+                    error: WorldError::WrongWorld(_),
+                },
+                EntityLifecycleResult::Removed { root, count: 1 },
+            ] if *root == doomed
+        ));
+        assert_eq!(world.len(), 1);
+        world.validate_component_mappings().unwrap();
+        assert!(world.resource::<EntityLifecycleQueue>().unwrap().is_empty());
     }
 }

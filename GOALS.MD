@@ -1,6 +1,6 @@
 # Emergent — Foundation Goals
 
-Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph in `ITERATION_2.md` and ECS comparison in `ITERATION_3.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. Production integration is still pending. Broader staged acceptance gates remain open.
+Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph in `ITERATION_2.md`, ECS comparison in `ITERATION_3.md`, and production ECS integration in `ITERATION_4.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. Broader staged acceptance gates remain open.
 
 ## Vision
 
@@ -279,7 +279,7 @@ Exit: evidence-backed decisions and a bounded implementation plan. Separate meas
 
 - [ ] Establish a Rust workspace and the minimal module lifecycle.
 - [ ] Implement mathematical conventions, transforms, typed SlotMap identities, entities, scene roots, and hierarchy operations.
-- [ ] Implement the selected component storage direction and any internal identity mapping.
+- [x] Implement the selected component storage direction and internal identity mapping.
 - [x] Demonstrate nesting, reparenting, transform propagation, and subtree destruction without graphics dependencies.
 
 Exit: tests cover cycle rejection, stale keys, world boundaries, deep hierarchies, mapping cleanup if applicable, and transform correctness. Traversal avoids unbounded call-stack recursion.

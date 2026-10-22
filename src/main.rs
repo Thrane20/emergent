@@ -76,6 +76,6 @@ impl Game for FirstGame {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = Engine::new(EngineConfig::default())?;
     let mut game = FirstGame::default();
-    engine.run(&mut game);
+    engine.run(&mut game)?;
     Ok(())
 }

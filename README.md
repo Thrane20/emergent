@@ -1,6 +1,6 @@
 # Emergent
 
-Emergent is an experimental Rust game engine built around SlotMap-owned entity hierarchies. The current foundation is deliberately headless and small: it provides world-scoped entity handles, parent/child composition, local and global 3D transforms, iterative dirty-subtree propagation, and a fixed-step game loop.
+Emergent is an experimental Rust game engine built around SlotMap-owned entity hierarchies. The current foundation is deliberately headless and small: it provides world-scoped entity handles, parent/child composition, local and global 3D transforms, iterative dirty-subtree propagation, Bevy ECS component storage and fixed schedules, and a fixed-step game loop.
 
 ## Prerequisite
 
@@ -33,7 +33,7 @@ Run the transform propagation baseline with:
 cargo run --release --example transform_bench
 ```
 
-Graphics, ECS selection, behaviours, asset projects, and project mode remain later layers described in `GOALS.MD`. Coordinate and transform conventions are recorded in `docs/adr/0001-coordinate-transform-conventions.md`.
+Graphics, behaviours, asset projects, and project mode remain later layers described in `GOALS.MD`. Coordinate and transform conventions are recorded in `docs/adr/0001-coordinate-transform-conventions.md`.
 
 The completed transform-graph increment is described in `ITERATION_2.md`.
 
@@ -44,3 +44,13 @@ cargo run --release --example ecs_compare -- all
 ```
 
 The resulting standalone `bevy_ecs` direction, including its costs and SlotMap integration rules, is recorded in `ITERATION_3.md` and `docs/adr/0002-ecs-direction.md`.
+
+The production component mapping, lifecycle queue, and `PreFixed` / `Fixed` / `PostFixed` schedule contract are described in `ITERATION_4.md` and `docs/adr/0003-ecs-lifecycle-and-schedules.md`.
+
+Run the complete 100,000-entity fixed-tick baseline with:
+
+```sh
+cargo run --release --example runtime_bench -- all
+```
+
+The recorded workload and results are in `docs/benchmarks/iteration-4-runtime-integration.md`.
