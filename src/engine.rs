@@ -48,6 +48,9 @@ pub trait Game {
 
     fn fixed_update(&mut self, context: &mut EngineContext<'_>);
 
+    /// Runs after the engine has propagated transforms for the current tick.
+    fn after_fixed_update(&mut self, _context: &mut EngineContext<'_>) {}
+
     fn stop(&mut self, _context: &mut EngineContext<'_>) {}
 }
 
@@ -158,14 +161,22 @@ impl Engine {
 
     fn begin<G: Game>(&mut self, game: &mut G) {
         self.exit_requested = false;
-        let mut context = self.context();
-        game.start(&mut context);
+        {
+            let mut context = self.context();
+            game.start(&mut context);
+        }
+        self.world.propagate_transforms();
     }
 
     fn update_once<G: Game>(&mut self, game: &mut G) {
         {
             let mut context = self.context();
             game.fixed_update(&mut context);
+        }
+        self.world.propagate_transforms();
+        {
+            let mut context = self.context();
+            game.after_fixed_update(&mut context);
         }
         self.tick = self.tick.saturating_add(1);
     }
@@ -193,6 +204,7 @@ mod tests {
     struct CounterGame {
         starts: u32,
         updates: u32,
+        after_updates: u32,
         stops: u32,
     }
 
@@ -206,6 +218,10 @@ mod tests {
             if self.updates == 3 {
                 context.request_exit();
             }
+        }
+
+        fn after_fixed_update(&mut self, _context: &mut EngineContext<'_>) {
+            self.after_updates += 1;
         }
 
         fn stop(&mut self, _context: &mut EngineContext<'_>) {
@@ -222,6 +238,7 @@ mod tests {
 
         assert_eq!(game.starts, 1);
         assert_eq!(game.updates, 3);
+        assert_eq!(game.after_updates, 3);
         assert_eq!(game.stops, 1);
         assert_eq!(engine.tick(), 3);
     }

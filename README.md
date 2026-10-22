@@ -1,6 +1,6 @@
 # Emergent
 
-Emergent is an experimental Rust game engine built around SlotMap-owned entity hierarchies. The current foundation is deliberately headless and small: it provides world-scoped entity handles, parent/child composition, transforms, and a fixed-step game loop.
+Emergent is an experimental Rust game engine built around SlotMap-owned entity hierarchies. The current foundation is deliberately headless and small: it provides world-scoped entity handles, parent/child composition, local and global 3D transforms, iterative dirty-subtree propagation, and a fixed-step game loop.
 
 ## Prerequisite
 
@@ -17,7 +17,7 @@ cargo --version
 cargo run
 ```
 
-The reference game creates a scene and child entity, advances at 60 simulation ticks per second, prints progress, and exits after 120 ticks.
+The reference game creates a scene, carrier, and scout hierarchy. It advances at 60 simulation ticks per second, reports the scout's inherited world position, and exits after 120 ticks.
 
 ## Check
 
@@ -27,6 +27,12 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Graphics, ECS selection, behaviours, asset projects, and project mode remain later layers described in `GOALS.MD`.
+Run the transform propagation baseline with:
 
-The next bounded engine increment is the headless transform graph described in `ITERATION_2.md`.
+```sh
+cargo run --release --example transform_bench
+```
+
+Graphics, ECS selection, behaviours, asset projects, and project mode remain later layers described in `GOALS.MD`. Coordinate and transform conventions are recorded in `docs/adr/0001-coordinate-transform-conventions.md`.
+
+The completed transform-graph increment is described in `ITERATION_2.md`.

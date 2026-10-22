@@ -1,6 +1,6 @@
 # Iteration 2 — Transform Graph Foundation
 
-Status: planned; implementation has not started.
+Status: complete and validated on 2026-10-22. Benchmark evidence is recorded in `docs/benchmarks/iteration-2-transform-propagation.md`.
 
 ## Outcome
 
