@@ -18,4 +18,6 @@ The selected path must contain `emergent.toml` and `assets/`.
 
 ## Current boundary
 
-The first slice is read-only. It provides manifest-derived project discovery, asset-reference filtering, output visibility, and copyable project-relative paths. It does not import media, mutate scenes, execute generated scene builders, run games, package outputs, or retain runtime SlotMap handles.
+The first slice is read-only. It discovers the manifest, authored assets, game-owned Rust, and generated Rust directly from the linked project. Selecting a file shows its metadata, text preview where available, and inferred incoming/outgoing file connections such as entry-scene declarations, asset reads, generated builders, and Rust module use.
+
+It does not import media, mutate scenes, execute generated scene builders, run games, package outputs, or retain runtime SlotMap handles.
