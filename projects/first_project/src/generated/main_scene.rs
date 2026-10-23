@@ -3,12 +3,16 @@
 //! Authored scene loading is not implemented yet, so this module is the
 //! executable source of truth for runtime assembly in the first project slice.
 
-use emergent::{behavior_ports, BehaviorSpec, EntityId, Vec3, World, WorldError};
+use emergent::{
+    behavior_ports, BehaviorSpec, Color, EntityId, LightSource, ShadowCasting, Transform, Vec3,
+    World, WorldError,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub struct MainScene {
     pub leader: EntityId,
     pub tail: EntityId,
+    pub key_light: EntityId,
 }
 
 pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScene, WorldError> {
@@ -16,6 +20,17 @@ pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScen
     let leader = world.spawn_child(scene, "Generated leader")?;
     let follower = world.spawn_child(scene, "Generated follower")?;
     let tail = world.spawn_child(scene, "Generated tail")?;
+    let key_light = world.spawn_child(scene, "Generated key light")?;
+
+    world.set_local_transform(
+        key_light,
+        Transform::from_translation(Vec3::new(0.0, 6.0, 4.0)),
+    )?;
+    let light = LightSource::point(Color::WHITE, 8.0, 24.0)
+        .expect("generated light parameters are valid")
+        .with_shadow_casting(ShadowCasting::Enabled)
+        .expect("point lights may request shadows");
+    world.insert_component(key_light, light)?;
 
     let leader_motion = world
         .add_behavior(
@@ -56,5 +71,32 @@ pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScen
         )
         .expect("generated position link is type-correct");
 
-    Ok(MainScene { leader, tail })
+    Ok(MainScene {
+        leader,
+        tail,
+        key_light,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use emergent::{LightKind, LightSource, ShadowCasting, World};
+
+    use super::build_main_scene;
+
+    #[test]
+    fn generated_scene_contains_the_configured_key_light() {
+        let mut world = World::new();
+        let scene = build_main_scene(&mut world, 1.0).unwrap();
+        let light = world
+            .component::<LightSource>(scene.key_light)
+            .unwrap()
+            .copied()
+            .expect("key-light entity carries its component");
+
+        assert_eq!(light.kind(), LightKind::Point);
+        assert_eq!(light.intensity(), 8.0);
+        assert_eq!(light.range(), Some(24.0));
+        assert_eq!(light.shadow_casting(), ShadowCasting::Enabled);
+    }
 }

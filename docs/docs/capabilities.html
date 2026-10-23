@@ -7,7 +7,7 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.9.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.10.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
   <aside class="sidebar" aria-label="Guide navigation">
     <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
     <div class="nav-label">Reference</div><a class="nav-link" aria-current="page" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
@@ -61,7 +61,7 @@
       <div class="section-heading"><p class="eyebrow">Surface, light, and motion</p><h2>Look &amp; effects</h2></div>
       <div class="capability-grid">
         <article class="capability-card"><span class="status planned">Planned</span><h3>Materials &amp; textures</h3><p>Shaders, material parameters, PBR maps, samplers, colour spaces, reusable GPU handles, and render state.</p><code>material.resources · texture.resources</code></article>
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Light sources</h3><p>Ambient, directional, point, spot, area, and image-based environment lighting.</p><code>lighting.sources</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Light-source entities</h3><p>Validated ambient, directional, point, and spot components with colour, intensity, range/cone data, and shadow intent. Renderer illumination is still planned.</p><code>lighting.sources</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Shadows</h3><p>Directional cascades, point-light maps, filtering, culling, and explicit quality and frame budgets.</p><code>lighting.shadows</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Particles</h3><p>Pooled CPU and GPU emitters, spawn shapes, lifetime curves, billboards, mesh particles, trails, and collision hooks.</p><code>effects.particles</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Animation</h3><p>Skeletal clips, blending, state machines, skinning, root motion, morph targets, curves, and procedural poses.</p><code>animation</code></article>
@@ -117,7 +117,7 @@
     </tbody></table>
 
     <div class="page-nav"><a href="projects.html"><small>Previous</small>← Game projects</a><a href="api.html"><small>Next</small>Library and API →</a></div>
-    <footer>Emergent user guide · Current engine version 0.9.0</footer>
+    <footer>Emergent user guide · Current engine version 0.10.0</footer>
   </main></div>
   <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
 </body></html>

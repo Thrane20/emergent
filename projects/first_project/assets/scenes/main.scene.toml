@@ -5,3 +5,14 @@ builder = "emergent.first-project.generated.main_scene"
 # This file establishes the durable entry-scene asset. Runtime scene
 # interpretation is deliberately deferred; src/generated/main_scene.rs builds
 # the equivalent scene through public engine APIs in this iteration.
+
+[[entities]]
+id = "key-light"
+kind = "point-light"
+translation = [0.0, 6.0, 4.0]
+
+[entities.light]
+color = [1.0, 1.0, 1.0]
+intensity = 8.0
+range = 24.0
+casts_shadows = true

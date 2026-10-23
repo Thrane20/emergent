@@ -8,6 +8,7 @@ const pages = [
   { title: "Procedural primitives", section: "Capabilities", url: "capabilities.html#geometry", terms: "plane cuboid cube pyramid sphere cylinder cone capsule torus generated mesh" },
   { title: "Terrain and noise", section: "Capabilities", url: "capabilities.html#terrain", terms: "heightmap polygonal poly terrain perlin simplex worley procedural generation" },
   { title: "Lighting and effects", section: "Capabilities", url: "capabilities.html#look", terms: "lights shadows particles materials textures animation post processing" },
+  { title: "Light-source entities", section: "API", url: "api.html#lighting", terms: "ambient directional point spot color colour intensity range cone shadow casting component" },
   { title: "Audio", section: "Capabilities", url: "capabilities.html#audio", terms: "sound mixer clips stream music spatial listener attenuation doppler" },
   { title: "Simulation services", section: "Capabilities", url: "capabilities.html#simulation", terms: "input joystick gamepad physics collision navigation ui" },
   { title: "Library and API", section: "Reference", url: "api.html", terms: "engine world methods structs enums reference" },

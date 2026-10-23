@@ -44,9 +44,14 @@ impl Game for FirstProjectGame {
                 .global_transform(scene.tail)
                 .expect("tail remains alive")
                 .translation();
+            let key_light = context
+                .world
+                .global_transform(scene.key_light)
+                .expect("key light remains alive")
+                .translation();
             println!(
-                "tick {:>3}: leader.x={:.2}, tail.x={:.2}",
-                context.tick, leader.x, tail.x
+                "tick {:>3}: leader.x={:.2}, tail.x={:.2}, key_light=({:.1}, {:.1}, {:.1})",
+                context.tick, leader.x, tail.x, key_light.x, key_light.y, key_light.z
             );
         }
     }

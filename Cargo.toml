@@ -1,6 +1,6 @@
 [package]
 name = "emergent"
-version = "0.9.0"
+version = "0.10.0"
 edition = "2021"
 description = "The foundation of the Emergent game engine"
 license = "MIT OR Apache-2.0"

@@ -1,6 +1,6 @@
 # Emergent — Foundation Goals
 
-Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph, ECS selection and integration, behaviour graph, first wgpu object, independent project boundary, first-class geometry, and procedural primitives through `ITERATION_9.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. The capability catalogue records the wider graphics, audio, simulation, content, and tooling horizon. Broader staged acceptance gates remain open.
+Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph, ECS selection and integration, behaviour graph, first wgpu object, independent project boundary, first-class geometry, procedural primitives, and headless light-source entities through `ITERATION_10.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. The capability catalogue records the wider graphics, audio, simulation, content, and tooling horizon. Broader staged acceptance gates remain open.
 
 ## Vision
 
@@ -352,11 +352,12 @@ Exit: the same simulation drives both headless and visible examples; platform/ru
 
 - [x] Implement validated CPU models and renderer-owned SlotMap resources for a point, solid line segment, convex polygon, and indexed colour mesh.
 - [x] Generate and render validated planes, cubes/cuboids, pyramids, spheres, cylinders, cones, capsules, and toruses through the indexed mesh contract.
+- [x] Add validated ambient, directional, point, and spot light components on canonical entities, including colour, intensity, range/cone data, and shadow-casting intent.
 - [ ] Promote cameras and renderable mesh/material instances to public, SlotMap-compatible engine concepts with explicit render extraction.
 - [ ] Extend vector and debug geometry with polylines, concave and outlined polygons, grids, axes, bounds, overlays, and gizmos.
 - [ ] Add mesh and texture resource ownership, material/shader contracts, visibility, culling, batching, and measured GPU upload rules.
 - [ ] Add seeded noise generators plus bounded heightmap and polygonal terrain examples with chunk and level-of-detail contracts.
-- [ ] Add ambient, directional, point, and spot lights followed by explicitly budgeted shadow techniques.
+- [ ] Extract ambient, directional, point, and spot lights into a lit renderer, followed by explicitly budgeted shadow techniques.
 - [ ] Add a bounded particle system with pooled CPU emitters first and a measured GPU path when workload evidence justifies it.
 - [ ] Establish the audio device, clip/stream, mixer-bus, and spatial source/listener boundaries without coupling audio identity to entities.
 - [ ] Publish asset formats and project folders for meshes, textures, terrain data, shaders, particles, and audio as each capability becomes available.

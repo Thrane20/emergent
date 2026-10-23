@@ -7,7 +7,7 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.9.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.10.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
   <aside class="sidebar" aria-label="Guide navigation">
     <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
     <div class="nav-label">Reference</div><a class="nav-link" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" aria-current="page" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="#graphics"><span class="nav-icon">△</span>Graphics</a>
@@ -15,9 +15,9 @@
   </aside>
   <div class="layout"><main class="content" id="main">
     <div class="breadcrumbs"><span>Reference</span><span>Library and API</span></div>
-    <p class="eyebrow">Public surface · v0.9.0</p><h1>Library and API.</h1>
+    <p class="eyebrow">Public surface · v0.10.0</p><h1>Library and API.</h1>
     <p class="lede">A practical map of the functions and types available to a game today. Expand a method for its purpose and contract.</p>
-    <div class="callout warning"><strong>Foundation API:</strong> Emergent is evolving quickly. This guide records the checked-in 0.9.0 API; it does not promise long-term semantic version stability yet.</div>
+    <div class="callout warning"><strong>Foundation API:</strong> Emergent is evolving quickly. This guide records the checked-in 0.10.0 API; it does not promise long-term semantic version stability yet.</div>
 
     <h2 id="engine">Engine lifecycle</h2>
     <div class="type-grid">
@@ -99,6 +99,18 @@
       <details class="api-item"><summary><code>CubeRenderer</code><span>Compatibility wrapper</span></summary><div class="api-detail"><p>The original API remains available and delegates to one <code>GeometryRenderer</code> resource created from <code>Mesh::cube</code>.</p></div></details>
     </div>
 
+    <h2 id="lighting">Lighting declarations</h2>
+    <p>A light is a canonical entity carrying a validated <code>LightSource</code> ECS component. This headless contract is usable by projects now; GPU illumination and shadow maps are not implemented.</p>
+    <div class="type-grid">
+      <article class="type-card"><h3><code>LightSource</code></h3><p>Private validated light data containing kind, colour, intensity, optional range/cone, and shadow-casting intent.</p></article>
+      <article class="type-card"><h3><code>LightKind</code></h3><p>Ambient, directional, point, or spot. Spatial kinds derive position or negative-Z direction from the entity transform.</p></article>
+      <article class="type-card"><h3><code>ShadowCasting</code></h3><p>Disabled or enabled renderer intent. Enabling it does not yet render a shadow.</p></article>
+    </div>
+    <div class="api-group">
+      <details class="api-item" open><summary><code>LightSource constructors</code><span>Create validated light components</span></summary><div class="api-detail"><code class="signature">LightSource::ambient(color, intensity)<br>LightSource::directional(color, intensity)<br>LightSource::point(color, intensity, range)<br>LightSource::spot(color, intensity, range, inner_half_angle, outer_half_angle)</code><p>Intensity is finite and non-negative. Ranges are finite and positive. Spot half-angles are ordered and no wider than 90 degrees.</p></div></details>
+      <details class="api-item"><summary><code>LightSource::with_shadow_casting</code><span>Declare shadow intent</span></summary><div class="api-detail"><code class="signature">with_shadow_casting(ShadowCasting) -&gt; Result&lt;LightSource, LightError&gt;</code><p>Ambient lights reject shadow casting. Other kinds retain the request for future render extraction.</p></div></details>
+    </div>
+
     <h2 id="projects">Project contract</h2>
     <p><code>Project</code> loads a versioned <code>emergent.toml</code> without constructing runtime entities. Authored IDs and paths remain separate from SlotMap and ECS keys.</p>
     <div class="api-group">
@@ -115,11 +127,12 @@
       <tr><td><code>BehaviorError</code></td><td>Behaviour graph</td><td>Missing node, wrong port/type, transform-writer conflict</td></tr>
       <tr><td><code>GraphicsError</code></td><td>Optional renderer</td><td>Adapter/device/surface creation or validation</td></tr>
       <tr><td><code>GeometryError</code></td><td>CPU geometry</td><td>Non-finite values, unsupported polygons, invalid indices, degenerate triangles</td></tr>
+      <tr><td><code>LightError</code></td><td>Light components</td><td>Invalid intensity, range, spot cone, or ambient shadow request</td></tr>
       <tr><td><code>ProjectError</code></td><td>Project manifest and assets</td><td>Schema, identifiers, paths, outputs, and I/O</td></tr>
     </tbody></table>
 
     <div class="page-nav"><a href="capabilities.html"><small>Previous</small>← Capability map</a><a href="index.html"><small>Guide home</small>Introduction →</a></div>
-    <footer>Emergent user guide · Current engine version 0.9.0</footer>
+    <footer>Emergent user guide · Current engine version 0.10.0</footer>
   </main></div>
   <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
 </body></html>

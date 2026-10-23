@@ -1,5 +1,5 @@
 schema_version = 1
-engine_version = "0.9.0"
+engine_version = "0.10.0"
 status_values = ["available", "preview", "planned"]
 
 # This is a planning and discovery contract. Only `available` entries are stable
@@ -208,10 +208,10 @@ summary = "Colour, data, normal, environment, and render-target textures with sa
 id = "lighting.sources"
 category = "lighting"
 name = "Light sources"
-status = "planned"
-owner = "render"
-depends_on = ["material.resources", "render.extraction"]
-summary = "Ambient, directional, point, spot, area, and environment lighting."
+status = "preview"
+owner = "lighting"
+depends_on = ["world.entity-hierarchy", "world.transforms-3d", "ecs.schedules"]
+summary = "Preview headless components for ambient, directional, point, and spot light entities; renderer illumination remains planned."
 
 [[capabilities]]
 id = "lighting.shadows"

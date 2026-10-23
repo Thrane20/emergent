@@ -53,7 +53,7 @@ Run the independent reference game project with:
 cargo run -p emergent-first-project
 ```
 
-It validates `projects/first_project/emergent.toml`, reads a project-owned data asset, constructs its linked scene through public Emergent APIs, and advances the headless game. The checked-in project demonstrates the boundary between engine code, generated Rust, authored assets, and per-platform output declarations; authored scene expansion and output packaging remain later work.
+It validates `projects/first_project/emergent.toml`, reads a project-owned data asset, constructs its linked scene and point-light entity through public Emergent APIs, and advances the headless game. The checked-in project demonstrates the boundary between engine code, generated Rust, authored assets, and per-platform output declarations; authored scene expansion, light rendering, and output packaging remain later work.
 
 ## Check
 
@@ -63,7 +63,7 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`. Geometry ownership is recorded in `ITERATION_8.md`; procedural primitive contracts are recorded in `ITERATION_9.md`.
+Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`. Geometry ownership is recorded in `ITERATION_8.md`; procedural primitive contracts are recorded in `ITERATION_9.md`; light-source entity data is recorded in `ITERATION_10.md`.
 
 ## User guide
 
