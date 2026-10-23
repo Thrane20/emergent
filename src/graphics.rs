@@ -12,10 +12,14 @@ use winit::dpi::PhysicalSize;
 use winit::event_loop::OwnedDisplayHandle;
 use winit::window::Window;
 
-use crate::{Geometry, Line, Mesh, Point, Polygon};
+use crate::{Geometry, LightKind, LightSource, Line, Mesh, Point, Polygon, ShadowCasting};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const INITIAL_INSTANCE_CAPACITY: usize = 64;
+const MAX_LIGHTS: usize = 8;
+const SHADOW_MAP_SIZE: u32 = 2048;
+const SHADOW_DISTANCE: f32 = 22.0;
+const SHADOW_EXTENT: f32 = 14.0;
 static NEXT_RENDERER_ID: AtomicU64 = AtomicU64::new(1);
 
 new_key_type! {
@@ -34,11 +38,12 @@ pub struct GeometryId {
 struct Vertex {
     position: [f32; 3],
     color: [f32; 4],
+    normal: [f32; 3],
 }
 
 impl Vertex {
-    const ATTRIBUTES: [wgpu::VertexAttribute; 2] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
+    const ATTRIBUTES: [wgpu::VertexAttribute; 3] =
+        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32x3];
 
     fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -52,7 +57,34 @@ impl Vertex {
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct ObjectUniform {
+    model: [[f32; 4]; 4],
     model_view_projection: [[f32; 4]; 4],
+    normal_matrix: [[f32; 4]; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct FrameUniform {
+    light_view_projection: [[f32; 4]; 4],
+    shadow_enabled: u32,
+    _padding: [u32; 7],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct GpuLight {
+    position_kind: [f32; 4],
+    color_intensity: [f32; 4],
+    direction_range: [f32; 4],
+    spot_and_shadow: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct LightUniform {
+    lights: [GpuLight; MAX_LIGHTS],
+    count: u32,
+    _padding: [u32; 7],
 }
 
 struct GpuMesh {
@@ -65,6 +97,31 @@ struct GpuMesh {
 pub struct GeometryInstance {
     pub geometry: GeometryId,
     pub model: Mat4,
+}
+
+/// Copied light data for a single render frame.
+///
+/// Construct it from a validated `LightSource` component and that light
+/// entity's propagated transform after simulation. It does not own an entity
+/// or persist an identity.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LightInstance {
+    source: LightSource,
+    model: Mat4,
+}
+
+impl LightInstance {
+    pub fn new(source: LightSource, model: Mat4) -> Self {
+        Self { source, model }
+    }
+
+    pub fn source(self) -> LightSource {
+        self.source
+    }
+
+    pub fn model(self) -> Mat4 {
+        self.model
+    }
 }
 
 impl GeometryInstance {
@@ -88,7 +145,10 @@ pub enum GraphicsError {
     UnsupportedSurface,
     MissingGeometry(GeometryId),
     NonFiniteModelMatrix { instance: usize },
+    NonFiniteLightMatrix { light: usize },
+    InvalidLightDirection { light: usize },
     TooManyInstances(usize),
+    TooManyLights(usize),
     SurfaceLost,
     SurfaceValidation,
 }
@@ -109,9 +169,25 @@ impl fmt::Display for GraphicsError {
                 formatter,
                 "geometry instance {instance} has a non-finite model matrix"
             ),
+            Self::NonFiniteLightMatrix { light } => {
+                write!(
+                    formatter,
+                    "light instance {light} has a non-finite model matrix"
+                )
+            }
+            Self::InvalidLightDirection { light } => {
+                write!(
+                    formatter,
+                    "light instance {light} has no usable transformed direction"
+                )
+            }
             Self::TooManyInstances(count) => write!(
                 formatter,
                 "cannot address {count} geometry instances in one frame"
+            ),
+            Self::TooManyLights(count) => write!(
+                formatter,
+                "cannot render {count} lights; this renderer accepts at most {MAX_LIGHTS}"
             ),
             Self::SurfaceLost => formatter.write_str("window surface was lost"),
             Self::SurfaceValidation => formatter.write_str("window surface validation failed"),
@@ -137,15 +213,20 @@ pub struct GeometryRenderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    shadow_pipeline: wgpu::RenderPipeline,
     uniform_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     uniform_stride: u64,
     uniform_capacity: usize,
     uniform_bytes: Vec<u8>,
+    frame_buffer: wgpu::Buffer,
+    light_buffer: wgpu::Buffer,
+    lighting_bind_group: wgpu::BindGroup,
     renderer_id: u64,
     geometry: SlotMap<GeometryKey, GpuMesh>,
     depth_view: wgpu::TextureView,
+    shadow_view: wgpu::TextureView,
     info: RendererInfo,
 }
 
@@ -214,9 +295,99 @@ impl GeometryRenderer {
             uniform_stride,
             INITIAL_INSTANCE_CAPACITY,
         );
+        let frame_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Emergent lighting frame uniform"),
+            size: std::mem::size_of::<FrameUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let light_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Emergent light buffer"),
+            size: std::mem::size_of::<LightUniform>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let shadow_view = create_shadow_view(&device);
+        let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Emergent shadow comparison sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            ..Default::default()
+        });
+        let lighting_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Emergent lighting layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: NonZeroU64::new(
+                            std::mem::size_of::<FrameUniform>() as u64
+                        ),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: NonZeroU64::new(
+                            std::mem::size_of::<LightUniform>() as u64
+                        ),
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
+                    count: None,
+                },
+            ],
+        });
+        let lighting_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Emergent lighting bind group"),
+            layout: &lighting_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: frame_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: light_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&shadow_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&shadow_sampler),
+                },
+            ],
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Emergent geometry pipeline layout"),
-            bind_group_layouts: &[Some(&uniform_layout)],
+            bind_group_layouts: &[Some(&uniform_layout), Some(&lighting_layout)],
             immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -255,6 +426,37 @@ impl GeometryRenderer {
             multiview_mask: None,
             cache: None,
         });
+        let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Emergent directional shadow pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("shadow_vertex_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(Vertex::layout())],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: wgpu::DepthBiasState {
+                    constant: 2,
+                    slope_scale: 2.0,
+                    clamp: 0.0,
+                },
+            }),
+            multisample: Default::default(),
+            fragment: None,
+            multiview_mask: None,
+            cache: None,
+        });
         let depth_view = create_depth_view(&device, size);
         let adapter_info = adapter.get_info();
         let info = RendererInfo {
@@ -271,15 +473,20 @@ impl GeometryRenderer {
             queue,
             config,
             pipeline,
+            shadow_pipeline,
             uniform_layout,
             uniform_buffer,
             uniform_bind_group,
             uniform_stride,
             uniform_capacity: INITIAL_INSTANCE_CAPACITY,
             uniform_bytes: vec![0; uniform_stride as usize * INITIAL_INSTANCE_CAPACITY],
+            frame_buffer,
+            light_buffer,
+            lighting_bind_group,
             renderer_id: NEXT_RENDERER_ID.fetch_add(1, Ordering::Relaxed),
             geometry: SlotMap::with_key(),
             depth_view,
+            shadow_view,
             info,
         })
     }
@@ -336,15 +543,36 @@ impl GeometryRenderer {
         &mut self,
         instances: &[GeometryInstance],
     ) -> Result<RenderOutcome, GraphicsError> {
+        self.render_internal(instances, &[])
+    }
+
+    /// Renders geometry with bounded Lambert lighting and an optional first
+    /// shadow-casting directional light.
+    pub fn render_lit(
+        &mut self,
+        instances: &[GeometryInstance],
+        lights: &[LightInstance],
+    ) -> Result<RenderOutcome, GraphicsError> {
+        self.render_internal(instances, lights)
+    }
+
+    fn render_internal(
+        &mut self,
+        instances: &[GeometryInstance],
+        lights: &[LightInstance],
+    ) -> Result<RenderOutcome, GraphicsError> {
         self.validate_instances(instances)?;
+        let (light_uniform, light_view_projection, shadow_enabled) = self.prepare_lights(lights)?;
         self.ensure_uniform_capacity(instances.len())?;
         let aspect = self.config.width as f32 / self.config.height as f32;
         let view_matrix = look_at_rh(Vec3::new(7.0, 5.0, 9.0), Vec3::ZERO, Vec3::Y);
         let projection = perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 100.0);
         for (index, instance) in instances.iter().enumerate() {
             let uniform = ObjectUniform {
+                model: instance.model.to_cols_array_2d(),
                 model_view_projection: (projection * view_matrix * instance.model)
                     .to_cols_array_2d(),
+                normal_matrix: normal_matrix(instance.model).to_cols_array_2d(),
             };
             let offset = index * self.uniform_stride as usize;
             let bytes = bytemuck::bytes_of(&uniform);
@@ -355,6 +583,17 @@ impl GeometryRenderer {
             self.queue
                 .write_buffer(&self.uniform_buffer, 0, &self.uniform_bytes[..byte_count]);
         }
+        self.queue.write_buffer(
+            &self.frame_buffer,
+            0,
+            bytemuck::bytes_of(&FrameUniform {
+                light_view_projection: light_view_projection.to_cols_array_2d(),
+                shadow_enabled: u32::from(shadow_enabled),
+                _padding: [0; 7],
+            }),
+        );
+        self.queue
+            .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(&light_uniform));
 
         let frame = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(frame) => frame,
@@ -390,6 +629,34 @@ impl GeometryRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Emergent geometry frame encoder"),
             });
+        if shadow_enabled {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Emergent directional shadow pass"),
+                color_attachments: &[],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &self.shadow_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.shadow_pipeline);
+            pass.set_bind_group(1, &self.lighting_bind_group, &[]);
+            for (index, instance) in instances.iter().enumerate() {
+                let offset = u32::try_from(index as u64 * self.uniform_stride)
+                    .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
+                let mesh = &self.geometry[instance.geometry.key];
+                pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+        }
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Emergent geometry pass"),
@@ -420,6 +687,7 @@ impl GeometryRenderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(1, &self.lighting_bind_group, &[]);
             for (index, instance) in instances.iter().enumerate() {
                 let offset = u32::try_from(index as u64 * self.uniform_stride)
                     .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
@@ -434,6 +702,70 @@ impl GeometryRenderer {
         self.window.pre_present_notify();
         self.queue.present(frame);
         Ok(RenderOutcome::Presented)
+    }
+
+    fn prepare_lights(
+        &self,
+        lights: &[LightInstance],
+    ) -> Result<(LightUniform, Mat4, bool), GraphicsError> {
+        if lights.len() > MAX_LIGHTS {
+            return Err(GraphicsError::TooManyLights(lights.len()));
+        }
+        let mut result = LightUniform::zeroed();
+        let mut shadow_view_projection = Mat4::IDENTITY;
+        let mut shadow_selected = false;
+        for (index, light) in lights.iter().copied().enumerate() {
+            if !light.model.is_finite() {
+                return Err(GraphicsError::NonFiniteLightMatrix { light: index });
+            }
+            let source = light.source;
+            let kind = match source.kind() {
+                LightKind::Ambient => 0.0,
+                LightKind::Directional => 1.0,
+                LightKind::Point => 2.0,
+                LightKind::Spot => 3.0,
+            };
+            let raw_direction = light.model.transform_vector3(Vec3::NEG_Z);
+            let needs_direction = matches!(source.kind(), LightKind::Directional | LightKind::Spot);
+            if needs_direction
+                && (!raw_direction.is_finite() || raw_direction.length_squared() < 1.0e-10)
+            {
+                return Err(GraphicsError::InvalidLightDirection { light: index });
+            }
+            let direction = if raw_direction.length_squared() > 1.0e-10 {
+                raw_direction.normalize()
+            } else {
+                Vec3::NEG_Z
+            };
+            let [inner, outer] = source.spot_half_angles().unwrap_or([0.0, 0.0]);
+            let casts_shadow = source.kind() == LightKind::Directional
+                && source.shadow_casting() == ShadowCasting::Enabled
+                && !shadow_selected;
+            if casts_shadow {
+                shadow_view_projection = directional_shadow_matrix(direction);
+                shadow_selected = true;
+            }
+            let color = source.color().components();
+            let position = light.model.transform_point3(Vec3::ZERO);
+            result.lights[index] = GpuLight {
+                position_kind: [position.x, position.y, position.z, kind],
+                color_intensity: [color[0], color[1], color[2], source.intensity()],
+                direction_range: [
+                    direction.x,
+                    direction.y,
+                    direction.z,
+                    source.range().unwrap_or(0.0),
+                ],
+                spot_and_shadow: [
+                    inner.cos(),
+                    outer.cos(),
+                    0.0,
+                    if casts_shadow { 1.0 } else { 0.0 },
+                ],
+            };
+        }
+        result.count = lights.len() as u32;
+        Ok((result, shadow_view_projection, shadow_selected))
     }
 
     fn validate_instances(&self, instances: &[GeometryInstance]) -> Result<(), GraphicsError> {
@@ -530,7 +862,7 @@ fn create_uniform_resources(
 }
 
 fn tessellate(geometry: &Geometry) -> (Vec<Vertex>, Vec<u32>) {
-    match geometry {
+    let (mut vertices, indices) = match geometry {
         Geometry::Point(point) => tessellate_point(*point),
         Geometry::Line(line) => tessellate_line(*line),
         Geometry::Polygon(polygon) => tessellate_polygon(polygon),
@@ -541,7 +873,9 @@ fn tessellate(geometry: &Geometry) -> (Vec<Vertex>, Vec<u32>) {
                 .expect("validated primitive must produce a valid mesh");
             tessellate_mesh(&mesh)
         }
-    }
+    };
+    complete_normals(&mut vertices, &indices);
+    (vertices, indices)
 }
 
 fn tessellate_point(point: Point) -> (Vec<Vertex>, Vec<u32>) {
@@ -561,6 +895,7 @@ fn tessellate_point(point: Point) -> (Vec<Vertex>, Vec<u32>) {
         .map(|position| Vertex {
             position: position.to_array(),
             color,
+            normal: Vec3::ZERO.to_array(),
         })
         .collect();
     let indices = vec![
@@ -594,6 +929,7 @@ fn tessellate_line(line: Line) -> (Vec<Vertex>, Vec<u32>) {
         .map(|position| Vertex {
             position: position.to_array(),
             color,
+            normal: Vec3::ZERO.to_array(),
         })
         .collect();
     let indices = vec![
@@ -611,6 +947,7 @@ fn tessellate_polygon(polygon: &Polygon) -> (Vec<Vertex>, Vec<u32>) {
         .map(|position| Vertex {
             position: position.to_array(),
             color,
+            normal: Vec3::ZERO.to_array(),
         })
         .collect();
     let mut indices = Vec::with_capacity((polygon.vertices().len() - 2) * 3);
@@ -627,9 +964,44 @@ fn tessellate_mesh(mesh: &Mesh) -> (Vec<Vertex>, Vec<u32>) {
         .map(|vertex| Vertex {
             position: vertex.position().to_array(),
             color: vertex.color().components(),
+            normal: vertex.normal().unwrap_or(Vec3::ZERO).to_array(),
         })
         .collect();
     (vertices, mesh.indices().to_vec())
+}
+
+fn complete_normals(vertices: &mut [Vertex], indices: &[u32]) {
+    let mut generated = vec![Vec3::ZERO; vertices.len()];
+    let (triangles, remainder) = indices.as_chunks::<3>();
+    debug_assert!(remainder.is_empty());
+    for triangle in triangles {
+        let positions = [
+            Vec3::from_array(vertices[triangle[0] as usize].position),
+            Vec3::from_array(vertices[triangle[1] as usize].position),
+            Vec3::from_array(vertices[triangle[2] as usize].position),
+        ];
+        let normal = (positions[1] - positions[0]).cross(positions[2] - positions[0]);
+        if normal.length_squared() > 1.0e-12 {
+            for index in triangle {
+                if Vec3::from_array(vertices[*index as usize].normal).length_squared() <= 1.0e-12 {
+                    generated[*index as usize] += normal;
+                }
+            }
+        }
+    }
+    for (index, vertex) in vertices.iter_mut().enumerate() {
+        let normal = Vec3::from_array(vertex.normal);
+        let completed = if normal.length_squared() > 1.0e-12 {
+            normal
+        } else {
+            generated[index]
+        };
+        vertex.normal = if completed.length_squared() > 1.0e-12 {
+            completed.normalize().to_array()
+        } else {
+            Vec3::Y.to_array()
+        };
+    }
 }
 
 fn align_up(value: u64, alignment: u64) -> u64 {
@@ -662,6 +1034,46 @@ fn perspective_rh(vertical_fov: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     )
 }
 
+fn orthographic_rh(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Mat4 {
+    Mat4::from_cols(
+        Vec4::new(2.0 / (right - left), 0.0, 0.0, 0.0),
+        Vec4::new(0.0, 2.0 / (top - bottom), 0.0, 0.0),
+        Vec4::new(0.0, 0.0, 1.0 / (near - far), 0.0),
+        Vec4::new(
+            (left + right) / (left - right),
+            (top + bottom) / (bottom - top),
+            near / (near - far),
+            1.0,
+        ),
+    )
+}
+
+fn directional_shadow_matrix(direction: Vec3) -> Mat4 {
+    let up = if direction.dot(Vec3::Y).abs() > 0.95 {
+        Vec3::X
+    } else {
+        Vec3::Y
+    };
+    let view = look_at_rh(-direction * SHADOW_DISTANCE, Vec3::ZERO, up);
+    orthographic_rh(
+        -SHADOW_EXTENT,
+        SHADOW_EXTENT,
+        -SHADOW_EXTENT,
+        SHADOW_EXTENT,
+        0.1,
+        SHADOW_DISTANCE * 2.5,
+    ) * view
+}
+
+fn normal_matrix(model: Mat4) -> Mat4 {
+    let determinant = glam::Mat3::from_mat4(model).determinant();
+    if determinant.is_finite() && determinant.abs() > 1.0e-8 {
+        model.inverse().transpose()
+    } else {
+        Mat4::IDENTITY
+    }
+}
+
 fn create_depth_view(device: &wgpu::Device, size: PhysicalSize<u32>) -> wgpu::TextureView {
     device
         .create_texture(&wgpu::TextureDescriptor {
@@ -676,6 +1088,25 @@ fn create_depth_view(device: &wgpu::Device, size: PhysicalSize<u32>) -> wgpu::Te
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+        .create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn create_shadow_view(device: &wgpu::Device) -> wgpu::TextureView {
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("Emergent directional shadow texture"),
+            size: wgpu::Extent3d {
+                width: SHADOW_MAP_SIZE,
+                height: SHADOW_MAP_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         })
         .create_view(&wgpu::TextureViewDescriptor::default())
@@ -699,6 +1130,15 @@ mod tests {
         let projection = perspective_rh(45.0_f32.to_radians(), 1.0, 0.1, 100.0);
         let near = projection * Vec4::new(0.0, 0.0, -0.1, 1.0);
         let far = projection * Vec4::new(0.0, 0.0, -100.0, 1.0);
+        assert!((near.z / near.w).abs() < 1.0e-5);
+        assert!((far.z / far.w - 1.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn orthographic_shadow_projection_maps_near_and_far_depth_to_webgpu_range() {
+        let projection = orthographic_rh(-2.0, 2.0, -2.0, 2.0, 0.1, 40.0);
+        let near = projection * Vec4::new(0.0, 0.0, -0.1, 1.0);
+        let far = projection * Vec4::new(0.0, 0.0, -40.0, 1.0);
         assert!((near.z / near.w).abs() < 1.0e-5);
         assert!((far.z / far.w - 1.0).abs() < 1.0e-5);
     }
@@ -736,6 +1176,10 @@ mod tests {
             assert!(indices
                 .iter()
                 .all(|index| (*index as usize) < vertices.len()));
+            assert!(vertices.iter().all(|vertex| {
+                let normal = Vec3::from_array(vertex.normal);
+                normal.is_finite() && (normal.length() - 1.0).abs() < 1.0e-4
+            }));
         }
     }
 

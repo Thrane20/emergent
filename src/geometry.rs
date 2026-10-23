@@ -178,12 +178,27 @@ impl Polygon {
 pub struct MeshVertex {
     position: Vec3,
     color: Color,
+    normal: Option<Vec3>,
 }
 
 impl MeshVertex {
     pub fn new(position: Vec3, color: Color) -> Result<Self, GeometryError> {
         validate_position(position, 0)?;
-        Ok(Self { position, color })
+        Ok(Self {
+            position,
+            color,
+            normal: None,
+        })
+    }
+
+    pub fn with_normal(position: Vec3, normal: Vec3, color: Color) -> Result<Self, GeometryError> {
+        validate_position(position, 0)?;
+        validate_normal(normal)?;
+        Ok(Self {
+            position,
+            color,
+            normal: Some(normal.normalize()),
+        })
     }
 
     pub fn position(self) -> Vec3 {
@@ -192,6 +207,10 @@ impl MeshVertex {
 
     pub fn color(self) -> Color {
         self.color
+    }
+
+    pub fn normal(self) -> Option<Vec3> {
+        self.normal
     }
 }
 
@@ -268,7 +287,11 @@ impl Mesh {
         let vertices = positions
             .into_iter()
             .zip(colors)
-            .map(|(position, color)| MeshVertex { position, color })
+            .map(|(position, color)| MeshVertex {
+                position,
+                color,
+                normal: None,
+            })
             .collect();
         let indices = vec![
             0, 1, 2, 0, 2, 3, 1, 5, 6, 1, 6, 2, 5, 4, 7, 5, 7, 6, 4, 0, 3, 4, 3, 7, 3, 2, 6, 3, 6,
@@ -324,6 +347,7 @@ pub enum GeometryError {
     NonFinitePosition {
         index: usize,
     },
+    InvalidNormal,
     InvalidRadius,
     InvalidExtent,
     CoincidentLineEndpoints,
@@ -361,6 +385,9 @@ impl fmt::Display for GeometryError {
             ),
             Self::NonFinitePosition { index } => {
                 write!(formatter, "geometry position {index} must be finite")
+            }
+            Self::InvalidNormal => {
+                formatter.write_str("mesh vertex normals must be finite and non-zero")
             }
             Self::InvalidRadius => formatter.write_str("geometry radius must be finite and positive"),
             Self::InvalidExtent => formatter.write_str("mesh extent must be finite and positive"),
@@ -421,6 +448,14 @@ fn validate_position(position: Vec3, index: usize) -> Result<(), GeometryError> 
         return Err(GeometryError::NonFinitePosition { index });
     }
     Ok(())
+}
+
+fn validate_normal(normal: Vec3) -> Result<(), GeometryError> {
+    if normal.is_finite() && normal.length_squared() > GEOMETRY_EPSILON * GEOMETRY_EPSILON {
+        Ok(())
+    } else {
+        Err(GeometryError::InvalidNormal)
+    }
 }
 
 fn validate_radius(radius: f32) -> Result<(), GeometryError> {
@@ -511,5 +546,24 @@ mod tests {
             Err(GeometryError::DegenerateMeshTriangle { triangle: 0 })
         );
         assert!(Mesh::cube(1.0).is_ok());
+    }
+
+    #[test]
+    fn normalizes_authored_mesh_normals_and_rejects_invalid_ones() {
+        let vertex =
+            MeshVertex::with_normal(Vec3::ZERO, Vec3::new(0.0, 3.0, 4.0), Color::WHITE).unwrap();
+        assert_eq!(vertex.normal(), Some(Vec3::new(0.0, 0.6, 0.8)));
+        assert_eq!(
+            MeshVertex::with_normal(Vec3::ZERO, Vec3::ZERO, Color::WHITE),
+            Err(GeometryError::InvalidNormal)
+        );
+        assert_eq!(
+            MeshVertex::with_normal(Vec3::ZERO, Vec3::new(f32::NAN, 0.0, 0.0), Color::WHITE),
+            Err(GeometryError::InvalidNormal)
+        );
+        assert_eq!(
+            MeshVertex::new(Vec3::ZERO, Color::WHITE).unwrap().normal(),
+            None
+        );
     }
 }

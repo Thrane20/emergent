@@ -24,8 +24,8 @@ pub use geometry::{Color, Geometry, GeometryError, Line, Mesh, MeshVertex, Point
 pub use glam::{Mat4, Quat, Vec3};
 #[cfg(feature = "graphics")]
 pub use graphics::{
-    CubeRenderer, GeometryId, GeometryInstance, GeometryRenderer, GraphicsError, RenderOutcome,
-    RendererInfo,
+    CubeRenderer, GeometryId, GeometryInstance, GeometryRenderer, GraphicsError, LightInstance,
+    RenderOutcome, RendererInfo,
 };
 pub use light::{LightError, LightKind, LightSource, ShadowCasting};
 pub use primitives::{Primitive, PrimitiveKind};

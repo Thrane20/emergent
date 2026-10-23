@@ -211,7 +211,7 @@ name = "Light sources"
 status = "preview"
 owner = "lighting"
 depends_on = ["world.entity-hierarchy", "world.transforms-3d", "ecs.schedules"]
-summary = "Preview headless components for ambient, directional, point, and spot light entities; renderer illumination remains planned."
+summary = "Preview bounded renderer inputs for ambient, directional, point, and spot light entities; up to eight copied lights use Lambert illumination."
 
 [[capabilities]]
 id = "lighting.shadows"
@@ -220,7 +220,7 @@ name = "Shadows"
 status = "planned"
 owner = "render"
 depends_on = ["lighting.sources", "render.extraction"]
-summary = "Budgeted directional cascades, point-light maps, filtering, and shadow culling."
+summary = "Preview one selected directional comparison-shadow map at fixed resolution; cascades, point-light maps, filtering, and shadow culling remain planned."
 
 [[capabilities]]
 id = "effects.particles"

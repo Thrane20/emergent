@@ -4,8 +4,8 @@ use std::time::Instant;
 
 use emergent::{
     Color, Engine, EngineConfig, EngineContext, EntityId, Game, Geometry, GeometryId,
-    GeometryInstance, GeometryRenderer, Line, Mesh, MeshVertex, Point, Polygon, Quat,
-    RenderOutcome, Transform, Vec3,
+    GeometryInstance, GeometryRenderer, LightInstance, LightSource, Line, Mesh, MeshVertex, Point,
+    Polygon, Quat, RenderOutcome, ShadowCasting, Transform, Vec3,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -222,7 +222,24 @@ impl ApplicationHandler for GalleryApp {
                 let Some(renderer) = &mut self.renderer else {
                     return;
                 };
-                match renderer.render(&instances) {
+                let lights = [
+                    LightInstance::new(
+                        LightSource::ambient(Color::WHITE, 0.22)
+                            .expect("constant ambient light is valid"),
+                        emergent::Mat4::IDENTITY,
+                    ),
+                    LightInstance::new(
+                        LightSource::directional(Color::WHITE, 1.1)
+                            .expect("constant directional light is valid")
+                            .with_shadow_casting(ShadowCasting::Enabled)
+                            .expect("directional lights may cast shadows"),
+                        emergent::Mat4::from_quat(Quat::from_rotation_arc(
+                            Vec3::NEG_Z,
+                            Vec3::new(-0.5, -1.0, -0.35).normalize(),
+                        )),
+                    ),
+                ];
+                match renderer.render_lit(&instances, &lights) {
                     Ok(RenderOutcome::Presented) => self.presented_frames += 1,
                     Ok(RenderOutcome::Reconfigured | RenderOutcome::Skipped) => {}
                     Err(error) => return self.fail(event_loop, error),

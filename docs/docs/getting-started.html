@@ -33,7 +33,7 @@ cargo --version</pre></div></li>
     <div class="callout"><strong>Automated smoke mode:</strong> append <code>-- --smoke</code>. The example requests a resize, renders for 120 simulation ticks, reports the adapter/backend, and closes itself.</div>
 
     <h2 id="geometry-gallery">Render the geometry gallery</h2>
-    <p>The gallery uses the public geometry models and renderer-owned SlotMap handles to draw a point, line, convex polygon, and custom indexed mesh.</p>
+    <p>The gallery uses public geometry models and renderer-owned SlotMap handles to draw a point, line, convex polygon, and custom indexed mesh with bounded ambient/directional lighting and the first directional shadow pass.</p>
     <div class="code-block"><div class="code-label">Terminal</div><pre>cargo run --release --features graphics --example geometry_gallery</pre></div>
     <p>Each shape belongs to a canonical Emergent entity. The frame extracts its copied global matrix into a <code>GeometryInstance</code>. Use <code>-- --smoke</code> to resize, present 120 fixed ticks, and exit automatically.</p>
 
