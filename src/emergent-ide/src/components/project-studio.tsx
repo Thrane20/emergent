@@ -55,6 +55,7 @@ export function ProjectStudio({ project, aiSettings }: Props) {
       ? project.files.filter((file) => `${file.name} ${file.path} ${file.kind}`.toLowerCase().includes(needle))
       : project.files;
   }, [project.files, query]);
+  const fileTree = useMemo(() => buildFileTree(filtered), [filtered]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -91,18 +92,21 @@ export function ProjectStudio({ project, aiSettings }: Props) {
       </aside>
 
       <section className="workspace">
-        <aside className="panel project-panel">
-          <div className="panel-head"><div><span className="eyebrow">PROJECT MAP</span><h2>Files &amp; assets</h2></div><button className="square-button" title="Reload project from disk" onClick={() => router.refresh()}>↻</button></div>
-          <label className="search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find assets and source…" /></label>
-          <div className="tree-root"><span className="tree-dot" />{project.name}<small>LINKED</small></div>
-          <div className="asset-tree">
-            <FileGroup title="Project" files={filtered.filter((file) => file.kind === "manifest")} selected={selected.path} onSelect={selectFile} />
-            <FileGroup title="Authored assets" files={filtered.filter((file) => file.authored && file.kind !== "manifest")} selected={selected.path} onSelect={selectFile} />
-            <FileGroup title="Project source" files={filtered.filter((file) => !file.authored && file.kind === "source")} selected={selected.path} onSelect={selectFile} />
-            {filtered.length === 0 && <p className="empty">No project file matches “{query}”.</p>}
-          </div>
-          <div className="panel-footer"><span className="eyebrow">LINKED ROOT</span><code>{project.root}</code></div>
-        </aside>
+        <div className="left-column">
+          <aside className="panel project-panel">
+            <div className="panel-head"><h2>Files &amp; assets</h2><button className="square-button" title="Reload project from disk" onClick={() => router.refresh()}>↻</button></div>
+            <label className="search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find…" /></label>
+            <div className="asset-tree project-tree">
+              {filtered.length > 0
+                ? <details open className="tree-branch tree-project"><summary>{project.name}</summary><TreeContents node={fileTree} selected={selected.path} onSelect={selectFile} /></details>
+                : <p className="empty">No match for “{query}”.</p>}
+            </div>
+          </aside>
+          <section className="panel tool-placeholder" aria-label="Reserved tool space">
+            <span className="placeholder-mark">+</span>
+            <div><span className="eyebrow">TOOL SPACE</span><h3>Reserved for what comes next</h3></div>
+          </section>
+        </div>
 
         <section className="canvas-panel">
           <div className="canvas-toolbar">
@@ -153,9 +157,35 @@ function SourceView({ file }: { file: ProjectFile }) {
   return <div className="source-view"><div className="source-head"><span>{file.path}</span><b>{file.content ? `${file.content.split("\n").length} lines` : "binary or unavailable"}</b></div>{file.content ? <pre><code>{file.content}</code></pre> : <div className="connection-empty"><b>No text preview</b><span>The IDE keeps the reference visible without claiming it can decode this asset type.</span></div>}</div>;
 }
 
-function FileGroup({ title, files, selected, onSelect }: { title: string; files: ProjectFile[]; selected: string; onSelect: (file: ProjectFile) => void }) {
-  if (files.length === 0) return null;
-  return <section className="file-group"><h3>{title}<span>{files.length}</span></h3>{files.map((file) => <button className={selected === file.path ? "asset-row selected" : "asset-row"} onClick={() => onSelect(file)} key={file.path}><span className={`asset-icon ${file.kind}`}>{icons[file.kind]}</span><span className="asset-name">{file.name}<small>{file.path.replace(`/${file.name}`, "")}</small></span><span className="asset-size">{formatBytes(file.bytes)}</span></button>)}</section>;
+type FileTree = { folders: Map<string, FileTree>; files: ProjectFile[] };
+
+function buildFileTree(files: ProjectFile[]): FileTree {
+  const root: FileTree = { folders: new Map(), files: [] };
+  for (const file of files) {
+    const parts = file.path.split("/");
+    let node = root;
+    for (const folder of parts.slice(0, -1)) {
+      const existing = node.folders.get(folder);
+      if (existing) {
+        node = existing;
+      } else {
+        const created: FileTree = { folders: new Map(), files: [] };
+        node.folders.set(folder, created);
+        node = created;
+      }
+    }
+    node.files.push(file);
+  }
+  return root;
+}
+
+function TreeContents({ node, selected, onSelect }: { node: FileTree; selected: string; onSelect: (file: ProjectFile) => void }) {
+  const folders = [...node.folders.entries()].sort(([left], [right]) => left.localeCompare(right));
+  const files = [...node.files].sort((left, right) => left.name.localeCompare(right.name));
+  return <div className="tree-children">
+    {folders.map(([name, child]) => <details open className="tree-branch" key={name}><summary>{name}</summary><TreeContents node={child} selected={selected} onSelect={onSelect} /></details>)}
+    {files.map((file) => <button className={selected === file.path ? "tree-file selected" : "tree-file"} onClick={() => onSelect(file)} key={file.path}>{file.name}</button>)}
+  </div>;
 }
 
 type ConnectedFile = { connection: ProjectConnection; peer: ProjectFile; direction: "incoming" | "outgoing" };
