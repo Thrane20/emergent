@@ -1,5 +1,6 @@
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
+import "server-only";
 
 export const DEFAULT_AI_SETTINGS = {
   provider: "openai-codex",
@@ -7,7 +8,7 @@ export const DEFAULT_AI_SETTINGS = {
   model: "gpt-6.1-sol",
 } as const;
 
-type StoredAISettings = {
+export type AIConnectionSettings = {
   provider: string;
   baseUrl: string;
   model: string;
@@ -19,6 +20,8 @@ export type PublicAISettings = Omit<StoredAISettings, "apiKey"> & {
   keyHint: string | null;
 };
 
+type StoredAISettings = AIConnectionSettings;
+
 export type AISettingsUpdate = {
   baseUrl?: unknown;
   model?: unknown;
@@ -28,6 +31,10 @@ export type AISettingsUpdate = {
 
 export async function readPublicAISettings(): Promise<PublicAISettings> {
   return toPublic(await readStoredAISettings());
+}
+
+export async function readAIConnectionSettings(): Promise<AIConnectionSettings> {
+  return readStoredAISettings();
 }
 
 export async function updateAISettings(input: AISettingsUpdate): Promise<PublicAISettings> {

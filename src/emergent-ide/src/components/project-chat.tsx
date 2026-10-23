@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
+import { FormEvent, KeyboardEvent, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { PublicAISettings } from "@/lib/ai-settings";
 import type { ProjectEntity, ProjectFile } from "@/lib/project";
@@ -9,6 +9,7 @@ type ChatMessage = {
   id: number;
   role: "user" | "assistant";
   text: string;
+  state?: "pending" | "error";
 };
 
 type Props = {
@@ -26,6 +27,8 @@ export function ProjectChat({ projectId, projectName, selectedFile, entities, ai
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(true);
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
+  const [sending, setSending] = useState(false);
+  const nextMessageId = useRef(0);
   const activeScope = scope.startsWith("file:") ? fileScope : scope;
   const thread = messages[activeScope] ?? [];
   const linkedEntity = entities.find((entity) => entityScope(entity) === activeScope);
@@ -40,26 +43,63 @@ export function ProjectChat({ projectId, projectName, selectedFile, entities, ai
     return ["emergent.toml", "project graph"];
   }, [activeScope, linkedEntity, selectedFile.path]);
 
-  const submit = (event?: FormEvent) => {
+  const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
-    if (!text) return;
-    const now = Date.now();
+    if (!text || sending) return;
+    if (!aiSettings.configured) {
+      const messageId = ++nextMessageId.current;
+      setMessages((current) => ({
+        ...current,
+        [activeScope]: [...(current[activeScope] ?? []), { id: messageId, role: "assistant", text: "Configure an API key in AI settings before sending a message.", state: "error" }],
+      }));
+      return;
+    }
+    const requestScope = activeScope;
+    const requestHistory = thread.filter((message) => message.state !== "pending");
+    const userMessageId = ++nextMessageId.current;
+    const assistantMessageId = ++nextMessageId.current;
     setMessages((current) => ({
       ...current,
-      [activeScope]: [
-        ...(current[activeScope] ?? []),
-        { id: now, role: "user", text },
-        {
-          id: now + 1,
-          role: "assistant",
-          text: aiSettings.configured
-            ? "Request staged with this scope. Codex is configured; request execution and reviewed file changes are the next integration step."
-            : "Request staged with this scope. Connect an AI provider before code or project files can be generated.",
-        },
+      [requestScope]: [
+        ...(current[requestScope] ?? []),
+        { id: userMessageId, role: "user", text },
+        { id: assistantMessageId, role: "assistant", text: "Thinking with the linked project graph…", state: "pending" },
       ],
     }));
     setDraft("");
+    setSending(true);
+    try {
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId,
+          scope: requestScope,
+          message: text,
+          history: requestHistory.map(({ role, text: historyText }) => ({ role, text: historyText })),
+        }),
+      });
+      const result = await response.json() as { text?: string; error?: string };
+      if (!response.ok || !result.text) throw new Error(result.error ?? "The AI provider returned no response.");
+      replacePending(requestScope, assistantMessageId, { id: assistantMessageId, role: "assistant", text: result.text });
+    } catch (error) {
+      replacePending(requestScope, assistantMessageId, {
+        id: assistantMessageId,
+        role: "assistant",
+        text: error instanceof Error ? error.message : "Unable to reach the AI provider.",
+        state: "error",
+      });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const replacePending = (requestScope: string, id: number, replacement: ChatMessage) => {
+    setMessages((current) => ({
+      ...current,
+      [requestScope]: (current[requestScope] ?? []).map((message) => message.id === id ? replacement : message),
+    }));
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -91,11 +131,11 @@ export function ProjectChat({ projectId, projectName, selectedFile, entities, ai
         <div className="chat-messages">
           {thread.length === 0
             ? <div className="chat-empty"><span>Ask for a component, behaviour, scene change, or new project file.</span><small>The selected scope and definitions will travel with the request.</small></div>
-            : thread.map((message) => <div className={`chat-message ${message.role}`} key={message.id}><b>{message.role === "user" ? "You" : "Emergent"}</b><p>{message.text}</p></div>)}
+            : thread.map((message) => <div className={`chat-message ${message.role} ${message.state ?? ""}`} key={message.id}><b>{message.role === "user" ? "You" : "Emergent"}</b><p>{message.text}</p></div>)}
         </div>
         <form className="chat-composer" onSubmit={submit}>
           <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={`Describe what to build for ${scopeLabel}…`} rows={2} />
-          <button type="submit" disabled={!draft.trim()} title="Stage request">↑</button>
+          <button type="submit" disabled={!draft.trim() || sending} title="Send request to Codex">{sending ? "…" : "↑"}</button>
         </form>
       </>}
     </section>
