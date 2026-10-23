@@ -3,6 +3,8 @@ use std::fmt;
 
 use glam::Vec3;
 
+use crate::Primitive;
+
 const GEOMETRY_EPSILON: f32 = 1.0e-6;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -282,6 +284,7 @@ pub enum Geometry {
     Line(Line),
     Polygon(Polygon),
     Mesh(Mesh),
+    Primitive(Primitive),
 }
 
 impl From<Point> for Geometry {
@@ -308,6 +311,12 @@ impl From<Mesh> for Geometry {
     }
 }
 
+impl From<Primitive> for Geometry {
+    fn from(value: Primitive) -> Self {
+        Self::Primitive(value)
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GeometryError {
     NonFiniteColor,
@@ -324,6 +333,14 @@ pub enum GeometryError {
     NonConvexPolygon,
     TooFewMeshVertices,
     GeometryTooLarge,
+    InvalidDimensions,
+    InvalidSubdivision {
+        field: &'static str,
+        found: u32,
+        minimum: u32,
+        maximum: u32,
+    },
+    InvalidTorusRadii,
     InvalidTriangleIndexCount,
     MeshIndexOutOfBounds {
         position: usize,
@@ -363,6 +380,21 @@ impl fmt::Display for GeometryError {
             }
             Self::GeometryTooLarge => {
                 formatter.write_str("geometry exceeds the renderer's 32-bit index limits")
+            }
+            Self::InvalidDimensions => formatter.write_str(
+                "primitive dimensions must be finite and large enough to form usable triangles",
+            ),
+            Self::InvalidSubdivision {
+                field,
+                found,
+                minimum,
+                maximum,
+            } => write!(
+                formatter,
+                "{field} is {found}; expected a value from {minimum} through {maximum}"
+            ),
+            Self::InvalidTorusRadii => {
+                formatter.write_str("torus major radius must be greater than its minor radius")
             }
             Self::InvalidTriangleIndexCount => {
                 formatter.write_str("mesh indices must contain one or more complete triangles")

@@ -535,6 +535,12 @@ fn tessellate(geometry: &Geometry) -> (Vec<Vertex>, Vec<u32>) {
         Geometry::Line(line) => tessellate_line(*line),
         Geometry::Polygon(polygon) => tessellate_polygon(polygon),
         Geometry::Mesh(mesh) => tessellate_mesh(mesh),
+        Geometry::Primitive(primitive) => {
+            let mesh = primitive
+                .to_mesh()
+                .expect("validated primitive must produce a valid mesh");
+            tessellate_mesh(&mesh)
+        }
     }
 }
 
@@ -678,7 +684,7 @@ fn create_depth_view(device: &wgpu::Device, size: PhysicalSize<u32>) -> wgpu::Te
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Color, MeshVertex};
+    use crate::{Color, MeshVertex, Primitive};
 
     #[test]
     fn clamps_zero_surface_dimensions_for_initial_configuration() {
@@ -721,7 +727,8 @@ mod tests {
             )
             .unwrap(),
         );
-        for geometry in [&point, &line, &polygon, &mesh] {
+        let primitive = Geometry::from(Primitive::sphere(1.0, 12, 6, Color::WHITE).unwrap());
+        for geometry in [&point, &line, &polygon, &mesh, &primitive] {
             let (vertices, indices) = tessellate(geometry);
             assert!(!vertices.is_empty());
             assert!(!indices.is_empty());

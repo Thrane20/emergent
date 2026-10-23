@@ -39,6 +39,14 @@ cargo run --release --features graphics --example geometry_gallery
 
 It renders a solid point marker, line segment, convex polygon, and custom indexed mesh as four independently transformed entities. Add `-- --smoke` for the self-closing native validation run.
 
+Run the procedural primitive gallery with:
+
+```sh
+cargo run --release --features graphics --example primitive_gallery
+```
+
+It generates and renders a plane, cube, pyramid, UV sphere, cylinder, cone, capsule, and torus through the public headless `Primitive` and `Mesh` APIs. Add `-- --smoke` for native resize and shutdown validation.
+
 Run the independent reference game project with:
 
 ```sh
@@ -55,7 +63,7 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`. The point, line, polygon, mesh, and renderer ownership contracts are recorded in `ITERATION_8.md`.
+Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`. Geometry ownership is recorded in `ITERATION_8.md`; procedural primitive contracts are recorded in `ITERATION_9.md`.
 
 ## User guide
 

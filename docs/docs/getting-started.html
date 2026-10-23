@@ -7,7 +7,7 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.8.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.9.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
   <aside class="sidebar" aria-label="Guide navigation">
     <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" aria-current="page" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
     <div class="nav-label">Reference</div><a class="nav-link" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
@@ -37,6 +37,11 @@ cargo --version</pre></div></li>
     <div class="code-block"><div class="code-label">Terminal</div><pre>cargo run --release --features graphics --example geometry_gallery</pre></div>
     <p>Each shape belongs to a canonical Emergent entity. The frame extracts its copied global matrix into a <code>GeometryInstance</code>. Use <code>-- --smoke</code> to resize, present 120 fixed ticks, and exit automatically.</p>
 
+    <h2 id="primitive-gallery">Generate procedural primitives</h2>
+    <p>The primitive gallery constructs eight parameterized shapes through headless APIs, converts them to validated indexed meshes, uploads each once, and renders their entity transforms.</p>
+    <div class="code-block"><div class="code-label">Terminal</div><pre>cargo run --release --features graphics --example primitive_gallery</pre></div>
+    <p>The gallery includes a plane, cube, pyramid, UV sphere, cylinder, cone, capsule, and torus. Append <code>-- --smoke</code> for the self-closing validation run.</p>
+
     <h2 id="checks">Check the engine</h2>
     <p>Run the default tests for the headless core. Before committing engine work, also check every target and optional feature.</p>
     <div class="code-block"><div class="code-label">Terminal</div><pre>cargo fmt --check
@@ -60,10 +65,11 @@ emergent = { path = "../emergent", features = ["graphics"] }</pre></div>
       <tr><td>Behaviour</td><td>Stateful outputs and typed links between objects</td><td><code>BehaviorId</code>, <code>BehaviorSpec</code></td></tr>
       <tr><td>ECS</td><td>Dense component data and scheduled systems</td><td><code>Component</code>, <code>SchedulePhase</code></td></tr>
       <tr><td>Geometry</td><td>Validated points, lines, convex polygons, and indexed colour meshes</td><td><code>Geometry</code>, <code>Mesh</code></td></tr>
+      <tr><td>Primitives</td><td>Bounded procedural generation into validated indexed meshes</td><td><code>Primitive</code>, <code>PrimitiveKind</code></td></tr>
       <tr><td>Renderer</td><td>SlotMap-owned GPU geometry and copied transformed instances</td><td><code>GeometryRenderer</code></td></tr>
     </tbody></table>
     <div class="page-nav"><a href="index.html"><small>Previous</small>← Introduction</a><a href="hello-world.html"><small>Next</small>Hello World →</a></div>
-    <footer>Emergent user guide · Current engine version 0.8.0</footer>
+    <footer>Emergent user guide · Current engine version 0.9.0</footer>
   </main></div>
   <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
 </body></html>

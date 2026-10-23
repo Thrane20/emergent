@@ -5,6 +5,7 @@ mod engine;
 mod geometry;
 #[cfg(feature = "graphics")]
 mod graphics;
+mod primitives;
 mod project;
 mod world;
 
@@ -25,6 +26,7 @@ pub use graphics::{
     CubeRenderer, GeometryId, GeometryInstance, GeometryRenderer, GraphicsError, RenderOutcome,
     RendererInfo,
 };
+pub use primitives::{Primitive, PrimitiveKind};
 pub use project::{
     BuildProfile, Project, ProjectError, ProjectManifest, ProjectOutput, TargetOs,
     PROJECT_SCHEMA_VERSION,

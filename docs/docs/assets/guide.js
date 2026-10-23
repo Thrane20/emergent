@@ -5,6 +5,7 @@ const pages = [
   { title: "Game projects", section: "Guide", url: "projects.html", terms: "manifest generated code assets output independent crate" },
   { title: "Capability map", section: "Reference", url: "capabilities.html", terms: "roadmap categories graphics audio sound geometry terrain lighting shadows particles input physics animation tools" },
   { title: "Vector geometry", section: "Capabilities", url: "capabilities.html#geometry", terms: "dots points lines polylines polygons vector primitive cube torus pyramid mesh" },
+  { title: "Procedural primitives", section: "Capabilities", url: "capabilities.html#geometry", terms: "plane cuboid cube pyramid sphere cylinder cone capsule torus generated mesh" },
   { title: "Terrain and noise", section: "Capabilities", url: "capabilities.html#terrain", terms: "heightmap polygonal poly terrain perlin simplex worley procedural generation" },
   { title: "Lighting and effects", section: "Capabilities", url: "capabilities.html#look", terms: "lights shadows particles materials textures animation post processing" },
   { title: "Audio", section: "Capabilities", url: "capabilities.html#audio", terms: "sound mixer clips stream music spatial listener attenuation doppler" },

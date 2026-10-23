@@ -7,7 +7,7 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.8.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.9.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
   <aside class="sidebar" aria-label="Guide navigation">
     <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
     <div class="nav-label">Reference</div><a class="nav-link" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" aria-current="page" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="#graphics"><span class="nav-icon">△</span>Graphics</a>
@@ -15,9 +15,9 @@
   </aside>
   <div class="layout"><main class="content" id="main">
     <div class="breadcrumbs"><span>Reference</span><span>Library and API</span></div>
-    <p class="eyebrow">Public surface · v0.8.0</p><h1>Library and API.</h1>
+    <p class="eyebrow">Public surface · v0.9.0</p><h1>Library and API.</h1>
     <p class="lede">A practical map of the functions and types available to a game today. Expand a method for its purpose and contract.</p>
-    <div class="callout warning"><strong>Foundation API:</strong> Emergent is evolving quickly. This guide records the checked-in 0.8.0 API; it does not promise long-term semantic version stability yet.</div>
+    <div class="callout warning"><strong>Foundation API:</strong> Emergent is evolving quickly. This guide records the checked-in 0.9.0 API; it does not promise long-term semantic version stability yet.</div>
 
     <h2 id="engine">Engine lifecycle</h2>
     <div class="type-grid">
@@ -87,11 +87,14 @@
       <article class="type-card"><h3><code>Line</code></h3><p>Distinct finite endpoints, positive radius, and colour. Rendered as a solid square prism.</p></article>
       <article class="type-card"><h3><code>Polygon</code></h3><p>Ordered, planar, strictly convex vertices and colour. Triangulated as a fan.</p></article>
       <article class="type-card"><h3><code>Mesh</code></h3><p>Validated <code>MeshVertex</code> values and 32-bit triangle indices. Includes <code>Mesh::cube</code>.</p></article>
+      <article class="type-card"><h3><code>Primitive</code></h3><p>Validated plane, cuboid, pyramid, sphere, cylinder, cone, capsule, or torus parameters with deterministic <code>to_mesh</code> generation.</p></article>
+      <article class="type-card"><h3><code>PrimitiveKind</code></h3><p>Stable shape-family inspection without exposing unchecked enum fields or bypassing construction validation.</p></article>
     </div>
     <div class="api-group">
       <details class="api-item" open><summary><code>GeometryRenderer::new</code><span>Initialize renderer-owned geometry storage</span></summary><div class="api-detail"><code class="signature">pub async fn new(window: Arc&lt;Window&gt;, display: OwnedDisplayHandle) -&gt; Result&lt;Self, GraphicsError&gt;</code><p>Selects a surface-compatible adapter and creates the depth-tested colour pipeline, dynamic instance-uniform storage, and empty typed SlotMap.</p></div></details>
       <details class="api-item"><summary><code>GeometryRenderer::insert / remove / contains</code><span>Manage uploaded geometry</span></summary><div class="api-detail"><code class="signature">insert(&amp;mut self, geometry: &amp;Geometry) -&gt; GeometryId<br>remove(&amp;mut self, id: GeometryId) -&gt; bool<br>contains(&amp;self, id: GeometryId) -&gt; bool</code><p><code>GeometryId</code> is generational and scoped to its renderer. Stale or foreign handles cannot resolve to replacement resources.</p></div></details>
       <details class="api-item"><summary><code>GeometryRenderer::render</code><span>Draw copied geometry instances</span></summary><div class="api-detail"><code class="signature">pub fn render(&amp;mut self, instances: &amp;[GeometryInstance]) -&gt; Result&lt;RenderOutcome, GraphicsError&gt;</code><p>Validates handles and matrices, writes aligned model-view-projection data into one reusable buffer, draws each indexed resource, and presents.</p></div></details>
+      <details class="api-item"><summary><code>Primitive constructors</code><span>Generate bounded mesh sources</span></summary><div class="api-detail"><code class="signature">Primitive::plane · cuboid · cube · pyramid<br>Primitive::sphere · cylinder · cone · capsule · torus<br>Primitive::to_mesh() -&gt; Result&lt;Mesh, GeometryError&gt;</code><p>Dimensions must be finite and usable. Segment and ring counts have shape-specific lower bounds and a common upper bound of 512 per subdivision axis.</p></div></details>
       <details class="api-item"><summary><code>GeometryRenderer::resize / info</code><span>Maintain and inspect the surface</span></summary><div class="api-detail"><code class="signature">resize(&amp;mut self, size: PhysicalSize&lt;u32&gt;)<br>info(&amp;self) -&gt; &amp;RendererInfo</code><p>Zero-sized surfaces are ignored. Non-zero changes recreate the depth target. Adapter, backend, and format remain inspectable.</p></div></details>
       <details class="api-item"><summary><code>CubeRenderer</code><span>Compatibility wrapper</span></summary><div class="api-detail"><p>The original API remains available and delegates to one <code>GeometryRenderer</code> resource created from <code>Mesh::cube</code>.</p></div></details>
     </div>
@@ -116,7 +119,7 @@
     </tbody></table>
 
     <div class="page-nav"><a href="capabilities.html"><small>Previous</small>← Capability map</a><a href="index.html"><small>Guide home</small>Introduction →</a></div>
-    <footer>Emergent user guide · Current engine version 0.8.0</footer>
+    <footer>Emergent user guide · Current engine version 0.9.0</footer>
   </main></div>
   <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
 </body></html>

@@ -7,7 +7,7 @@
 </head>
 <body>
   <a class="skip-link" href="#main">Skip to content</a>
-  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.8.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
+  <header class="topbar"><button class="menu-trigger" id="menu-trigger" aria-label="Open navigation">☰</button><a class="brand" href="index.html"><span class="brand-mark">E</span><span class="brand-copy"><strong>Emergent</strong><small>Engine guide</small></span></a><span class="version-pill">v0.9.0</span><span class="topbar-spacer"></span><button class="search-trigger" data-search><span>Search the guide</span><kbd>⌘ K</kbd></button></header>
   <aside class="sidebar" aria-label="Guide navigation">
     <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
     <div class="nav-label">Reference</div><a class="nav-link" aria-current="page" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
@@ -42,7 +42,7 @@
         <article class="capability-card"><span class="status available">Available</span><h3>Convex polygons</h3><p>Ordered finite vertices with planarity, degeneracy, and convexity validation followed by fan triangulation.</p><code>geometry.polygon</code></article>
         <article class="capability-card"><span class="status available">Available</span><h3>Indexed colour meshes</h3><p>Validated coloured vertices, 32-bit triangle indices, transformed instances, and SlotMap-owned GPU buffers.</p><code>geometry.meshes</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Vector &amp; debug geometry</h3><p>Polylines, concave and outlined polygons, grids, axes, bounds, overlays, and debug gizmos.</p><code>geometry.vector</code></article>
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Procedural primitives</h3><p>Plane, cube, sphere, capsule, cylinder, cone, pyramid, and torus with explicit generation parameters.</p><code>geometry.primitives</code></article>
+        <article class="capability-card"><span class="status available">Available</span><h3>Procedural primitives</h3><p>Plane, cuboid/cube, pyramid, UV sphere, cylinder, cone, capsule, and torus with validated dimensions and bounded tessellation.</p><code>geometry.primitives</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Models &amp; deformation</h3><p>Model composition, normals, UVs, skinning inputs, morph targets, model-level bounds, and import-ready structures.</p><code>geometry.models · animation</code></article>
       </div>
     </section>
@@ -117,7 +117,7 @@
     </tbody></table>
 
     <div class="page-nav"><a href="projects.html"><small>Previous</small>← Game projects</a><a href="api.html"><small>Next</small>Library and API →</a></div>
-    <footer>Emergent user guide · Current engine version 0.8.0</footer>
+    <footer>Emergent user guide · Current engine version 0.9.0</footer>
   </main></div>
   <dialog class="search-dialog" id="search-dialog"><div class="search-form"><input class="search-input" id="search-input" type="search" placeholder="Search features and APIs…" aria-label="Search"><button class="search-close" id="search-close" aria-label="Close search">Esc</button></div><div class="search-results" id="search-results"></div></dialog><script src="assets/guide.js"></script>
 </body></html>
