@@ -394,6 +394,15 @@ depends_on = ["runtime.fixed-step"]
 summary = "Structured logs, metrics, CPU/GPU timing, frame capture hooks, and consoles."
 
 [[capabilities]]
+id = "tools.local-run"
+category = "tooling"
+name = "Local project run control"
+status = "preview"
+owner = "ide"
+depends_on = ["project.manifest"]
+summary = "IDE-owned Cargo development-run start, bounded diagnostics, status polling, and stop control for the linked local project."
+
+[[capabilities]]
 id = "tools.project-mode"
 category = "tools"
 name = "Visual project mode"

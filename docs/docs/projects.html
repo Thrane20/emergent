@@ -21,6 +21,7 @@
     <h2 id="run">Run the reference project</h2>
     <div class="code-block"><div class="code-label">Terminal · repository root</div><pre>cargo run -p emergent-first-project</pre></div>
     <p>The executable loads and validates its <code>emergent.toml</code>, reads a project-owned speed value, constructs a linked behaviour scene and point-light entity through public engine APIs, and runs it headlessly.</p>
+    <p>The Emergent IDE also exposes a preview <strong>Run</strong> control in its top bar. It starts the linked project's local Cargo development executable, reports build and completion state, and becomes a Stop control while the process is active. It does not yet select target outputs or provide visual project-mode pause and stepping.</p>
     <div class="callout warning"><strong>Current boundary:</strong> the manifest and paths are validated, while the scene and entity TOML files are declarations for later authored-graph loading. Generated Rust constructs the runtime scene in this iteration.</div>
 
     <h2 id="layout">Project layout</h2>

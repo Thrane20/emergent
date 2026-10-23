@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AddAssetModal } from "@/components/add-asset-modal";
 import { ProjectChat } from "@/components/project-chat";
+import { ProjectRunControl } from "@/components/project-run-control";
 import { StatementsPanel } from "@/components/statements-panel";
 import type { PublicAISettings } from "@/lib/ai-settings";
 import type {
@@ -81,7 +82,7 @@ export function ProjectStudio({ project, aiSettings }: Props) {
         <div className="brand"><span className="brand-mark">E</span><span>Emergent</span><b>IDE</b></div>
         <div className="project-pill"><span>◫</span>{project.name}<span className="muted">LOCAL</span></div>
         <div className="top-status"><span className="pulse" />Linked project <i /> {project.files.length} files <i /> {project.connections.length} connections</div>
-        <div className="top-actions"><button className="quiet-button" onClick={() => searchRef.current?.focus()}>⌘ K</button><span className="avatar">FP</span></div>
+        <div className="top-actions"><ProjectRunControl projectId={project.id} /><button className="quiet-button" onClick={() => searchRef.current?.focus()}>⌘ K</button><span className="avatar">FP</span></div>
       </header>
 
       <aside className="rail" aria-label="IDE sections">
