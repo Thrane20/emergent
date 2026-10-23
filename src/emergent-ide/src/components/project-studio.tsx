@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { AddAssetModal } from "@/components/add-asset-modal";
 import { ProjectChat } from "@/components/project-chat";
 import { StatementsPanel } from "@/components/statements-panel";
 import type { PublicAISettings } from "@/lib/ai-settings";
@@ -102,6 +103,12 @@ export function ProjectStudio({ project, aiSettings }: Props) {
                 ? <details open className="tree-branch tree-project"><summary>{project.name}</summary><TreeContents node={fileTree} selected={selected.path} onSelect={selectFile} /></details>
                 : <p className="empty">No match for “{query}”.</p>}
             </div>
+            <AddAssetModal projectId={project.id} onCreated={(path) => {
+              setQuery("");
+              setSelectedPath(path);
+              setView("overview");
+              router.refresh();
+            }} />
           </aside>
           <section className="panel tool-placeholder" aria-label="Reserved tool space">
             <span className="placeholder-mark">+</span>
@@ -134,7 +141,7 @@ export function ProjectStudio({ project, aiSettings }: Props) {
           <StatementsPanel key={selected.path} projectId={project.id} subject={`file:${selected.path}`} subjectLabel={selected.name} aiConfigured={aiSettings.configured} />
         </aside>
 
-        <section className="diagnostics"><div><span className="terminal-caret">›</span><strong>Linked project</strong><span>{project.root}</span></div><div><span className="diagnostic-ok">●</span> Read-only inspection <b>•</b> {project.id}</div></section>
+        <section className="diagnostics"><div><span className="terminal-caret">›</span><strong>Linked project</strong><span>{project.root}</span></div><div><span className="diagnostic-ok">●</span> Project asset authoring <b>•</b> {project.id}</div></section>
       </section>
     </main>
   );
