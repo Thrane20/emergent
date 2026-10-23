@@ -10,6 +10,6 @@ cargo run --release --features graphics --example geometry_gallery -- --smoke
 
 ## Result
 
-Passed on Apple M3 Pro using the Metal backend and `Bgra8UnormSrgb`. The lit geometry gallery created the lighting/shadow pipeline, submitted its bounded light and directional shadow pass, observed its resize request, and shut down after 120 fixed ticks without WGPU validation errors.
+Passed on Apple M3 Pro using the Metal backend and `Bgra8UnormSrgb`. The lit geometry gallery created the lighting/shadow pipeline, submitted its bounded light and directional shadow pass, presented 239 frames, observed its resize request, and shut down after 120 fixed ticks without WGPU validation errors.
 
-The window was occluded in this automation environment, so WGPU reported zero presented frames. This validates resource and pass submission, not visible image quality, performance, or Windows/Linux runtime compatibility.
+This validates resource creation, pass submission, presentation, resize, and shutdown. It does not establish visual shadow quality, frame-time performance, or Windows/Linux runtime compatibility.

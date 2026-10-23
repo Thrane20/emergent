@@ -1,6 +1,6 @@
 # Iteration 11 — Lit geometry and first directional shadows
 
-Status: complete. The 2026-10-23 Metal smoke created the lit pipeline, submitted the directional shadow path, observed resize, and shut down cleanly; see `docs/platform/iteration-11-macos-smoke.md`. It was occluded, so visible image quality and frame timing remain unmeasured.
+Status: complete. The 2026-10-23 Metal smoke created the lit pipeline, submitted the directional shadow path, presented 239 frames, observed resize, and shut down cleanly; see `docs/platform/iteration-11-macos-smoke.md`. Visible image quality and frame timing remain unmeasured.
 
 ## Outcome
 

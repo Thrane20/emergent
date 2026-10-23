@@ -223,6 +223,7 @@ pub struct GeometryRenderer {
     frame_buffer: wgpu::Buffer,
     light_buffer: wgpu::Buffer,
     lighting_bind_group: wgpu::BindGroup,
+    shadow_frame_bind_group: wgpu::BindGroup,
     renderer_id: u64,
     geometry: SlotMap<GeometryKey, GpuMesh>,
     depth_view: wgpu::TextureView,
@@ -270,6 +271,10 @@ impl GeometryRenderer {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Emergent geometry shader"),
             source: wgpu::ShaderSource::Wgsl(include_str!("shaders/geometry.wgsl").into()),
+        });
+        let shadow_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("Emergent directional shadow shader"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("shaders/shadow.wgsl").into()),
         });
         let uniform_size = std::mem::size_of::<ObjectUniform>() as u64;
         let uniform_stride = align_up(
@@ -385,6 +390,30 @@ impl GeometryRenderer {
                 },
             ],
         });
+        let shadow_frame_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("Emergent shadow frame layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: NonZeroU64::new(
+                            std::mem::size_of::<FrameUniform>() as u64
+                        ),
+                    },
+                    count: None,
+                }],
+            });
+        let shadow_frame_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Emergent shadow frame bind group"),
+            layout: &shadow_frame_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: frame_buffer.as_entire_binding(),
+            }],
+        });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Emergent geometry pipeline layout"),
             bind_group_layouts: &[Some(&uniform_layout), Some(&lighting_layout)],
@@ -428,9 +457,15 @@ impl GeometryRenderer {
         });
         let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Emergent directional shadow pipeline"),
-            layout: Some(&pipeline_layout),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Emergent directional shadow pipeline layout"),
+                    bind_group_layouts: &[Some(&uniform_layout), Some(&shadow_frame_layout)],
+                    immediate_size: 0,
+                }),
+            ),
             vertex: wgpu::VertexState {
-                module: &shader,
+                module: &shadow_shader,
                 entry_point: Some("shadow_vertex_main"),
                 compilation_options: Default::default(),
                 buffers: &[Some(Vertex::layout())],
@@ -483,6 +518,7 @@ impl GeometryRenderer {
             frame_buffer,
             light_buffer,
             lighting_bind_group,
+            shadow_frame_bind_group,
             renderer_id: NEXT_RENDERER_ID.fetch_add(1, Ordering::Relaxed),
             geometry: SlotMap::with_key(),
             depth_view,
@@ -646,7 +682,7 @@ impl GeometryRenderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.shadow_pipeline);
-            pass.set_bind_group(1, &self.lighting_bind_group, &[]);
+            pass.set_bind_group(1, &self.shadow_frame_bind_group, &[]);
             for (index, instance) in instances.iter().enumerate() {
                 let offset = u32::try_from(index as u64 * self.uniform_stride)
                     .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;

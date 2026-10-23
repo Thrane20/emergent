@@ -23,10 +23,6 @@ struct VertexOutput { @builtin(position) clip_position: vec4<f32>, @location(0) 
     return output;
 }
 
-@vertex fn shadow_vertex_main(input: VertexInput) -> @builtin(position) vec4<f32> {
-    return frame.light_view_projection * object.model * vec4<f32>(input.position, 1.0);
-}
-
 fn directional_shadow(input: VertexOutput) -> f32 {
     if frame.shadow_enabled == 0u || input.shadow_position.w <= 0.0 { return 1.0; }
     let projected = input.shadow_position.xyz / input.shadow_position.w;
