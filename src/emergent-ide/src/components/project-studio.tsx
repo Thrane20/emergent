@@ -127,15 +127,8 @@ export function ProjectStudio({ project, aiSettings }: Props) {
         </section>
 
         <aside className="panel details-panel">
-          <div className="panel-head"><div><span className="eyebrow">FILE DETAILS</span><h2>{selected.name}</h2></div><span className="kind-badge">{selected.kind}</span></div>
-          <dl className="details">
-            <div><dt>Project path</dt><dd><code>{selected.path}</code></dd></div>
-            <div><dt>Ownership</dt><dd>{selected.generated ? "Generator-owned Rust" : selected.authored ? "Authored project input" : "Game-owned source"}</dd></div>
-            <div><dt>Size &amp; modified</dt><dd>{formatBytes(selected.bytes)} · {formatDate(selected.modifiedAt)}</dd></div>
-            <div><dt>Contract</dt><dd>{descriptions[selected.kind]}</dd></div>
-          </dl>
-          <button className="open-button" onClick={() => navigator.clipboard?.writeText(selected.path)}>Copy project path <span>→</span></button>
-          <div className="connection-summary"><span className="eyebrow">CONNECTIONS</span>{connected.length === 0 ? <p className="empty compact">No known file references this asset yet.</p> : connected.map(({ connection, peer, direction }) => <button key={connection.id} onClick={() => selectFile(peer, "connections")}><span className={`connection-direction ${direction}`}>{direction === "outgoing" ? "→" : "←"}</span><span><b>{connection.label}</b><small>{peer.path}</small></span></button>)}</div>
+          <div className="panel-head"><div><span className="eyebrow">SELECTED</span><h2>{selected.name}</h2></div><span className="kind-badge">{selected.kind}</span></div>
+          <div className="connection-summary"><span className="eyebrow">CONNECTIONS</span>{connected.length === 0 ? <p className="empty compact">No known connections.</p> : connected.map(({ connection, peer, direction }) => <button key={connection.id} onClick={() => selectFile(peer, "connections")}><span className={`connection-direction ${direction}`}>{direction === "outgoing" ? "→" : "←"}</span><span><b>{connection.label}</b><small>{peer.name}</small></span></button>)}</div>
           <div className="outputs"><span className="eyebrow">DECLARED OUTPUTS</span>{project.outputs.map((output) => <div className="output" key={output.id}><span className={output.enabled ? "output-dot enabled" : "output-dot"} /><div><b>{output.id}</b><small>{output.os} · {output.architecture} · {output.profile}</small></div><em>{output.enabled ? "enabled" : "declared"}</em></div>)}</div>
         </aside>
 
@@ -207,5 +200,3 @@ function connectionsFor(connections: ProjectConnection[], files: ProjectFile[], 
 }
 
 function capitalize(value: string) { return `${value[0].toUpperCase()}${value.slice(1)}`; }
-function formatBytes(bytes: number) { return bytes === 0 ? "empty" : bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`; }
-function formatDate(value: string) { return new Intl.DateTimeFormat("en-AU", { day: "numeric", month: "short", year: "numeric" }).format(new Date(value)); }
