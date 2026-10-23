@@ -27,7 +27,10 @@ export function ProjectChat({ projectId, selectedFile, aiSettings }: Props) {
   const activeScope = `file:${selectedFile.path}`;
   const thread = messages[activeScope] ?? [];
   const scopeLabel = selectedFile.name;
-  const definitions = useMemo(() => ["emergent.toml", selectedFile.path], [selectedFile.path]);
+  const definitions = useMemo(
+    () => [...new Set(["emergent.toml", selectedFile.path])],
+    [selectedFile.path],
+  );
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
