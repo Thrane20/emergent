@@ -403,6 +403,15 @@ depends_on = ["project.manifest"]
 summary = "IDE-owned Cargo development-run start, bounded diagnostics, status polling, and stop control for the linked local project."
 
 [[capabilities]]
+id = "tools.object-creator"
+category = "tooling"
+name = "IDE object generation and preview"
+status = "preview"
+owner = "ide"
+depends_on = ["project.manifest"]
+summary = "Hosted TRELLIS job submission, persistent candidates, browser GLB preview, and project bundle saving. Mocked-provider validation only; live fal acceptance pending. Does not provide runtime model importing."
+
+[[capabilities]]
 id = "tools.project-mode"
 category = "tools"
 name = "Visual project mode"

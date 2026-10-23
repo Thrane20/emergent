@@ -7,6 +7,7 @@ import { AddAssetModal } from "@/components/add-asset-modal";
 import { ProjectChat } from "@/components/project-chat";
 import { ProjectRunControl } from "@/components/project-run-control";
 import { StatementsPanel } from "@/components/statements-panel";
+import { ModelPreview } from "@/components/model-preview";
 import type { PublicAISettings } from "@/lib/ai-settings";
 import type {
   ProjectConnection,
@@ -89,6 +90,7 @@ export function ProjectStudio({ project, aiSettings }: Props) {
         <button className="rail-button active" title="Project map" onClick={() => setView("overview")}>▦</button>
         <button className="rail-button" title="Connections" onClick={() => setView("connections")}>⌘</button>
         <button className="rail-button" title="Source" onClick={() => setView("source")}>⌗</button>
+        <Link className="rail-button" href="/objects" title="Object Creator" aria-label="Object Creator">◇</Link>
         <span className="rail-spacer" />
         <Link className="rail-button" href="/settings" title="AI settings">⚙</Link>
         <button className="rail-button" title="Reload project from disk" onClick={() => router.refresh()}>↻</button>
@@ -149,6 +151,11 @@ export function ProjectStudio({ project, aiSettings }: Props) {
 }
 
 function Overview({ project, file, connected, onSelect }: { project: ProjectSnapshot; file: ProjectFile; connected: ConnectedFile[]; onSelect: (file: ProjectFile, view?: View) => void }) {
+  let modelPath = file.path.endsWith(".glb") ? file.path : null;
+  if (file.name === "object.asset.json" && file.content) {
+    try { const descriptor = JSON.parse(file.content); if (typeof descriptor.model === "string") modelPath = descriptor.model; } catch { /* Invalid descriptors still have a source view. */ }
+  }
+  if (modelPath) return <div className="model-overview"><ModelPreview key={modelPath} name={file.name} src={`/api/project-asset?projectId=${encodeURIComponent(project.id)}&path=${encodeURIComponent(modelPath)}`} /></div>;
   return <div className="canvas-grid"><div className={`file-orbit ${file.kind}`}><span>{icons[file.kind]}</span><b>{file.kind}</b></div><div className="canvas-copy"><span className="eyebrow">{file.authored ? "DURABLE PROJECT FILE" : file.generated ? "GENERATED IMPLEMENTATION" : "PROJECT CODE"}</span><h1>{file.name}</h1><p>{descriptions[file.kind]}</p></div><button className="stat-card primary-stat interactive" onClick={() => onSelect(file, "connections")}><span>KNOWN CONNECTIONS</span><strong>{connected.length}</strong><em>{connected.length ? "Inspect incoming and outgoing edges" : "Currently unreferenced"}</em></button><button className="stat-card interactive" onClick={() => onSelect(project.files.find((candidate) => candidate.path === project.entryScene) ?? file)}><span>ENTRY SCENE</span><strong>{project.entryScene.replace("assets/scenes/", "")}</strong><em>Declared by emergent.toml</em></button><div className="stat-card"><span>RUNTIME IDENTITY</span><strong>Resolved later</strong><em>No SlotMap keys are stored in project files</em></div></div>;
 }
 

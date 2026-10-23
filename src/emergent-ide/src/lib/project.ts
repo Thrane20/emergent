@@ -142,6 +142,15 @@ function connectionsFor(files: ProjectFile[], entryScene: string): ProjectConnec
 
   for (const source of files) {
     if (!source.content) continue;
+    if (source.name === "object.asset.json") {
+      try {
+        const descriptor = JSON.parse(source.content);
+        if (descriptor.schema_version === 1 && descriptor.kind === "generated-model") {
+          if (typeof descriptor.model === "string") add(source.path, descriptor.model, "asset-reference", "contains model");
+          if (typeof descriptor.reference === "string") add(source.path, descriptor.reference, "asset-reference", "generated from reference");
+        }
+      } catch { /* Malformed descriptors remain visible as source for repair. */ }
+    }
     for (const target of files) {
       if (source.path !== target.path && source.content.includes(target.path)) {
         add(source.path, target.path, "asset-reference", "references path");
@@ -225,6 +234,8 @@ function entitiesFor(files: ProjectFile[]): ProjectEntity[] {
 function fileKind(relative: string): ProjectFileKind {
   if (relative === "emergent.toml") return "manifest";
   if (relative.endsWith(".md")) return "documentation";
+  if (relative.toLowerCase().endsWith(".glb")) return "model";
+  if (/\.(png|jpe?g|webp)$/i.test(relative)) return "texture";
   if (relative.startsWith("assets/scenes/")) return "scene";
   if (relative.startsWith("assets/entities/")) return "entity";
   if (relative.startsWith("assets/data/")) return "data";
