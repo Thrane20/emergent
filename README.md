@@ -47,7 +47,7 @@ cargo run --release --features graphics --example primitive_gallery
 
 It generates and renders a plane, cube, pyramid, UV sphere, cylinder, cone, capsule, and torus through the public headless `Primitive` and `Mesh` APIs. Add `-- --smoke` for native resize and shutdown validation.
 
-Lit geometry is available through `GeometryRenderer::render_lit`. It accepts copied `LightInstance` values derived from canonical `LightSource` entity components and propagated transforms. The initial renderer supports eight lights per frame, Lambert ambient/directional/point/spot illumination, and one selected shadow-casting directional light with a fixed 2048-square depth map. Missing mesh normals are generated at upload; use `MeshVertex::with_normal` to author one explicitly.
+Lit geometry is available through `GeometryRenderer::render_lit`. It accepts copied `LightInstance` values derived from canonical `LightSource` entity components and propagated transforms. The initial renderer supports eight lights per frame, Lambert ambient/directional/point/spot illumination, and one selected shadow-casting directional light with a fixed 2048-square depth map. Missing mesh normals are generated at upload; use `MeshVertex::with_normal` to author one explicitly. Use `insert_with_shading(..., ShadingMode::Flat)` when every triangle should retain a distinct face normal.
 
 Run the independent reference game project with:
 

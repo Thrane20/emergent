@@ -31,6 +31,7 @@ Extend the optional `wgpu` geometry renderer with normals, copied light inputs, 
 ## Contracts
 
 - `MeshVertex::with_normal` accepts a finite, non-zero normal and stores a normalized value. `MeshVertex::new` remains available for meshes whose normals are generated during renderer upload.
+- `GeometryRenderer::insert_with_shading` accepts `ShadingMode::Smooth` (the default) or `ShadingMode::Flat`. Flat mode expands indexed triangles during upload and assigns each face one normal; it deliberately trades GPU vertex memory for clear face boundaries and a simpler fragment path.
 - `GeometryRenderer::render` preserves the existing unlit-compatible call surface. `render_lit` accepts explicit copied `LightInstance` values.
 - A shadow-casting request only becomes a shadow when it belongs to a directional light selected for the bounded shadow pass. Point and spot shadow requests remain data for future work.
 - Non-uniform model scaling is supported by an inverse-transpose normal matrix stored in the per-object uniform.

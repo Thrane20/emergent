@@ -5,7 +5,7 @@ use std::time::Instant;
 use emergent::{
     Color, Engine, EngineConfig, EngineContext, EntityId, Game, Geometry, GeometryId,
     GeometryInstance, GeometryRenderer, LightInstance, LightSource, Line, Mesh, MeshVertex, Point,
-    Polygon, Quat, RenderOutcome, ShadowCasting, Transform, Vec3,
+    Polygon, Quat, RenderOutcome, ShadingMode, ShadowCasting, Transform, Vec3,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -138,7 +138,13 @@ impl ApplicationHandler for GalleryApp {
             Err(error) => return self.fail(event_loop, error),
         };
         let geometry = match gallery_geometry() {
-            Ok(geometry) => geometry.map(|geometry| renderer.insert(&geometry)),
+            Ok(geometry) => std::array::from_fn(|index| {
+                if index == 3 {
+                    renderer.insert_with_shading(&geometry[index], ShadingMode::Flat)
+                } else {
+                    renderer.insert(&geometry[index])
+                }
+            }),
             Err(error) => return self.fail(event_loop, error),
         };
         if let Err(error) = self.engine.start(&mut self.game) {

@@ -99,6 +99,18 @@ pub struct GeometryInstance {
     pub model: Mat4,
 }
 
+/// How the renderer derives the normals stored in an uploaded geometry handle.
+///
+/// `Smooth` retains authored normals and generates shared vertex normals where
+/// they are absent. `Flat` expands indexed triangles during upload so every
+/// face has one constant normal.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ShadingMode {
+    #[default]
+    Smooth,
+    Flat,
+}
+
 /// Copied light data for a single render frame.
 ///
 /// Construct it from a validated `LightSource` component and that light
@@ -532,7 +544,16 @@ impl GeometryRenderer {
     }
 
     pub fn insert(&mut self, geometry: &Geometry) -> GeometryId {
-        let (vertices, indices) = tessellate(geometry);
+        self.insert_with_shading(geometry, ShadingMode::Smooth)
+    }
+
+    /// Uploads geometry with a normal-generation policy fixed for the handle's
+    /// lifetime. Reinsert geometry to change its shading mode.
+    pub fn insert_with_shading(&mut self, geometry: &Geometry, shading: ShadingMode) -> GeometryId {
+        let (mut vertices, mut indices) = tessellate(geometry);
+        if shading == ShadingMode::Flat {
+            (vertices, indices) = flatten_triangles(&vertices, &indices);
+        }
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1040,6 +1061,31 @@ fn complete_normals(vertices: &mut [Vertex], indices: &[u32]) {
     }
 }
 
+fn flatten_triangles(vertices: &[Vertex], indices: &[u32]) -> (Vec<Vertex>, Vec<u32>) {
+    let (triangles, remainder) = indices.as_chunks::<3>();
+    debug_assert!(remainder.is_empty());
+    let mut flattened_vertices = Vec::with_capacity(indices.len());
+    let mut flattened_indices = Vec::with_capacity(indices.len());
+    for triangle in triangles {
+        let first = flattened_vertices.len() as u32;
+        let positions = [
+            Vec3::from_array(vertices[triangle[0] as usize].position),
+            Vec3::from_array(vertices[triangle[1] as usize].position),
+            Vec3::from_array(vertices[triangle[2] as usize].position),
+        ];
+        let normal = (positions[1] - positions[0])
+            .cross(positions[2] - positions[0])
+            .normalize();
+        for index in triangle {
+            let mut vertex = vertices[*index as usize];
+            vertex.normal = normal.to_array();
+            flattened_vertices.push(vertex);
+        }
+        flattened_indices.extend_from_slice(&[first, first + 1, first + 2]);
+    }
+    (flattened_vertices, flattened_indices)
+}
+
 fn align_up(value: u64, alignment: u64) -> u64 {
     value.div_ceil(alignment) * alignment
 }
@@ -1216,6 +1262,25 @@ mod tests {
                 let normal = Vec3::from_array(vertex.normal);
                 normal.is_finite() && (normal.length() - 1.0).abs() < 1.0e-4
             }));
+        }
+    }
+
+    #[test]
+    fn flat_shading_expands_triangles_and_uses_one_normal_per_face() {
+        let mesh = Mesh::cube(1.0).unwrap();
+        let (vertices, indices) = tessellate(&Geometry::Mesh(mesh));
+        let (flat_vertices, flat_indices) = flatten_triangles(&vertices, &indices);
+
+        assert_eq!(flat_vertices.len(), indices.len());
+        assert_eq!(flat_indices.len(), indices.len());
+        assert_eq!(flat_indices, (0..indices.len() as u32).collect::<Vec<_>>());
+        let (faces, remainder) = flat_vertices.as_chunks::<3>();
+        assert!(remainder.is_empty());
+        for face in faces {
+            let normal = face[0].normal;
+            assert_eq!(face[1].normal, normal);
+            assert_eq!(face[2].normal, normal);
+            assert!((Vec3::from_array(normal).length() - 1.0).abs() < 1.0e-5);
         }
     }
 

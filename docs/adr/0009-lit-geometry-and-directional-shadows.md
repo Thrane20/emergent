@@ -8,6 +8,8 @@ Accepted for the first renderer slice.
 
 `MeshVertex` may provide a validated normal. The renderer generates missing normals once while geometry is uploaded, then owns the resulting vertex/index buffers under renderer-scoped SlotMap handles.
 
+`GeometryRenderer::insert` selects smooth shading by default. `insert_with_shading` additionally permits flat shading: it expands each indexed triangle during upload and writes its geometric face normal into all three emitted vertices. The uploaded handle fixes this choice for its lifetime.
+
 `LightSource` remains an ECS component on a canonical Emergent entity. Rendering consumes copied `LightInstance` values after transform propagation; it does not create a second entity or light identity store. The first renderer accepts at most eight lights per frame, evaluates Lambert ambient, directional, point, and spot lighting, and selects the first enabled directional request in supplied order for a single 2048-square comparison shadow map.
 
 The renderer preserves `render` for unlit colour output. `render_lit` is the explicit opt-in path. Per-object uniforms carry an inverse-transpose normal matrix when the model's linear transform is invertible; singular transforms use identity to avoid non-finite GPU input.
