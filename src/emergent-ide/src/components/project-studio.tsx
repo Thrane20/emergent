@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ProjectChat } from "@/components/project-chat";
+import { StatementsPanel } from "@/components/statements-panel";
 import type { PublicAISettings } from "@/lib/ai-settings";
 import type {
   ProjectConnection,
@@ -118,18 +119,19 @@ export function ProjectStudio({ project, aiSettings }: Props) {
           {view === "source" && <SourceView file={selected} />}
           <ProjectChat
             projectId={project.id}
-            projectName={project.name}
             selectedFile={selected}
-            entities={project.entities}
             aiSettings={aiSettings}
           />
           <div className="canvas-footer"><span><i className="green-dot" />Live from the linked project folder</span><span>Runtime SlotMap handles are intentionally excluded.</span></div>
         </section>
 
-        <aside className="panel details-panel">
-          <div className="panel-head"><div><span className="eyebrow">SELECTED</span><h2>{selected.name}</h2></div><span className="kind-badge">{selected.kind}</span></div>
-          <div className="connection-summary"><span className="eyebrow">CONNECTIONS</span>{connected.length === 0 ? <p className="empty compact">No known connections.</p> : connected.map(({ connection, peer, direction }) => <button key={connection.id} onClick={() => selectFile(peer, "connections")}><span className={`connection-direction ${direction}`}>{direction === "outgoing" ? "→" : "←"}</span><span><b>{connection.label}</b><small>{peer.name}</small></span></button>)}</div>
-          <div className="outputs"><span className="eyebrow">DECLARED OUTPUTS</span>{project.outputs.map((output) => <div className="output" key={output.id}><span className={output.enabled ? "output-dot enabled" : "output-dot"} /><div><b>{output.id}</b><small>{output.os} · {output.architecture} · {output.profile}</small></div><em>{output.enabled ? "enabled" : "declared"}</em></div>)}</div>
+        <aside className="right-column">
+          <section className="panel details-panel">
+            <div className="panel-head"><div><span className="eyebrow">SELECTED</span><h2>{selected.name}</h2></div><span className="kind-badge">{selected.kind}</span></div>
+            <div className="connection-summary"><span className="eyebrow">CONNECTIONS</span>{connected.length === 0 ? <p className="empty compact">No known connections.</p> : connected.map(({ connection, peer, direction }) => <button key={connection.id} onClick={() => selectFile(peer, "connections")}><span className={`connection-direction ${direction}`}>{direction === "outgoing" ? "→" : "←"}</span><span><b>{connection.label}</b><small>{peer.name}</small></span></button>)}</div>
+            <div className="outputs"><span className="eyebrow">DECLARED OUTPUTS</span>{project.outputs.map((output) => <div className="output" key={output.id}><span className={output.enabled ? "output-dot enabled" : "output-dot"} /><div><b>{output.id}</b><small>{output.os} · {output.architecture} · {output.profile}</small></div><em>{output.enabled ? "enabled" : "declared"}</em></div>)}</div>
+          </section>
+          <StatementsPanel key={selected.path} projectId={project.id} subject={`file:${selected.path}`} subjectLabel={selected.name} aiConfigured={aiSettings.configured} />
         </aside>
 
         <section className="diagnostics"><div><span className="terminal-caret">›</span><strong>Linked project</strong><span>{project.root}</span></div><div><span className="diagnostic-ok">●</span> Read-only inspection <b>•</b> {project.id}</div></section>

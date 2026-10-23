@@ -1,6 +1,7 @@
 import { buildProjectPrompt, responseText, validateChatRequest, type ChatRequest } from "@/lib/ai-chat";
 import { readAIConnectionSettings } from "@/lib/ai-settings";
 import { readProjectSnapshot } from "@/lib/project";
+import { statementsFor } from "@/lib/statements";
 
 export async function POST(request: Request) {
   try {
@@ -16,6 +17,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "The chat request does not match the linked project." }, { status: 409 });
     }
 
+    const statements = input.scope.startsWith("file:") ? await statementsFor(project, input.scope) : [];
     const upstream = await fetch(`${settings.baseUrl}/responses`, {
       method: "POST",
       headers: {
@@ -24,7 +26,7 @@ export async function POST(request: Request) {
       },
       body: JSON.stringify({
         model: settings.model,
-        input: buildProjectPrompt(project, input.scope, input.message, input.history),
+        input: buildProjectPrompt(project, input.scope, input.message, input.history, statements),
         max_output_tokens: 1_500,
       }),
       signal: AbortSignal.timeout(120_000),

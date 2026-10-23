@@ -1,5 +1,6 @@
 import "server-only";
 import type { ProjectSnapshot } from "@/lib/project";
+import type { ProjectStatement } from "@/lib/statements";
 
 export type ChatTurn = {
   role: "user" | "assistant";
@@ -41,6 +42,7 @@ export function buildProjectPrompt(
   scope: string,
   message: string,
   history: ChatTurn[],
+  statements: ProjectStatement[] = [],
 ): string {
   const context = contextFor(project, scope);
   const conversation = history.length
@@ -57,6 +59,7 @@ export function buildProjectPrompt(
     `PROJECT\n${project.name} (${project.id})`,
     `SCOPE\n${scope}`,
     `PROJECT CONTEXT\n${context}`,
+    `AUTHORED STATEMENTS\n${statements.length ? statements.map((statement) => `- ${statement.text}`).join("\n") : "No statements recorded for this selection."}`,
     `RECENT SCOPED CONVERSATION\n${conversation}`,
     `DEVELOPER REQUEST\n${message}`,
   ].join("\n\n");

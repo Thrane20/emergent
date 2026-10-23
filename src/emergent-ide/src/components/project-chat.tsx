@@ -3,7 +3,7 @@
 import { FormEvent, KeyboardEvent, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { PublicAISettings } from "@/lib/ai-settings";
-import type { ProjectEntity, ProjectFile } from "@/lib/project";
+import type { ProjectFile } from "@/lib/project";
 
 type ChatMessage = {
   id: number;
@@ -14,34 +14,20 @@ type ChatMessage = {
 
 type Props = {
   projectId: string;
-  projectName: string;
   selectedFile: ProjectFile;
-  entities: ProjectEntity[];
   aiSettings: PublicAISettings;
 };
 
-export function ProjectChat({ projectId, projectName, selectedFile, entities, aiSettings }: Props) {
-  const projectScope = `project:${projectId}`;
-  const fileScope = `file:${selectedFile.path}`;
-  const [scope, setScope] = useState(projectScope);
+export function ProjectChat({ projectId, selectedFile, aiSettings }: Props) {
   const [draft, setDraft] = useState("");
   const [expanded, setExpanded] = useState(true);
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
   const [sending, setSending] = useState(false);
   const nextMessageId = useRef(0);
-  const activeScope = scope.startsWith("file:") ? fileScope : scope;
+  const activeScope = `file:${selectedFile.path}`;
   const thread = messages[activeScope] ?? [];
-  const linkedEntity = entities.find((entity) => entityScope(entity) === activeScope);
-  const scopeLabel = activeScope === projectScope
-    ? projectName
-    : activeScope.startsWith("file:")
-      ? selectedFile.name
-      : linkedEntity?.id ?? "Entity";
-  const definitions = useMemo(() => {
-    if (linkedEntity) return ["emergent.toml", linkedEntity.sourcePath, `entity:${linkedEntity.id}`];
-    if (activeScope.startsWith("file:")) return ["emergent.toml", selectedFile.path];
-    return ["emergent.toml", "project graph"];
-  }, [activeScope, linkedEntity, selectedFile.path]);
+  const scopeLabel = selectedFile.name;
+  const definitions = useMemo(() => ["emergent.toml", selectedFile.path], [selectedFile.path]);
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -121,11 +107,7 @@ export function ProjectChat({ projectId, projectName, selectedFile, entities, ai
       </header>
       {expanded && <>
         <div className="chat-context">
-          <label>Scope<select value={activeScope} onChange={(event) => setScope(event.target.value)}>
-            <option value={projectScope}>Project · {projectName}</option>
-            <option value={fileScope}>Selected file · {selectedFile.name}</option>
-            <optgroup label="Authored entities">{entities.map((entity) => <option value={entityScope(entity)} key={entityScope(entity)}>Entity · {entity.id} ({entity.kind})</option>)}</optgroup>
-          </select></label>
+          <div className="chat-bound-scope"><span>Scope</span><b>{selectedFile.name}</b></div>
           <div className="definition-links"><span>Context</span>{definitions.map((definition) => <b key={definition}>{definition}</b>)}</div>
         </div>
         <div className="chat-messages">
@@ -140,8 +122,4 @@ export function ProjectChat({ projectId, projectName, selectedFile, entities, ai
       </>}
     </section>
   );
-}
-
-function entityScope(entity: ProjectEntity): string {
-  return `entity:${entity.sourcePath}#${entity.id}`;
 }

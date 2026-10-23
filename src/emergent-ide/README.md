@@ -26,4 +26,6 @@ The `/settings` page configures the initial OpenAI/Codex provider, including an 
 
 Chat requests now call the configured provider through the server-side Responses API. Each request receives bounded context resolved from the live project graph for the selected project, file, or durable authored entity plus the recent scoped conversation. This first connection is read-only: it returns guidance and proposed code but cannot yet apply changes to project files.
 
+Chat scope follows the file selected in the project tree; there is no independent scope selector. The right inspector also exposes durable intent statements for that selection. Statements are stored in the linked project's `emergent.statements.json`, use stable subject references rather than runtime handles, and can be checked against the current project by the configured AI. AI checks record implementation status, confidence, and short evidence but do not edit the statement or game files.
+
 It does not import media, mutate scenes, execute generated scene builders, run games, package outputs, or retain runtime SlotMap handles.
