@@ -8,6 +8,7 @@ import { ProjectChat } from "@/components/project-chat";
 import { ProjectRunControl } from "@/components/project-run-control";
 import { StatementsPanel } from "@/components/statements-panel";
 import { ModelPreview } from "@/components/model-preview";
+import { projectScenes, type ScenePreview } from "@/lib/project-scenes";
 import type { PublicAISettings } from "@/lib/ai-settings";
 import type {
   ProjectConnection,
@@ -17,7 +18,7 @@ import type {
 } from "@/lib/project";
 
 type Props = { project: ProjectSnapshot; aiSettings: PublicAISettings };
-type View = "overview" | "connections" | "source";
+type View = "overview" | "connections" | "source" | "scene";
 
 const icons: Record<ProjectFileKind, string> = {
   manifest: "◆",
@@ -51,6 +52,12 @@ export function ProjectStudio({ project, aiSettings }: Props) {
   const [query, setQuery] = useState("");
   const [selectedPath, setSelectedPath] = useState(project.entryScene);
   const [view, setView] = useState<View>("overview");
+  const scenes = useMemo(() => projectScenes(project), [project]);
+  const [scenePath, setScenePath] = useState(project.entryScene);
+  const [loadedScene, setLoadedScene] = useState<ScenePreview | null>(null);
+  const [sceneError, setSceneError] = useState("");
+  const [sceneLoading, setSceneLoading] = useState(false);
+  useEffect(() => () => { if (loadedScene) URL.revokeObjectURL(loadedScene.frame); }, [loadedScene]);
   const selected = project.files.find((file) => file.path === selectedPath) ?? project.files[0];
   const connected = connectionsFor(project.connections, project.files, selected.path);
   const filtered = useMemo(() => {
@@ -75,14 +82,27 @@ export function ProjectStudio({ project, aiSettings }: Props) {
   const selectFile = (file: ProjectFile, nextView?: View) => {
     setSelectedPath(file.path);
     if (nextView) setView(nextView);
+    else if (view === "scene") setView("overview");
   };
+
+  async function loadScene() {
+    setSceneLoading(true); setSceneError("");
+    try {
+      const path = scenes.some((scene) => scene.path === scenePath) ? scenePath : scenes[0]?.path;
+      const response = await fetch("/api/scenes", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId: project.id, path }) });
+      if (!response.ok) { const result = await response.json(); throw new Error(result.error ?? "Scene could not be loaded."); }
+      const frame = URL.createObjectURL(await response.blob());
+      setLoadedScene({ path: path!, name: scenes.find((scene) => scene.path === path)!.name, frame }); setSelectedPath(path!); setView("scene");
+    } catch (error) { setSceneError(error instanceof Error ? error.message : "Scene could not be loaded."); }
+    finally { setSceneLoading(false); }
+  }
 
   return (
     <main className="studio-shell">
       <header className="topbar">
         <div className="brand"><span className="brand-mark">E</span><span>Emergent</span><b>IDE</b></div>
         <div className="project-pill"><span>◫</span>{project.name}<span className="muted">LOCAL</span></div>
-        <div className="top-status"><span className="pulse" />Linked project <i /> {project.files.length} files <i /> {project.connections.length} connections</div>
+        <div className="scene-selector"><label htmlFor="scene-picker">Scene viewer</label><select id="scene-picker" value={scenes.some((scene) => scene.path === scenePath) ? scenePath : scenes[0]?.path ?? ""} onChange={(event) => setScenePath(event.target.value)} disabled={!scenes.length || sceneLoading}>{!scenes.length && <option value="">No scenes</option>}{scenes.map((scene) => <option key={scene.path} value={scene.path}>{scene.name}</option>)}</select><button onClick={() => void loadScene()} disabled={!scenes.length || sceneLoading}>{sceneLoading ? "Loading…" : "Load"}</button></div>
         <div className="top-actions"><ProjectRunControl projectId={project.id} /><button className="quiet-button" onClick={() => searchRef.current?.focus()}>⌘ K</button><span className="avatar">FP</span></div>
       </header>
 
@@ -122,8 +142,14 @@ export function ProjectStudio({ project, aiSettings }: Props) {
         <section className="canvas-panel">
           <div className="canvas-toolbar">
             <div className="crumb"><span>{selected.authored ? "AUTHORED" : selected.generated ? "GENERATED" : "PROJECT"}</span><b>/</b><strong>{selected.path}</strong></div>
-            <div className="view-switch">{(["overview", "connections", "source"] as View[]).map((item) => <button key={item} className={view === item ? "selected" : ""} onClick={() => setView(item)}>{capitalize(item)}</button>)}</div>
+            <div className="view-switch">{([...(loadedScene ? ["scene" as const] : []), "overview", "connections", "source"] as View[]).map((item) => <button key={item} className={view === item ? "selected" : ""} onClick={() => setView(item)}>{capitalize(item)}</button>)}</div>
           </div>
+          {sceneError && <p className="scene-load-error" role="alert">{sceneError}</p>}
+          {loadedScene && <section className="scene-canvas-slot" hidden={view !== "scene"} aria-label="Rust-rendered scene preview">
+            {/* eslint-disable-next-line @next/next/no-img-element -- native renderer PNG delivered through an object URL */}
+            <img className="native-scene-frame" src={loadedScene.frame} alt={`Rust-rendered scene: ${loadedScene.name}`} />
+            <div className="scene-preview-caption"><span>{loadedScene.name} · Rust / wgpu · tick 0 · time stopped</span><span>Load to refresh</span></div>
+          </section>}
           {view === "overview" && <Overview project={project} file={selected} connected={connected} onSelect={selectFile} />}
           {view === "connections" && <ConnectionView project={project} file={selected} connected={connected} onSelect={selectFile} />}
           {view === "source" && <SourceView file={selected} />}

@@ -30,6 +30,24 @@ Chat scope follows the file selected in the project tree; there is no independen
 
 The IDE does not interpret authored scenes, package outputs, or retain runtime SlotMap handles. Runtime GLB importing, textures, and general model materials remain separate engine work.
 
+## Rust scene preview
+
+Select a scene in the top-bar **Scene viewer** dropdown and click **Load**. The IDE
+runs the linked Cargo project with `--preview-scene <path> --preview-output <png>`.
+The reference project constructs its registered Rust scene at tick zero, renders
+it through Emergent's windowless wgpu backend, and returns a 1280×720 PNG to the
+central canvas. Load again after changing Rust code to refresh it. Failed loads
+retain the previous frame; selecting a dropdown option alone does not load it.
+
+Every `.scene.toml` file is listed. The initial reference supports only its
+`emergent.first-project.generated.main_scene` builder; other builders need a
+project implementation of this launch contract. This first version is a paused
+fixed-camera capture, without gameplay, orbit controls, or streaming. Project
+assets and runtime SlotMap handles are not serialized into the frame transport.
+With the IDE running, `pnpm test:scene` verifies a real Rust capture in Chrome and
+checks that a failed reload preserves the previous image. Set
+`EMERGENT_IDE_BASE_URL` to use a different local IDE address.
+
 ## Object Creator (preview)
 
 Open **Object Creator** (◇) in the navigation rail, or visit `/objects`.

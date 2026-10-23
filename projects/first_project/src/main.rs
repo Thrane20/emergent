@@ -18,11 +18,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         project.enabled_outputs().count()
     );
 
-    match std::env::args().nth(1).as_deref() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
         None => visual::run(speed, None),
         Some("--smoke") => visual::run(speed, Some(120)),
         Some("--headless") => run_headless(speed),
-        Some(_) => Err("usage: emergent-first-project [--smoke | --headless]".into()),
+        Some("--preview-scene") if args.len() == 4 && args[2] == "--preview-output" => visual::preview(&project, speed, &args[1], std::path::Path::new(&args[3])),
+        Some(_) => Err("usage: emergent-first-project [--smoke | --headless | --preview-scene <scene> --preview-output <png>]".into()),
     }
 }
 

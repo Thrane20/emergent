@@ -17,3 +17,15 @@ cargo run -p emergent-first-project -- --headless
 ```
 
 Use `-- --smoke` for a 120-tick native presentation, resize, and clean-shutdown check. The pyramid is currently constructed by generated Rust; generic scene/entity asset interpretation, media decoding, project-mode cameras, and target packaging remain later increments.
+
+The IDE's Scene viewer → Load uses the same Rust renderer to capture the generated
+scene at tick zero, with gameplay stopped and no native window:
+
+```sh
+cargo run -p emergent-first-project -- --preview-scene assets/scenes/main.scene.toml --preview-output /tmp/emergent-scene.png
+```
+
+The output file must not already exist. Only the registered
+`emergent.first-project.generated.main_scene` builder is supported initially.
+This is a fixed-camera PNG capture; live streaming and arbitrary authored scene
+loading are later work.

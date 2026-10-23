@@ -106,21 +106,10 @@ impl FirstProjectApp {
             GeometryInstance::new(geometry.cube, matrices[3]),
             GeometryInstance::new(geometry.pyramid, matrices[4]),
         ];
-        let key_light = self
-            .engine
-            .world()
-            .component::<LightSource>(scene.key_light)
-            .expect("generated key-light entity remains valid")
-            .copied()
-            .expect("generated key-light entity retains its light component");
-        let key_light_matrix = match self.engine.world().global_transform(scene.key_light) {
-            Ok(transform) => transform.matrix(),
+        let lights = match scene_lights(&self.engine, scene, self.ambient_light) {
+            Ok(lights) => lights,
             Err(error) => return self.fail(event_loop, error),
         };
-        let lights = [
-            LightInstance::new(self.ambient_light, Mat4::IDENTITY),
-            LightInstance::new(key_light, key_light_matrix),
-        ];
         let Some(renderer) = &mut self.renderer else {
             return;
         };
@@ -264,6 +253,96 @@ fn project_geometry() -> Result<[Geometry; 3], Box<dyn Error>> {
     ])
 }
 
+/// Constructs the project's registered scene at tick zero and captures its real
+/// renderer output without opening a window or advancing gameplay.
+pub fn preview(
+    project: &emergent::Project,
+    speed: f32,
+    scene_path: &str,
+    output: &std::path::Path,
+) -> Result<(), Box<dyn Error>> {
+    let definition: toml::Value = toml::from_str(&project.read_text_asset(scene_path)?)?;
+    validate_preview_builder(&definition)?;
+    let mut renderer = pollster::block_on(GeometryRenderer::new_offscreen(1280, 720))?;
+    let [ground, cube, pyramid] = project_geometry()?;
+    let ground = renderer.insert_with_shading(&ground, ShadingMode::Flat);
+    let cube = renderer.insert_with_shading(&cube, ShadingMode::Flat);
+    let pyramid = renderer.insert_with_shading(&pyramid, ShadingMode::Flat);
+    let mut engine = Engine::new(EngineConfig::default())?;
+    let mut game = FirstProjectGame::new(speed, None);
+    engine.start(&mut game)?;
+    let result = (|| -> Result<(), Box<dyn Error>> {
+        let scene = game.scene().ok_or("project scene was not constructed")?;
+        let matrices = scene_matrices(&engine, scene)?;
+        let instances = [
+            GeometryInstance::new(ground, matrices[0]),
+            GeometryInstance::new(cube, matrices[1]),
+            GeometryInstance::new(cube, matrices[2]),
+            GeometryInstance::new(cube, matrices[3]),
+            GeometryInstance::new(pyramid, matrices[4]),
+        ];
+        let lights = scene_lights(&engine, scene, LightSource::ambient(Color::WHITE, 0.18)?)?;
+        let frame = renderer.render_lit_rgba(&instances, &lights)?;
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(output)?;
+        let mut encoder =
+            png::Encoder::new(std::io::BufWriter::new(file), frame.width, frame.height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header()?;
+        writer.write_image_data(&frame.rgba)?;
+        writer.finish()?;
+        println!(
+            "Rust scene preview: scene={scene_path}, tick={}, adapter={}, backend={}, size={}x{}",
+            engine.tick(),
+            renderer.info().adapter_name,
+            renderer.info().backend,
+            frame.width,
+            frame.height
+        );
+        Ok(())
+    })();
+    engine.stop(&mut game);
+    result
+}
+
+fn validate_preview_builder(definition: &toml::Value) -> Result<(), Box<dyn Error>> {
+    if definition
+        .get("schema_version")
+        .and_then(toml::Value::as_integer)
+        != Some(1)
+    {
+        return Err("scene preview requires schema_version = 1".into());
+    }
+    if definition.get("builder").and_then(toml::Value::as_str)
+        != Some("emergent.first-project.generated.main_scene")
+    {
+        return Err("this scene has no registered Rust preview builder; first_project currently supports emergent.first-project.generated.main_scene".into());
+    }
+    Ok(())
+}
+
+fn scene_lights(
+    engine: &Engine,
+    scene: MainScene,
+    ambient: LightSource,
+) -> Result<[LightInstance; 2], Box<dyn Error>> {
+    let key_light = engine
+        .world()
+        .component::<LightSource>(scene.key_light)?
+        .copied()
+        .ok_or("key-light component is missing")?;
+    Ok([
+        LightInstance::new(ambient, Mat4::IDENTITY),
+        LightInstance::new(
+            key_light,
+            engine.world().global_transform(scene.key_light)?.matrix(),
+        ),
+    ])
+}
+
 fn scene_matrices(engine: &Engine, scene: MainScene) -> Result<[Mat4; 5], Box<dyn Error>> {
     Ok([
         world_matrix(engine, scene.ground)?,
@@ -276,4 +355,21 @@ fn scene_matrices(engine: &Engine, scene: MainScene) -> Result<[Mat4; 5], Box<dy
 
 fn world_matrix(engine: &Engine, entity: EntityId) -> Result<Mat4, Box<dyn Error>> {
     Ok(engine.world().global_transform(entity)?.matrix())
+}
+
+#[cfg(test)]
+mod preview_tests {
+    use super::validate_preview_builder;
+
+    #[test]
+    fn only_registered_rust_builders_are_rendered() {
+        let valid = toml::from_str(
+            "schema_version = 1\nbuilder = \"emergent.first-project.generated.main_scene\"\n",
+        )
+        .unwrap();
+        assert!(validate_preview_builder(&valid).is_ok());
+        let unsupported =
+            toml::from_str("schema_version = 1\nbuilder = \"another.scene\"\n").unwrap();
+        assert!(validate_preview_builder(&unsupported).is_err());
+    }
 }

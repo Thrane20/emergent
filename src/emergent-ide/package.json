@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "test": "tsx --conditions=react-server --test tests/*.test.ts",
-    "test:ui": "tsx --conditions=react-server scripts/object-creator-smoke.ts"
+    "test:ui": "tsx --conditions=react-server scripts/object-creator-smoke.ts",
+    "test:scene": "tsx scripts/scene-preview-smoke.ts"
   },
   "dependencies": {
     "@fal-ai/client": "^1.10.1",

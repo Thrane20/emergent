@@ -412,6 +412,24 @@ depends_on = ["project.manifest"]
 summary = "Hosted TRELLIS job submission, persistent candidates, browser GLB preview, and project bundle saving. Mocked-provider validation only; live fal acceptance pending. Does not provide runtime model importing."
 
 [[capabilities]]
+id = "render.offscreen-capture"
+category = "rendering"
+name = "Native offscreen frame capture"
+status = "preview"
+owner = "render"
+depends_on = ["geometry.meshes", "lighting.sources"]
+summary = "Windowless wgpu geometry/light passes with bounded blocking RGBA8 readback for authoring previews. Validated on macOS Metal; no steady-state frame-time guarantee."
+
+[[capabilities]]
+id = "tools.scene-preview"
+category = "tooling"
+name = "Rust-rendered IDE scene preview"
+status = "preview"
+owner = "ide"
+depends_on = ["project.manifest", "render.offscreen-capture"]
+summary = "Scene dropdown and Load invoke a registered project Rust builder at tick zero and display its native PNG frame in the IDE. Static capture; arbitrary authored-world loading and live streaming remain planned."
+
+[[capabilities]]
 id = "tools.project-mode"
 category = "tools"
 name = "Visual project mode"

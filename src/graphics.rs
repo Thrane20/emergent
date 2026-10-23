@@ -163,6 +163,9 @@ pub enum GraphicsError {
     TooManyLights(usize),
     SurfaceLost,
     SurfaceValidation,
+    InvalidCaptureSize { width: u32, height: u32 },
+    WrongRenderTarget,
+    Readback(String),
 }
 
 impl fmt::Display for GraphicsError {
@@ -203,6 +206,14 @@ impl fmt::Display for GraphicsError {
             ),
             Self::SurfaceLost => formatter.write_str("window surface was lost"),
             Self::SurfaceValidation => formatter.write_str("window surface validation failed"),
+            Self::InvalidCaptureSize { width, height } => write!(
+                formatter,
+                "capture size {width}x{height} must be between 1 and 4096 pixels per dimension"
+            ),
+            Self::WrongRenderTarget => formatter.write_str(
+                "this operation requires the matching window or offscreen render target",
+            ),
+            Self::Readback(error) => write!(formatter, "GPU readback failed: {error}"),
         }
     }
 }
@@ -216,11 +227,18 @@ pub enum RenderOutcome {
     Skipped,
 }
 
+/// Tightly packed RGBA8 pixels captured by the Rust renderer for authoring tools.
+pub struct RenderedFrame {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
 /// Renderer-owned, depth-tested storage for uploaded geometry.
 pub struct GeometryRenderer {
     instance: wgpu::Instance,
-    window: Arc<Window>,
-    surface: wgpu::Surface<'static>,
+    window: Option<Arc<Window>>,
+    surface: Option<wgpu::Surface<'static>>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
@@ -255,11 +273,28 @@ impl GeometryRenderer {
         let surface = instance
             .create_surface(window.clone())
             .map_err(|error| GraphicsError::CreateSurface(error.to_string()))?;
+        Self::create(instance, Some(window), Some(surface), size).await
+    }
+
+    /// Creates a GPU renderer without a window, using the native render passes.
+    pub async fn new_offscreen(width: u32, height: u32) -> Result<Self, GraphicsError> {
+        capture_layout(width, height)?;
+        let instance =
+            wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle_from_env());
+        Self::create(instance, None, None, PhysicalSize::new(width, height)).await
+    }
+
+    async fn create(
+        instance: wgpu::Instance,
+        window: Option<Arc<Window>>,
+        surface: Option<wgpu::Surface<'static>>,
+        size: PhysicalSize<u32>,
+    ) -> Result<Self, GraphicsError> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
                 force_fallback_adapter: false,
-                compatible_surface: Some(&surface),
+                compatible_surface: surface.as_ref(),
                 apply_limit_buckets: false,
             })
             .await
@@ -275,10 +310,25 @@ impl GeometryRenderer {
             })
             .await
             .map_err(|error| GraphicsError::RequestDevice(error.to_string()))?;
-        let config = surface
-            .get_default_config(&adapter, size.width, size.height)
-            .ok_or(GraphicsError::UnsupportedSurface)?;
-        surface.configure(&device, &config);
+        let config = if let Some(surface) = &surface {
+            let config = surface
+                .get_default_config(&adapter, size.width, size.height)
+                .ok_or(GraphicsError::UnsupportedSurface)?;
+            surface.configure(&device, &config);
+            config
+        } else {
+            wgpu::SurfaceConfiguration {
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                color_space: wgpu::SurfaceColorSpace::Auto,
+                width: size.width,
+                height: size.height,
+                present_mode: wgpu::PresentMode::Fifo,
+                desired_maximum_frame_latency: 2,
+                alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                view_formats: vec![],
+            }
+        };
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Emergent geometry shader"),
@@ -592,7 +642,9 @@ impl GeometryRenderer {
         }
         self.config.width = size.width;
         self.config.height = size.height;
-        self.surface.configure(&self.device, &self.config);
+        if let Some(surface) = &self.surface {
+            surface.configure(&self.device, &self.config);
+        }
         self.depth_view = create_depth_view(&self.device, size);
     }
 
@@ -613,11 +665,11 @@ impl GeometryRenderer {
         self.render_internal(instances, lights)
     }
 
-    fn render_internal(
+    fn prepare_frame(
         &mut self,
         instances: &[GeometryInstance],
         lights: &[LightInstance],
-    ) -> Result<RenderOutcome, GraphicsError> {
+    ) -> Result<bool, GraphicsError> {
         self.validate_instances(instances)?;
         let (light_uniform, light_view_projection, shadow_enabled) = self.prepare_lights(lights)?;
         self.ensure_uniform_capacity(instances.len())?;
@@ -652,35 +704,15 @@ impl GeometryRenderer {
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(&light_uniform));
 
-        let frame = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
-            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
-                self.surface.configure(&self.device, &self.config);
-                frame
-            }
-            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
-                return Ok(RenderOutcome::Skipped)
-            }
-            wgpu::CurrentSurfaceTexture::Outdated => {
-                self.surface.configure(&self.device, &self.config);
-                return Ok(RenderOutcome::Reconfigured);
-            }
-            wgpu::CurrentSurfaceTexture::Lost => {
-                self.surface = self
-                    .instance
-                    .create_surface(self.window.clone())
-                    .map_err(|_| GraphicsError::SurfaceLost)?;
-                self.surface.configure(&self.device, &self.config);
-                return Ok(RenderOutcome::Reconfigured);
-            }
-            wgpu::CurrentSurfaceTexture::Validation => {
-                return Err(GraphicsError::SurfaceValidation)
-            }
-        };
+        Ok(shadow_enabled)
+    }
 
-        let surface_view = frame
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+    fn encode_frame(
+        &self,
+        instances: &[GeometryInstance],
+        surface_view: &wgpu::TextureView,
+        shadow_enabled: bool,
+    ) -> Result<wgpu::CommandEncoder, GraphicsError> {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -718,7 +750,7 @@ impl GeometryRenderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Emergent geometry pass"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &surface_view,
+                    view: surface_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -755,10 +787,143 @@ impl GeometryRenderer {
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
+        Ok(encoder)
+    }
+
+    fn render_internal(
+        &mut self,
+        instances: &[GeometryInstance],
+        lights: &[LightInstance],
+    ) -> Result<RenderOutcome, GraphicsError> {
+        let shadow_enabled = self.prepare_frame(instances, lights)?;
+        let surface = self
+            .surface
+            .as_ref()
+            .ok_or(GraphicsError::WrongRenderTarget)?;
+        let window = self
+            .window
+            .as_ref()
+            .ok_or(GraphicsError::WrongRenderTarget)?;
+        let frame = match surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
+                surface.configure(&self.device, &self.config);
+                frame
+            }
+            wgpu::CurrentSurfaceTexture::Timeout | wgpu::CurrentSurfaceTexture::Occluded => {
+                return Ok(RenderOutcome::Skipped)
+            }
+            wgpu::CurrentSurfaceTexture::Outdated => {
+                surface.configure(&self.device, &self.config);
+                return Ok(RenderOutcome::Reconfigured);
+            }
+            wgpu::CurrentSurfaceTexture::Lost => {
+                let surface = self
+                    .instance
+                    .create_surface(window.clone())
+                    .map_err(|_| GraphicsError::SurfaceLost)?;
+                surface.configure(&self.device, &self.config);
+                self.surface = Some(surface);
+                return Ok(RenderOutcome::Reconfigured);
+            }
+            wgpu::CurrentSurfaceTexture::Validation => {
+                return Err(GraphicsError::SurfaceValidation)
+            }
+        };
+        let view = frame
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let encoder = self.encode_frame(instances, &view, shadow_enabled)?;
         self.queue.submit(Some(encoder.finish()));
-        self.window.pre_present_notify();
+        window.pre_present_notify();
         self.queue.present(frame);
         Ok(RenderOutcome::Presented)
+    }
+
+    /// Captures one offscreen frame. This blocks for bounded GPU readback and
+    /// allocates pixel buffers; call during authoring, not a steady-state game loop.
+    pub fn render_lit_rgba(
+        &mut self,
+        instances: &[GeometryInstance],
+        lights: &[LightInstance],
+    ) -> Result<RenderedFrame, GraphicsError> {
+        if self.surface.is_some() {
+            return Err(GraphicsError::WrongRenderTarget);
+        }
+        let width = self.config.width;
+        let height = self.config.height;
+        let (row_bytes, padded_row_bytes) = capture_layout(width, height)?;
+        let shadow_enabled = self.prepare_frame(instances, lights)?;
+        let size = wgpu::Extent3d {
+            width,
+            height,
+            depth_or_array_layers: 1,
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Emergent offscreen color"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Emergent capture readback"),
+            size: u64::from(padded_row_bytes) * u64::from(height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+        let mut encoder = self.encode_frame(instances, &view, shadow_enabled)?;
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &buffer,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(padded_row_bytes),
+                    rows_per_image: Some(height),
+                },
+            },
+            size,
+        );
+        let submission = self.queue.submit(Some(encoder.finish()));
+        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+        buffer.map_async(wgpu::MapMode::Read, .., move |result| {
+            let _ = sender.send(result);
+        });
+        let timeout = std::time::Duration::from_secs(10);
+        self.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(submission),
+                timeout: Some(timeout),
+            })
+            .map_err(|error| GraphicsError::Readback(error.to_string()))?;
+        receiver
+            .recv_timeout(timeout)
+            .map_err(|error| GraphicsError::Readback(error.to_string()))?
+            .map_err(|error| GraphicsError::Readback(error.to_string()))?;
+        let mapped = buffer
+            .get_mapped_range(..)
+            .map_err(|error| GraphicsError::Readback(error.to_string()))?;
+        let mut rgba = Vec::with_capacity(row_bytes as usize * height as usize);
+        for row in mapped.chunks_exact(padded_row_bytes as usize) {
+            rgba.extend_from_slice(&row[..row_bytes as usize]);
+        }
+        drop(mapped);
+        buffer.unmap();
+        Ok(RenderedFrame {
+            width,
+            height,
+            rgba,
+        })
     }
 
     fn prepare_lights(
@@ -889,6 +1054,15 @@ impl CubeRenderer {
         self.renderer
             .render(&[GeometryInstance::new(self.cube, model)])
     }
+}
+
+fn capture_layout(width: u32, height: u32) -> Result<(u32, u32), GraphicsError> {
+    if width == 0 || height == 0 || width > 4096 || height > 4096 {
+        return Err(GraphicsError::InvalidCaptureSize { width, height });
+    }
+    let row_bytes = width * 4;
+    let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+    Ok((row_bytes, row_bytes.div_ceil(alignment) * alignment))
 }
 
 fn create_uniform_resources(
@@ -1196,6 +1370,14 @@ fn create_shadow_view(device: &wgpu::Device) -> wgpu::TextureView {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn capture_layout_is_bounded_and_gpu_aligned() {
+        assert_eq!(super::capture_layout(1, 1).unwrap(), (4, 256));
+        assert_eq!(super::capture_layout(65, 2).unwrap(), (260, 512));
+        assert_eq!(super::capture_layout(1280, 720).unwrap(), (5120, 5120));
+        assert!(super::capture_layout(0, 1).is_err());
+        assert!(super::capture_layout(1, 4097).is_err());
+    }
     use super::*;
     use crate::{Color, MeshVertex, Primitive};
 
