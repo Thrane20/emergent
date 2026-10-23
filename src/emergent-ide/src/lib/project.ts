@@ -46,6 +46,13 @@ export type ProjectOutput = {
   enabled: boolean;
 };
 
+export type ProjectEntity = {
+  id: string;
+  kind: string;
+  sourcePath: string;
+  definition: "scene-entity" | "entity-definition";
+};
+
 export type ProjectSnapshot = {
   name: string;
   id: string;
@@ -54,6 +61,7 @@ export type ProjectSnapshot = {
   assetRoots: string[];
   files: ProjectFile[];
   connections: ProjectConnection[];
+  entities: ProjectEntity[];
   outputs: ProjectOutput[];
 };
 
@@ -84,6 +92,7 @@ export async function readProjectSnapshot(): Promise<ProjectSnapshot> {
     assetRoots,
     files,
     connections: connectionsFor(files, entryScene),
+    entities: entitiesFor(files),
     outputs: outputsFor(manifest),
   };
 }
@@ -179,6 +188,38 @@ function outputsFor(manifest: string): ProjectOutput[] {
     profile: valueFor(block, "profile") ?? "development",
     enabled: /enabled\s*=\s*true/.test(block),
   }));
+}
+
+function entitiesFor(files: ProjectFile[]): ProjectEntity[] {
+  const entities: ProjectEntity[] = [];
+  for (const file of files) {
+    if (!file.content) continue;
+    if (file.kind === "entity") {
+      const id = valueFor(file.content, "id");
+      if (id) {
+        entities.push({
+          id,
+          kind: valueFor(file.content, "kind") ?? "entity-definition",
+          sourcePath: file.path,
+          definition: "entity-definition",
+        });
+      }
+    }
+    if (file.kind === "scene") {
+      for (const block of file.content.split("[[entities]]").slice(1)) {
+        const id = valueFor(block, "id");
+        if (id) {
+          entities.push({
+            id,
+            kind: valueFor(block, "kind") ?? "entity",
+            sourcePath: file.path,
+            definition: "scene-entity",
+          });
+        }
+      }
+    }
+  }
+  return entities.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 function fileKind(relative: string): ProjectFileKind {

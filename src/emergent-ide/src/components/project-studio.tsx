@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ProjectChat } from "@/components/project-chat";
 import type {
   ProjectConnection,
   ProjectFile,
@@ -108,6 +109,12 @@ export function ProjectStudio({ project }: Props) {
           {view === "overview" && <Overview project={project} file={selected} connected={connected} onSelect={selectFile} />}
           {view === "connections" && <ConnectionView project={project} file={selected} connected={connected} onSelect={selectFile} />}
           {view === "source" && <SourceView file={selected} />}
+          <ProjectChat
+            projectId={project.id}
+            projectName={project.name}
+            selectedFile={selected}
+            entities={project.entities}
+          />
           <div className="canvas-footer"><span><i className="green-dot" />Live from the linked project folder</span><span>Runtime SlotMap handles are intentionally excluded.</span></div>
         </section>
 
