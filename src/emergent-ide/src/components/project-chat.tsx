@@ -1,6 +1,8 @@
 "use client";
 
 import { FormEvent, KeyboardEvent, useMemo, useState } from "react";
+import Link from "next/link";
+import type { PublicAISettings } from "@/lib/ai-settings";
 import type { ProjectEntity, ProjectFile } from "@/lib/project";
 
 type ChatMessage = {
@@ -14,9 +16,10 @@ type Props = {
   projectName: string;
   selectedFile: ProjectFile;
   entities: ProjectEntity[];
+  aiSettings: PublicAISettings;
 };
 
-export function ProjectChat({ projectId, projectName, selectedFile, entities }: Props) {
+export function ProjectChat({ projectId, projectName, selectedFile, entities, aiSettings }: Props) {
   const projectScope = `project:${projectId}`;
   const fileScope = `file:${selectedFile.path}`;
   const [scope, setScope] = useState(projectScope);
@@ -50,7 +53,9 @@ export function ProjectChat({ projectId, projectName, selectedFile, entities }: 
         {
           id: now + 1,
           role: "assistant",
-          text: "Request staged with this scope. Connect an AI provider before code or project files can be generated.",
+          text: aiSettings.configured
+            ? "Request staged with this scope. Codex is configured; request execution and reviewed file changes are the next integration step."
+            : "Request staged with this scope. Connect an AI provider before code or project files can be generated.",
         },
       ],
     }));
@@ -71,7 +76,7 @@ export function ProjectChat({ projectId, projectName, selectedFile, entities }: 
           <span className="chat-spark">✦</span>
           <span><b>Build with AI</b><small>{scopeLabel}</small></span>
         </button>
-        <span className="provider-status"><i />AI not connected</span>
+        <Link className={aiSettings.configured ? "provider-status connected" : "provider-status"} href="/settings" title="Open AI settings"><i />{aiSettings.configured ? `Codex · ${aiSettings.model}` : "AI not connected"}</Link>
         <button className="chat-collapse" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Collapse chat" : "Expand chat"}>{expanded ? "⌄" : "⌃"}</button>
       </header>
       {expanded && <>

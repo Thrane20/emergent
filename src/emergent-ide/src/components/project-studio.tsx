@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ProjectChat } from "@/components/project-chat";
+import type { PublicAISettings } from "@/lib/ai-settings";
 import type {
   ProjectConnection,
   ProjectFile,
@@ -10,7 +12,7 @@ import type {
   ProjectSnapshot,
 } from "@/lib/project";
 
-type Props = { project: ProjectSnapshot };
+type Props = { project: ProjectSnapshot; aiSettings: PublicAISettings };
 type View = "overview" | "connections" | "source";
 
 const icons: Record<ProjectFileKind, string> = {
@@ -39,7 +41,7 @@ const descriptions: Record<ProjectFileKind, string> = {
   file: "Project file reference.",
 };
 
-export function ProjectStudio({ project }: Props) {
+export function ProjectStudio({ project, aiSettings }: Props) {
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -84,6 +86,7 @@ export function ProjectStudio({ project }: Props) {
         <button className="rail-button" title="Connections" onClick={() => setView("connections")}>⌘</button>
         <button className="rail-button" title="Source" onClick={() => setView("source")}>⌗</button>
         <span className="rail-spacer" />
+        <Link className="rail-button" href="/settings" title="AI settings">⚙</Link>
         <button className="rail-button" title="Reload project from disk" onClick={() => router.refresh()}>↻</button>
       </aside>
 
@@ -114,6 +117,7 @@ export function ProjectStudio({ project }: Props) {
             projectName={project.name}
             selectedFile={selected}
             entities={project.entities}
+            aiSettings={aiSettings}
           />
           <div className="canvas-footer"><span><i className="green-dot" />Live from the linked project folder</span><span>Runtime SlotMap handles are intentionally excluded.</span></div>
         </section>

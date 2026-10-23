@@ -20,6 +20,8 @@ The selected path must contain `emergent.toml` and `assets/`.
 
 The first slice is read-only. It discovers the manifest, authored assets, game-owned Rust, and generated Rust directly from the linked project. Selecting a file shows its metadata, text preview where available, and inferred incoming/outgoing file connections such as entry-scene declarations, asset reads, generated builders, and Rust module use.
 
-The lower-center chat dock keeps separate in-memory threads scoped to the whole project, the selected file, or a durable authored entity ID discovered from scene and entity definitions. It shows the definitions attached to the current scope. An AI provider is not connected yet, so submitted requests are staged locally and cannot write code or assets.
+The full-width lower chat dock keeps separate in-memory threads scoped to the whole project, the selected file, or a durable authored entity ID discovered from scene and entity definitions. It shows the definitions attached to the current scope.
+
+The `/settings` page configures the initial OpenAI/Codex provider, including an editable API base URL, model, and API key. Credentials are stored in the server-only, Git-ignored `.data/ai-provider.json` file with owner-only permissions and are never returned to the browser. Set `EMERGENT_IDE_DATA_DIR` to keep this state elsewhere. Chat requests are still staged locally; provider execution and reviewed project writes are the next integration boundary.
 
 It does not import media, mutate scenes, execute generated scene builders, run games, package outputs, or retain runtime SlotMap handles.
