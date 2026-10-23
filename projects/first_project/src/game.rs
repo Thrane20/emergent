@@ -5,14 +5,20 @@ use crate::generated::main_scene::{build_main_scene, MainScene};
 pub struct FirstProjectGame {
     leader_speed: f32,
     scene: Option<MainScene>,
+    exit_after_ticks: Option<u64>,
 }
 
 impl FirstProjectGame {
-    pub fn new(leader_speed: f32) -> Self {
+    pub fn new(leader_speed: f32, exit_after_ticks: Option<u64>) -> Self {
         Self {
             leader_speed,
             scene: None,
+            exit_after_ticks,
         }
+    }
+
+    pub fn scene(&self) -> Option<MainScene> {
+        self.scene
     }
 }
 
@@ -26,7 +32,10 @@ impl Game for FirstProjectGame {
     }
 
     fn fixed_update(&mut self, context: &mut EngineContext<'_>) {
-        if context.tick >= 119 {
+        if self
+            .exit_after_ticks
+            .is_some_and(|limit| context.tick.saturating_add(1) >= limit)
+        {
             context.request_exit();
         }
     }

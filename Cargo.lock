@@ -642,6 +642,8 @@ name = "emergent-first-project"
 version = "0.1.0"
 dependencies = [
  "emergent",
+ "pollster",
+ "winit",
 ]
 
 [[package]]

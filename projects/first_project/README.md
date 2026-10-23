@@ -8,4 +8,12 @@ From the engine repository root:
 cargo run -p emergent-first-project
 ```
 
-The project is headless and exits after 120 fixed ticks. The light is project-visible component data; illumination and shadow rendering, scene/entity asset interpretation, media decoding, and target packaging are later increments.
+The default project opens a native window and renders a flat-lit ground plane, moving leader/follower/tail cubes, and a pyramid using the canonical generated scene transforms and point-light component. Close the window to stop the run. The point light contributes illumination; its shadow-casting flag is retained as scene data, but point-light shadow maps are not rendered yet.
+
+Use the bounded headless path for project validation:
+
+```sh
+cargo run -p emergent-first-project -- --headless
+```
+
+Use `-- --smoke` for a 120-tick native presentation, resize, and clean-shutdown check. The pyramid is currently constructed by generated Rust; generic scene/entity asset interpretation, media decoding, project-mode cameras, and target packaging remain later increments.

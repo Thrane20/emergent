@@ -55,7 +55,7 @@ Run the independent reference game project with:
 cargo run -p emergent-first-project
 ```
 
-It validates `projects/first_project/emergent.toml`, reads a project-owned data asset, constructs its linked scene and point-light entity through public Emergent APIs, and advances the headless game. The checked-in project demonstrates the boundary between engine code, generated Rust, authored assets, and per-platform output declarations; authored scene expansion, light rendering, and output packaging remain later work.
+It validates `projects/first_project/emergent.toml`, reads a project-owned data asset, constructs its linked scene and point-light entity through public Emergent APIs, and opens a native lit preview with a ground plane, moving cubes, and a pyramid. Use `-- --headless` for the bounded 120-tick non-windowed run or `-- --smoke` for native resize, presentation, and shutdown validation. Authored scene expansion and output packaging remain later work.
 
 ## Check
 

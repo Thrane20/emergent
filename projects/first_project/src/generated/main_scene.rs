@@ -11,8 +11,11 @@ use emergent::{
 #[derive(Clone, Copy, Debug)]
 pub struct MainScene {
     pub leader: EntityId,
+    pub follower: EntityId,
     pub tail: EntityId,
     pub key_light: EntityId,
+    pub ground: EntityId,
+    pub pyramid: EntityId,
 }
 
 pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScene, WorldError> {
@@ -21,6 +24,17 @@ pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScen
     let follower = world.spawn_child(scene, "Generated follower")?;
     let tail = world.spawn_child(scene, "Generated tail")?;
     let key_light = world.spawn_child(scene, "Generated key light")?;
+    let ground = world.spawn_child(scene, "Generated ground")?;
+    let pyramid = world.spawn_child(scene, "Generated pyramid preview")?;
+
+    world.set_local_transform(
+        ground,
+        Transform::from_translation(Vec3::new(0.0, -1.0, 0.0)),
+    )?;
+    world.set_local_transform(
+        pyramid,
+        Transform::from_translation(Vec3::new(0.0, -1.0, -2.5)),
+    )?;
 
     world.set_local_transform(
         key_light,
@@ -73,14 +87,17 @@ pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScen
 
     Ok(MainScene {
         leader,
+        follower,
         tail,
         key_light,
+        ground,
+        pyramid,
     })
 }
 
 #[cfg(test)]
 mod tests {
-    use emergent::{LightKind, LightSource, ShadowCasting, World};
+    use emergent::{LightKind, LightSource, ShadowCasting, Vec3, World};
 
     use super::build_main_scene;
 
@@ -98,5 +115,13 @@ mod tests {
         assert_eq!(light.intensity(), 8.0);
         assert_eq!(light.range(), Some(24.0));
         assert_eq!(light.shadow_casting(), ShadowCasting::Enabled);
+        assert_eq!(
+            world.local_transform(scene.ground).unwrap().translation,
+            Vec3::new(0.0, -1.0, 0.0)
+        );
+        assert_eq!(
+            world.local_transform(scene.pyramid).unwrap().translation,
+            Vec3::new(0.0, -1.0, -2.5)
+        );
     }
 }

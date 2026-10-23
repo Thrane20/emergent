@@ -55,7 +55,7 @@ cargo clippy --all-targets --all-features -- -D warnings</pre></div>
 emergent = { path = "../emergent" }</pre></div>
     <div class="code-block"><div class="code-label">Cargo.toml · with graphics</div><pre>[dependencies]
 emergent = { path = "../emergent", features = ["graphics"] }</pre></div>
-    <div class="callout"><strong>Reference project:</strong> run <code>cargo run -p emergent-first-project</code> to validate and launch the checked-in independent game package. Its generated Rust uses the public API; automatic authored-scene expansion remains planned.</div>
+    <div class="callout"><strong>Reference project:</strong> run <code>cargo run -p emergent-first-project</code> to validate and open the checked-in independent game's native lit preview. Use <code>-- --headless</code> for bounded non-windowed validation. Its generated Rust uses the public API; automatic authored-scene expansion remains planned.</div>
 
     <h2 id="model">The first mental model</h2>
     <table><thead><tr><th>Concept</th><th>Use it for</th><th>Key type/API</th></tr></thead><tbody>
