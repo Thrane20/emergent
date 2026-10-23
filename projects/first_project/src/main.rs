@@ -1,5 +1,6 @@
 mod game;
 mod generated;
+mod spin;
 mod visual;
 
 use emergent::{Engine, EngineConfig, Project};
@@ -23,7 +24,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         None => visual::run(speed, None),
         Some("--smoke") => visual::run(speed, Some(120)),
         Some("--headless") => run_headless(speed),
-        Some("--preview-scene") if args.len() == 4 && args[2] == "--preview-output" => visual::preview(&project, speed, &args[1], std::path::Path::new(&args[3])),
+        Some("--preview-scene") if args.len() == 4 && args[2] == "--preview-output" => {
+            visual::preview(
+                &project,
+                speed,
+                &args[1],
+                std::path::Path::new(&args[3]),
+            )
+        }
         Some(_) => Err("usage: emergent-first-project [--smoke | --headless | --preview-scene <scene> --preview-output <png>]".into()),
     }
 }

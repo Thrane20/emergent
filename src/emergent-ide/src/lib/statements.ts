@@ -14,6 +14,7 @@ export type ProjectStatement = {
   confidence: StatementConfidence | null;
   evidence: string | null;
   checkedAt: string | null;
+  implementation?: { summary: string; reused: string[]; files: string[]; validatedAt: string } | null;
 };
 
 type StatementDocument = {
@@ -82,6 +83,17 @@ export async function saveStatementEvaluation(
   }).then((document) => document.statements.filter((statement) => statement.subject === subject));
 }
 
+export async function saveStatementImplementation(project: ProjectSnapshot, subject: string, id: string, implementation: NonNullable<ProjectStatement["implementation"]>) {
+  validateSubject(project, subject);
+  await updateDocument(project.root, (document) => {
+    const statement = document.statements.find((item) => item.subject === subject && item.id === id);
+    if (!statement) throw new Error("Statement was removed during implementation.");
+    statement.implementation = implementation;
+    statement.implemented = null; statement.confidence = null; statement.evidence = null; statement.checkedAt = null;
+    return document;
+  });
+}
+
 export function validateSubject(project: ProjectSnapshot, subject: string): void {
   if (!subject.startsWith("file:")) throw new Error("This statement subject type is not supported yet.");
   const requestedPath = subject.slice("file:".length);
@@ -135,6 +147,7 @@ function validateStoredStatement(value: unknown): ProjectStatement {
     confidence,
     evidence: typeof statement.evidence === "string" ? validateEvidence(statement.evidence) : null,
     checkedAt: typeof statement.checkedAt === "string" ? statement.checkedAt : null,
+    implementation: statement.implementation && typeof statement.implementation.summary === "string" && typeof statement.implementation.validatedAt === "string" && Array.isArray(statement.implementation.reused) && statement.implementation.reused.every((item) => typeof item === "string") && Array.isArray(statement.implementation.files) && statement.implementation.files.every((item) => typeof item === "string") ? statement.implementation : null,
   };
 }
 

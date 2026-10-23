@@ -28,6 +28,29 @@ Chat requests now call the configured provider through the server-side Responses
 
 Chat scope follows the file selected in the project tree; there is no independent scope selector. The right inspector also exposes durable intent statements for that selection. Statements are stored in the linked project's `emergent.statements.json`, use stable subject references rather than runtime handles, and can be checked against the current project by the configured AI. AI checks record implementation status, confidence, and short evidence but do not edit the statement or game files.
 
+New statements are checked immediately after saving when an AI key is configured.
+If checking fails, the intention remains saved and unchecked, with an error shown.
+An existing behaviour can already satisfy a new intention; saving never assumes
+that its implementation must be missing.
+
+For an unmet intention, **Implement** searches the current project and linked
+Emergent foundation, asks the configured AI for reuse-first changes, and compiles
+them in a temporary copy before applying them. Only project Rust source/tests and
+TOML assets can change; manifests, dependencies, engine source, and credentials
+cannot. Concurrent edits prevent application. Original-file backups are retained
+under `.data/statement-implementations/` (or `EMERGENT_IDE_DATA_DIR`).
+
+After applying, an independent Check evaluates the fresh code. **Reuse & changes**
+shows reused APIs/helpers, changed files, and the compilation result. Cargo check
+and AI evidence do not establish runtime behaviour; use tests and native Run for
+that. The current isolated compiler supports independent Cargo manifests with a
+local Emergent path dependency; workspace-inherited manifests are not yet supported.
+
+The spinning-cube reference in `first_project` was generated through this action:
+it reuses engine transforms and fixed timing with project-owned `src/spin.rs`,
+rotates at 15°/second, and preserves translation and scale. Its native scene is
+wired to render the cube. Load remains a tick-zero still; Run shows the motion.
+
 The IDE does not interpret authored scenes, package outputs, or retain runtime SlotMap handles. Runtime GLB importing, textures, and general model materials remain separate engine work.
 
 ## Rust scene preview

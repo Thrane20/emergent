@@ -16,6 +16,7 @@ pub struct MainScene {
     pub key_light: EntityId,
     pub ground: EntityId,
     pub pyramid: EntityId,
+    pub cube: EntityId,
 }
 
 pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScene, WorldError> {
@@ -26,6 +27,8 @@ pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScen
     let key_light = world.spawn_child(scene, "Generated key light")?;
     let ground = world.spawn_child(scene, "Generated ground")?;
     let pyramid = world.spawn_child(scene, "Generated pyramid preview")?;
+    // Generated from assets/entities/cube.entity.toml; retain only its runtime handle.
+    let cube = world.spawn_child(scene, "Cube")?;
 
     world.set_local_transform(
         ground,
@@ -92,6 +95,7 @@ pub fn build_main_scene(world: &mut World, leader_speed: f32) -> Result<MainScen
         key_light,
         ground,
         pyramid,
+        cube,
     })
 }
 
@@ -102,7 +106,7 @@ mod tests {
     use super::build_main_scene;
 
     #[test]
-    fn generated_scene_contains_the_configured_key_light() {
+    fn generated_scene_contains_the_configured_key_light_and_authored_cube() {
         let mut world = World::new();
         let scene = build_main_scene(&mut world, 1.0).unwrap();
         let light = world
@@ -123,5 +127,11 @@ mod tests {
             world.local_transform(scene.pyramid).unwrap().translation,
             Vec3::new(0.0, -1.0, -2.5)
         );
+        assert_eq!(world.get(scene.cube).unwrap().name(), "Cube");
+        assert_eq!(
+            world.local_transform(scene.cube).unwrap().translation,
+            Vec3::ZERO
+        );
+        assert_eq!(world.local_transform(scene.cube).unwrap().scale, Vec3::ONE);
     }
 }

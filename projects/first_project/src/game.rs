@@ -1,6 +1,7 @@
 use emergent::{EngineContext, Game};
 
 use crate::generated::main_scene::{build_main_scene, MainScene};
+use crate::spin::{rotate_z, SLOW_SPIN_DEGREES_PER_SECOND};
 
 pub struct FirstProjectGame {
     leader_speed: f32,
@@ -32,6 +33,15 @@ impl Game for FirstProjectGame {
     }
 
     fn fixed_update(&mut self, context: &mut EngineContext<'_>) {
+        let scene = self.scene.expect("project scene is constructed");
+        rotate_z(
+            context.world,
+            scene.cube,
+            SLOW_SPIN_DEGREES_PER_SECOND,
+            context.fixed_delta,
+        )
+        .expect("authored cube remains alive with a valid transform");
+
         if self
             .exit_after_ticks
             .is_some_and(|limit| context.tick.saturating_add(1) >= limit)
@@ -63,5 +73,38 @@ impl Game for FirstProjectGame {
                 context.tick, leader.x, tail.x, key_light.x, key_light.y, key_light.z
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use emergent::{Engine, EngineConfig, Vec3};
+
+    use super::FirstProjectGame;
+
+    #[test]
+    fn authored_cube_spins_fifteen_degrees_in_one_second() {
+        let config = EngineConfig {
+            fixed_timestep: Duration::from_secs_f64(1.0 / 60.0),
+            ..EngineConfig::default()
+        };
+        let mut engine = Engine::new(config).unwrap();
+        let mut game = FirstProjectGame::new(0.75, None);
+
+        engine.run_ticks(&mut game, 60).unwrap();
+
+        let cube = game.scene().unwrap().cube;
+        let transform = *engine.world().local_transform(cube).unwrap();
+        let rotated_x = transform.rotation * Vec3::X;
+        let expected = Vec3::new(
+            15.0_f32.to_radians().cos(),
+            15.0_f32.to_radians().sin(),
+            0.0,
+        );
+        assert!(rotated_x.abs_diff_eq(expected, 1.0e-4));
+        assert_eq!(transform.translation, Vec3::ZERO);
+        assert_eq!(transform.scale, Vec3::ONE);
     }
 }

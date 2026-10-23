@@ -22,6 +22,7 @@ struct ProjectGeometry {
     ground: GeometryId,
     cube: GeometryId,
     pyramid: GeometryId,
+    authored_cube: GeometryId,
 }
 
 struct FirstProjectApp {
@@ -105,6 +106,7 @@ impl FirstProjectApp {
             GeometryInstance::new(geometry.cube, matrices[2]),
             GeometryInstance::new(geometry.cube, matrices[3]),
             GeometryInstance::new(geometry.pyramid, matrices[4]),
+            GeometryInstance::new(geometry.authored_cube, matrices[5]),
         ];
         let lights = match scene_lights(&self.engine, scene, self.ambient_light) {
             Ok(lights) => lights,
@@ -141,10 +143,11 @@ impl ApplicationHandler for FirstProjectApp {
             Err(error) => return self.fail(event_loop, error),
         };
         let geometry = match project_geometry() {
-            Ok([ground, cube, pyramid]) => ProjectGeometry {
+            Ok([ground, cube, pyramid, authored_cube]) => ProjectGeometry {
                 ground: renderer.insert_with_shading(&ground, ShadingMode::Flat),
                 cube: renderer.insert_with_shading(&cube, ShadingMode::Flat),
                 pyramid: renderer.insert_with_shading(&pyramid, ShadingMode::Flat),
+                authored_cube: renderer.insert_with_shading(&authored_cube, ShadingMode::Flat),
             },
             Err(error) => return self.fail(event_loop, error),
         };
@@ -153,7 +156,7 @@ impl ApplicationHandler for FirstProjectApp {
         }
         let info = renderer.info();
         println!(
-            "First Project graphics: adapter='{}', backend={}, format={}, resources=3",
+            "First Project graphics: adapter='{}', backend={}, format={}, resources=4",
             info.adapter_name, info.backend, info.surface_format
         );
         self.running = true;
@@ -244,12 +247,13 @@ pub fn run(leader_speed: f32, exit_after_ticks: Option<u64>) -> Result<(), Box<d
     Ok(())
 }
 
-fn project_geometry() -> Result<[Geometry; 3], Box<dyn Error>> {
+fn project_geometry() -> Result<[Geometry; 4], Box<dyn Error>> {
     let ground_color = Color::new(0.12, 0.22, 0.16, 1.0)?;
     Ok([
         Primitive::plane(6.0, 6.0, ground_color)?.into(),
         Primitive::cube(0.45, Color::CYAN)?.into(),
         Primitive::pyramid(0.8, 1.8, Color::YELLOW)?.into(),
+        Primitive::cube(0.5, Color::WHITE)?.into(),
     ])
 }
 
@@ -264,10 +268,11 @@ pub fn preview(
     let definition: toml::Value = toml::from_str(&project.read_text_asset(scene_path)?)?;
     validate_preview_builder(&definition)?;
     let mut renderer = pollster::block_on(GeometryRenderer::new_offscreen(1280, 720))?;
-    let [ground, cube, pyramid] = project_geometry()?;
+    let [ground, cube, pyramid, authored_cube] = project_geometry()?;
     let ground = renderer.insert_with_shading(&ground, ShadingMode::Flat);
     let cube = renderer.insert_with_shading(&cube, ShadingMode::Flat);
     let pyramid = renderer.insert_with_shading(&pyramid, ShadingMode::Flat);
+    let authored_cube = renderer.insert_with_shading(&authored_cube, ShadingMode::Flat);
     let mut engine = Engine::new(EngineConfig::default())?;
     let mut game = FirstProjectGame::new(speed, None);
     engine.start(&mut game)?;
@@ -280,6 +285,7 @@ pub fn preview(
             GeometryInstance::new(cube, matrices[2]),
             GeometryInstance::new(cube, matrices[3]),
             GeometryInstance::new(pyramid, matrices[4]),
+            GeometryInstance::new(authored_cube, matrices[5]),
         ];
         let lights = scene_lights(&engine, scene, LightSource::ambient(Color::WHITE, 0.18)?)?;
         let frame = renderer.render_lit_rgba(&instances, &lights)?;
@@ -343,13 +349,14 @@ fn scene_lights(
     ])
 }
 
-fn scene_matrices(engine: &Engine, scene: MainScene) -> Result<[Mat4; 5], Box<dyn Error>> {
+fn scene_matrices(engine: &Engine, scene: MainScene) -> Result<[Mat4; 6], Box<dyn Error>> {
     Ok([
         world_matrix(engine, scene.ground)?,
         world_matrix(engine, scene.leader)?,
         world_matrix(engine, scene.follower)?,
         world_matrix(engine, scene.tail)?,
         world_matrix(engine, scene.pyramid)?,
+        world_matrix(engine, scene.cube)?,
     ])
 }
 

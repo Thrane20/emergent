@@ -7,6 +7,8 @@ import path from "node:path";
 import { chromium, expect, type Browser } from "@playwright/test";
 import { ObjectJobs } from "../src/lib/object-jobs";
 import { referenceImage, triangleGlb } from "../tests/object-fixture";
+import { readProjectSnapshot } from "../src/lib/project";
+import { saveStatementEvaluation } from "../src/lib/statements";
 
 // Exercises the production UI and real save/routes in an isolated temporary game.
 // Only generation submission/observation is mocked; no paid provider calls occur.
@@ -17,6 +19,8 @@ async function main() {
   await mkdir(path.join(root, "src"));
   await writeFile(path.join(root, "emergent.toml"), 'id = "object-smoke"\nname = "Object Smoke"\nentry_scene = "assets/main.scene.toml"\nasset_roots = ["assets"]\n');
   await writeFile(path.join(root, "assets/main.scene.toml"), 'id = "main"\n');
+  await mkdir(data, { recursive: true });
+  await writeFile(path.join(data, "ai-provider.json"), JSON.stringify({ baseUrl: "https://api.openai.com/v1", model: "test-model", apiKey: "mock-key-not-sent-to-provider" }));
   const project = { id: "object-smoke", root, assetRoots: ["assets"] };
   let submissions = 0;
   const jobs = new ObjectJobs(data, async () => ({
@@ -55,6 +59,34 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    let automaticChecks = 0;
+    await page.route("**/api/statements/evaluate", async (route) => {
+      automaticChecks++;
+      const body = route.request().postDataJSON();
+      const previousProject = process.env.EMERGENT_PROJECT_PATH;
+      process.env.EMERGENT_PROJECT_PATH = root;
+      try {
+        const selectedProject = await readProjectSnapshot();
+        const statements = await saveStatementEvaluation(selectedProject, body.subject, body.id, { implemented: false, confidence: "high", evidence: "The fixture scene has no rotation." });
+        await route.fulfill({ json: { statements } });
+      } finally { if (previousProject === undefined) delete process.env.EMERGENT_PROJECT_PATH; else process.env.EMERGENT_PROJECT_PATH = previousProject; }
+    });
+    await page.goto(base);
+    await page.locator(".statement-composer textarea").fill("This scene slowly rotates");
+    await page.locator(".statement-composer button").click();
+    await expect(page.locator(".statement-item")).toContainText("Not implemented");
+    assert.equal(automaticChecks, 1);
+    await expect(page.locator(".statement-item").getByRole("button", { name: "Implement", exact: true })).toBeEnabled();
+    await page.route("**/api/statements/implement", (route) => route.fulfill({ status: 400, json: { error: "Candidate failed cargo check; project files were not changed." } }));
+    await page.locator(".statement-item").getByRole("button", { name: "Implement", exact: true }).click();
+    await expect(page.locator(".statement-error")).toContainText("project files were not changed");
+    await page.unroute("**/api/statements/evaluate");
+    await page.route("**/api/statements/evaluate", (route) => route.fulfill({ status: 502, json: { error: "AI provider unavailable (smoke)" } }));
+    await page.locator(".statement-composer textarea").fill("Another saved intention");
+    await page.locator(".statement-composer button").click();
+    await expect(page.locator(".statement-error")).toContainText("AI provider unavailable");
+    const intentions = JSON.parse(await readFile(path.join(root, "emergent.statements.json"), "utf8"));
+    assert.equal(intentions.statements.length, 2);
     await page.goto(base + "/settings#object-generation");
     const section = page.locator("#object-generation");
     await section.getByLabel("fal API key").fill("mock-test-key-never-sent-to-fal");
@@ -97,7 +129,7 @@ async function main() {
     await page.getByRole("button", { name: "object.asset.json", exact: true }).click();
     await page.waitForFunction(() => (document.querySelector("model-viewer") as HTMLElement & { loaded?: boolean })?.loaded);
     assert.deepEqual(errors, []);
-    console.log("Object Creator UI smoke passed: settings, mocked generation, real GLB preview/save, server restart, project selection. Screenshot: " + screenshot);
+    console.log("IDE UI smoke passed: automatic statement checking/failure persistence, Implement action, settings, mocked generation, real GLB preview/save, server restart, project selection. Screenshot: " + screenshot);
   } finally { await browser?.close(); await stop(); await rm(temporary, { recursive: true, force: true }); }
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

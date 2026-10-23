@@ -430,6 +430,15 @@ depends_on = ["project.manifest", "render.offscreen-capture"]
 summary = "Scene dropdown and Load invoke a registered project Rust builder at tick zero and display its native PNG frame in the IDE. Static capture; arbitrary authored-world loading and live streaming remain planned."
 
 [[capabilities]]
+id = "tools.statement-implementation"
+category = "tooling"
+name = "Statement-driven project implementation"
+status = "preview"
+owner = "ide"
+depends_on = ["project.manifest", "world.transforms-3d"]
+summary = "Immediate intention checks and explicit AI implementation using inspected project/foundation reuse, staged Cargo checks, bounded project-only writes, backups, and independent follow-up checks. Compilation is distinct from runtime verification."
+
+[[capabilities]]
 id = "tools.project-mode"
 category = "tools"
 name = "Visual project mode"

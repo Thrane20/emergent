@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import type { ProjectStatement } from "@/lib/statements";
 
 type Props = {
@@ -11,11 +12,13 @@ type Props = {
 };
 
 export function StatementsPanel({ projectId, subject, subjectLabel, aiConfigured }: Props) {
+  const router = useRouter();
   const [statements, setStatements] = useState<ProjectStatement[]>([]);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
+  const [implementingId, setImplementingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -42,8 +45,13 @@ export function StatementsPanel({ projectId, subject, subjectLabel, aiConfigured
     setSaving(true);
     setError("");
     try {
-      setStatements(await mutate("/api/statements", "POST", { projectId, subject, text }));
+      const known = new Set(statements.map((statement) => statement.id));
+      const updated = await mutate("/api/statements", "POST", { projectId, subject, text });
+      setStatements(updated);
       setDraft("");
+      const created = updated.find((statement) => !known.has(statement.id) && statement.text === text);
+      if (created && aiConfigured) await evaluate(created.id);
+      else if (created) setError("Statement saved. Configure AI in Settings to check and implement it.");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Unable to add statement.");
     } finally {
@@ -72,6 +80,19 @@ export function StatementsPanel({ projectId, subject, subjectLabel, aiConfigured
     }
   };
 
+  const implement = async (id: string) => {
+    setImplementingId(id); setError("");
+    try {
+      const response = await fetch("/api/statements/implement", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, subject, id }) });
+      const result = await response.json() as { statements?: ProjectStatement[]; warning?: string; error?: string };
+      if (!response.ok || !result.statements) throw new Error(result.error ?? "Unable to implement statement.");
+      setStatements(result.statements);
+      if (result.warning) setError(result.warning);
+      router.refresh();
+    } catch (reason) { setError(reason instanceof Error ? reason.message : "Unable to implement statement."); }
+    finally { setImplementingId(null); }
+  };
+
   return <section className="panel statements-panel">
     <header className="statements-head"><div><span className="eyebrow">STATEMENTS</span><h3>{subjectLabel}</h3></div><span className="statement-count">{statements.length}</span></header>
     <div className="statement-list">
@@ -79,12 +100,13 @@ export function StatementsPanel({ projectId, subject, subjectLabel, aiConfigured
       {!loading && statements.length === 0 && <p className="statement-empty">Record what this selection is meant to be or do.</p>}
       {statements.map((statement) => <article className="statement-item" key={statement.id}>
         <input type="checkbox" checked={statement.implemented === true} readOnly aria-label={statement.implemented ? "AI marked implemented" : "Not marked implemented"} />
-        <div><p>{statement.text}</p><small className={statement.implemented === true ? "implemented" : statement.implemented === false ? "missing" : "unchecked"}>{statusLabel(statement)}</small>{statement.evidence && <em>{statement.evidence}</em>}</div>
-        <div className="statement-actions"><button onClick={() => evaluate(statement.id)} disabled={!aiConfigured || checkingId !== null} title={aiConfigured ? "Ask AI to check the project" : "Configure AI first"}>{checkingId === statement.id ? "…" : "Check"}</button><button onClick={() => remove(statement.id)} title="Remove statement">×</button></div>
+        <div><p>{statement.text}</p><small className={statement.implemented === true ? "implemented" : statement.implemented === false ? "missing" : "unchecked"}>{statusLabel(statement)}</small>{statement.evidence && <em>{statement.evidence}</em>}{statement.implementation && <details className="statement-implementation"><summary>Reuse &amp; changes · Cargo check passed</summary><p>{statement.implementation.summary}</p>{statement.implementation.reused.map((source) => <em key={source}>{source}</em>)}<small>{statement.implementation.files.join(", ")}</small></details>}</div>
+        <div className="statement-actions"><button onClick={() => evaluate(statement.id)} disabled={!aiConfigured || checkingId !== null || implementingId !== null} title={aiConfigured ? "Ask AI to check the project" : "Configure AI first"}>{checkingId === statement.id ? "Checking…" : "Check"}</button>{statement.implemented !== true && <button onClick={() => implement(statement.id)} disabled={!aiConfigured || checkingId !== null || implementingId !== null} title="Search reusable code, implement, compile-check, and check again">{implementingId === statement.id ? "Implementing…" : "Implement"}</button>}<button onClick={() => remove(statement.id)} disabled={checkingId !== null || implementingId !== null} title="Remove statement">×</button></div>
       </article>)}
     </div>
-    {error && <p className="statement-error">{error}</p>}
-    <form className="statement-composer" onSubmit={add}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add an intention for this selection…" rows={2} maxLength={1_000} /><button disabled={!draft.trim() || saving}>{saving ? "…" : "+"}</button></form>
+    {implementingId && <p className="statement-progress" role="status">Searching project and foundation code → generating changes → Cargo check → checking intention…</p>}
+    {error && <p className="statement-error" role="alert">{error}</p>}
+    <form className="statement-composer" onSubmit={add}><textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Add an intention for this selection…" rows={2} maxLength={1_000} /><button disabled={!draft.trim() || saving || checkingId !== null || implementingId !== null}>{saving ? "…" : "+"}</button></form>
   </section>;
 }
 
