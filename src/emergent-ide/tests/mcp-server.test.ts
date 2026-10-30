@@ -54,15 +54,19 @@ test("an authorised client initialises, lists tools and resolves a name to a dur
   const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
   assert.match(String((init.result as { instructions?: string }).instructions), /Names are NOT unique/);
   const tools = ((await rpc("tools/list")).result!.tools as { name: string; annotations?: { readOnlyHint?: boolean } }[]);
-  assert.deepEqual(tools.map(item => item.name).sort(), ["describe", "find", "list", "project_overview", "view"]);
-  assert.ok(tools.every(item => item.annotations?.readOnlyHint));
+  const readOnly = ["describe", "find", "history", "list", "project_overview", "view"];
+  const writes = ["assign_ids", "delete", "place_asset", "rename", "reparent", "set_camera", "set_environment", "set_material", "set_physics", "set_transform", "undo"];
+  assert.deepEqual(tools.map(item => item.name).sort(), [...readOnly, ...writes].sort());
+  for (const item of tools) assert.equal(item.annotations?.readOnlyHint, readOnly.includes(item.name), `${item.name} read-only annotation`);
+  const edit = await tool("set_transform", { ref: "instance:main/pyramid", revision: "nope", translation: [1, 2, 3] });
+  assert.equal(edit.isError, true, "edits validate their revision argument");
 
   const found = await tool("find", { query: "pyramid" });
   assert.equal(found.value.matches[0].ref, "instance:main/pyramid");
   const described = await tool("describe", { ref: "instance:main/pyramid" });
   assert.equal(described.value.asset, "asset:pyramid");
   assert.deepEqual(described.value.transform.local.translation, [0, 0, 0]);
-  assert.match(described.value.sceneRevision, /^[0-9a-f]{64}$/);
+  assert.match(described.value.revision, /^[0-9a-f]{64}$/);
   const asset = await tool("describe", { ref: "asset:pyramid" });
   assert.deepEqual(asset.value.usedBy.map((item: { ref: string }) => item.ref), ["instance:main/pyramid"]);
 

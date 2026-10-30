@@ -13,11 +13,10 @@ the same change that finishes it. Long-range goals and stage gates are in
   Research focused Rust extraction options and write the design before choosing
   an implementation. Keep gameplay and full resource budgets open.
   [Detailed checklist](docs/plans/terrain.md#current-priority--terrain-performance-v1).
-- **Project MCP server: MCP-2 (edits).** MCP-1 (read and view) is delivered. Next:
-  guarded transform, rename, reparent, delete, place-asset and component edits, with
-  dry-run, an undo journal, a live inspection push, IDE refresh over SSE, and
-  `assign_ids` for files without durable IDs.
-  [Design](docs/design/project-mcp-server.md).
+- **Project MCP server: MCP-3 (build and run).** MCP-1 (read) and MCP-2 (edits)
+  are delivered. Next: `create_asset` from templates, `validate` / `run` /
+  `run_status`, and the IDE selection as a resource, so that "this" or "the selected
+  cube" resolves to a ref. [Design](docs/design/project-mcp-server.md).
 
 ## Known issues
 
@@ -28,12 +27,11 @@ the same change that finishes it. Long-range goals and stage gates are in
 - Player settings (`/player`, `player.settings.toml`) are not consumed at runtime.
   Either wire resolution/fps/AA into the native run, or label the page as planned.
 - No evidence record exists yet for scene lighting/skyboxes.
-- `assets/textures/c6dfc7dc-…/explosion_atlas.png` has no descriptor, so it has no
-  durable ID and the MCP server can't address it. MCP-2 `assign_ids` will fix this.
-- Codex as an MCP client is configured but not yet verified in a live session: the
-  account hit its usage limit on 2026-10-30. Claude Code is verified.
-- About a week of work (physics, terrain, particles, materials, tweens, structures,
-  IDE editors) is uncommitted; the last commit is 2026-10-23.
+- `assets/textures/c6dfc7dc-…/explosion_atlas.png` still has no durable ID. Run the
+  MCP `assign_ids` tool (dry-run first) to give it one; this hasn't been applied to
+  the real project yet.
+- Restart the IDE dev server on port 3000. Its pages returned 500 after this week's
+  dependency install, and it needs the MCP-2 code plus the inspection camera fix.
 
 ## Next
 
@@ -53,8 +51,8 @@ foundation gates in [GOALS.MD](GOALS.MD) that block the developer-framework proo
 6. Broader Stage 0 budgets: target hardware, workload sizes and frame/memory budgets, so
    that performance claims have something to be measured against.
 
-Project MCP server, after MCP-2: MCP-3 (create assets, validate/run, IDE selection
-as "this"), then MCP-4 (cost-confirmed generators).
+Project MCP server, after MCP-3: MCP-4 (cost-confirmed generators), then play-session
+control once engine pause/step exists.
 
 ## Backlog
 

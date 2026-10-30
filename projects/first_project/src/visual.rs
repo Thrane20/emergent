@@ -274,7 +274,7 @@ fn frozen_particles(
     Ok(store)
 }
 
-fn sync_camera(
+pub(crate) fn sync_camera(
     renderer: &mut GeometryRenderer,
     world: &emergent::World,
     active: Option<EntityId>,

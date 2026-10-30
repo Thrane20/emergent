@@ -8,6 +8,7 @@ import { findEntries, projectIndex, RefError, resolveRef, type IndexEntry, type 
 import { foundationRoot } from "./project-code-context";
 import { renderProjectScene } from "./scene-preview";
 import { scenePlacement } from "./scene-placement";
+import { assignIds, changeHistory, deleteInstance, placeAsset, renameInstance, reparentInstance, setComponent, setEnvironment, setTransform, undoChange, type PlaceInput, type TransformInput } from "./project-ops";
 
 const INSTRUCTIONS = `Emergent project server. It exposes the linked game project's scenes, scene instances and assets.
 
@@ -17,7 +18,15 @@ Identity rules:
 - If find returns several plausible matches, ask the user which one they mean, using each match's hierarchy and scene. Never guess.
 - Never invent a ref. A ref that fails to resolve was deleted or renamed: call find again.
 
-Use describe for full detail and view to see a rendered scene at gameplay tick zero. This server is read-only in this version.`;
+Use describe for full detail and view to see a rendered scene at gameplay tick zero.
+
+Editing:
+- Every edit needs the scene "revision" from describe (of the instance or the scene). Each successful edit returns the new revision; use it for the next edit in that scene. A stale revision is refused; describe again.
+- Edits change authored scene files (never a running game). They are validated by the Rust engine, journalled with a changeId, and appear live in the open IDE.
+- Pass dryRun: true to preview the diff and validation without writing.
+- Component edits (set_material, set_physics, set_camera, set_environment) take only the fields to change; null resets the instance to its asset defaults. Colours are linear RGB in 0..1.
+- undo reverts the most recent MCP change (or a given changeId) and refuses if the files changed since. history lists recent changes.
+- Units are metres and degrees; +Y is up.`;
 
 const refSchema = z.string().min(3).max(320).describe("A durable ref returned by find/list, e.g. instance:main/pyramid");
 
@@ -89,6 +98,40 @@ export function createMcpServer() {
     return { content: [{ type: "image" as const, data: png.toString("base64"), mimeType: "image/png" }, { type: "text" as const, text: `${entry.name} (${entry.ref}) rendered at tick zero.` }] };
   }));
 
+  const revisionSchema = z.string().regex(/^[0-9a-f]{64}$/).describe("The scene revision from describe or from the previous edit's result");
+  const dryRunSchema = z.boolean().optional().describe("Validate and return the diff without writing");
+  const vectorSchema = z.tuple([z.number(), z.number(), z.number()]);
+  const edit = (name: string, title: string, description: string, inputSchema: z.ZodRawShape, action: (project: ProjectSnapshot, args: Record<string, unknown>) => Promise<unknown>, destructive = false) =>
+    server.registerTool(name, { title, description, inputSchema, annotations: { readOnlyHint: false, destructiveHint: destructive, idempotentHint: false } }, async (args: Record<string, unknown>) => run(async ({ project }) => json(await action(project, args))));
+
+  edit("set_transform", "Move, rotate or scale", "Change an instance's position, rotation (degrees) and/or scale. Omitted parts keep their current value. space local (default) is relative to the parent; global is world space.", {
+    ref: refSchema, revision: revisionSchema, translation: vectorSchema.optional(), rotation_degrees: vectorSchema.optional(), scale: vectorSchema.optional(), space: z.enum(["local", "global"]).optional(), dryRun: dryRunSchema,
+  }, (project, args) => setTransform(project, args as unknown as TransformInput));
+  edit("rename", "Rename an instance", "Set an instance's display name in its scene (1-64 characters). The ref does not change.", { ref: refSchema, revision: revisionSchema, name: z.string().min(1).max(64), dryRun: dryRunSchema },
+    (project, args) => renameInstance(project, args as { ref: string; revision: string; name: string; dryRun?: boolean }));
+  edit("reparent", "Change an instance's parent", "Move an instance under another instance in the same scene, or to the scene root (parent null). Keeps the local transform, so it may move in world space.", { ref: refSchema, revision: revisionSchema, parent: refSchema.nullable(), dryRun: dryRunSchema },
+    (project, args) => reparentInstance(project, args as { ref: string; revision: string; parent: string | null; dryRun?: boolean }));
+  edit("delete", "Delete an instance", "Remove an instance and all of its descendants from its scene. The shared asset is not deleted. Undoable with undo.", { ref: refSchema, revision: revisionSchema, dryRun: dryRunSchema },
+    (project, args) => deleteInstance(project, args as { ref: string; revision: string; dryRun?: boolean }), true);
+  edit("place_asset", "Place an asset in a scene", "Add a new instance of an entity asset to a scene, optionally under a parent, with a name and transform (omitted parts use the asset defaults). Returns the new instance ref.", {
+    asset: refSchema, scene: refSchema, revision: revisionSchema, parent: refSchema.nullable().optional(), name: z.string().min(1).max(64).optional(), translation: vectorSchema.optional(), rotation_degrees: vectorSchema.optional(), scale: vectorSchema.optional(), dryRun: dryRunSchema,
+  }, (project, args) => placeAsset(project, args as unknown as PlaceInput));
+  for (const component of ["material", "physics", "camera"] as const) {
+    const hints = { material: "shading (flat|smooth|unlit), albedo [r,g,b] linear 0..1, specular, shininess, emission [r,g,b], emission_intensity, bump_strength, cast_shadows, receive_shadows", physics: "enabled, body (static|dynamic), mass, friction, restitution, gravity_scale, collider {shape box|terrain, center, half_extents}", camera: "projection (perspective|isometric), field_of_view_degrees, view_size, near, far" }[component];
+    edit(`set_${component}`, `Set ${component}`, `Change ${component} fields on one scene instance (an instance override; the shared asset is unchanged). Fields: ${hints}. Pass null to reset to the asset defaults.`, {
+      ref: refSchema, revision: revisionSchema, settings: z.record(z.string(), z.unknown()).nullable(), dryRun: dryRunSchema,
+    }, (project, args) => setComponent(project, { ...(args as { ref: string; revision: string; settings: unknown; dryRun?: boolean }), component }));
+  }
+  edit("set_environment", "Set scene environment", "Change a scene's ambient light, background or skybox. Fields: ambient_color [r,g,b], ambient_intensity, background_color [r,g,b], skybox (an image-library skybox path or null), skybox_rotation (degrees), skybox_intensity.", {
+    scene: refSchema, revision: revisionSchema, settings: z.record(z.string(), z.unknown()), dryRun: dryRunSchema,
+  }, (project, args) => setEnvironment(project, args as { scene: string; revision: string; settings: unknown; dryRun?: boolean }));
+  edit("undo", "Undo a change", "Revert the most recent MCP change, or the given changeId. Refused if any of its files changed since.", { changeId: z.string().uuid().optional(), dryRun: dryRunSchema },
+    (project, args) => undoChange(project, args as { changeId?: string; dryRun?: boolean }), true);
+  edit("assign_ids", "Assign durable IDs", "Give a durable ID to every file reported as missing-id (adds an id to TOML definitions, or a media.asset.json descriptor for loose media). Use dryRun first.", { dryRun: dryRunSchema },
+    (project, args) => assignIds(project, args as { dryRun?: boolean }));
+  server.registerTool("history", { title: "Change history", description: "Recent MCP changes with changeIds, newest first.", inputSchema: { limit: z.number().int().min(1).max(100).optional() }, annotations: { readOnlyHint: true } },
+    async ({ limit }) => run(async ({ project }) => json({ changes: await changeHistory(project, limit) })));
+
   server.registerResource("project", "emergent://project", { title: "Project overview", mimeType: "application/json" },
     async uri => { const { project, index } = await context(); return { contents: [{ uri: uri.href, mimeType: "application/json", text: JSON.stringify(overview(project, index), null, 2) }] }; });
 
@@ -136,7 +179,7 @@ async function describe(project: ProjectSnapshot, index: ProjectIndex, entry: In
   if (entry.type === "scene") {
     const instances = index.instances.filter(instance => instance.scene === entry.ref);
     const tree = (parent: string | null): unknown[] => instances.filter(instance => instance.parent === parent).map(instance => ({ ...summary(instance), children: tree(instance.ref) }));
-    return { ...summary(entry), path: entry.path, entry: index.entryScene === entry.ref, revision: entry.revision, roots: tree(null) };
+    return { ...summary(entry), path: entry.path, entry: index.entryScene === entry.ref, revision: (await scenePlacement(project, entry.path)).revision, roots: tree(null) };
   }
   if (entry.type === "asset") {
     const users = index.instances.filter(instance => instance.asset === entry.ref).map(summary);
@@ -152,7 +195,7 @@ async function describeInstance(project: ProjectSnapshot, index: ProjectIndex, e
   const instance = placement.instances.find(item => item.id === entry.id);
   if (!instance) throw new RefError(`${entry.ref} no longer exists in ${scene.ref}; call find again.`);
   return {
-    ...summary(entry), parent: entry.parent, children: entry.children, assetPath: entry.assetPath, sceneRevision: placement.revision,
+    ...summary(entry), parent: entry.parent, children: entry.children, assetPath: entry.assetPath, revision: placement.revision,
     transform: { local: instance.transform, assetDefaults: instance.defaults, overridden: instance.overridden, world: world ? instance.display ?? null : undefined },
     material: instance.material ? { settings: instance.material, overridden: instance.materialOverridden ?? false } : undefined,
     physics: instance.physics ? { settings: instance.physics, overridden: instance.physicsOverridden ?? false } : undefined,

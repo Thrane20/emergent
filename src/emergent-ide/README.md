@@ -54,8 +54,16 @@ Emergent IDE is a local, reference-oriented project-mode companion for an Emerge
 
 The IDE exposes the linked project to AI coding tools through MCP, so a conversation can
 refer to objects by name ("the pyramid"). The tool resolves the name to a durable ref
-such as `instance:main/pyramid`, `asset:pyramid` or `scene:main`. MCP-1 is read-only:
-`project_overview`, `find`, `list`, `describe` and `view` (a native tick-zero render).
+such as `instance:main/pyramid`, `asset:pyramid` or `scene:main`, then edits it.
+
+- **Read:** `project_overview`, `find`, `list`, `describe`, `view` (a native tick-zero
+  render) and `history`.
+- **Edit:** `set_transform`, `rename`, `reparent`, `delete`, `place_asset`,
+  `set_material`, `set_physics`, `set_camera`, `set_environment`, `assign_ids` and `undo`.
+
+Edits need the `revision` from `describe`, run the same Rust validation as the
+inspector, accept `dryRun`, and are journalled for `undo`. An open IDE page refreshes
+by itself; transforms and reparenting appear in the live view without a restart.
 See [the design](../../docs/design/project-mcp-server.md).
 
 The IDE must be running (`pnpm dev`). Clients connect through a stdio bridge that reads
@@ -64,7 +72,12 @@ a per-install token from `.data/mcp-token`; the bridge creates the token on firs
 - **Claude Code:** the repository's `.mcp.json` registers `emergent`. Start `claude`
   from the repository root and approve the server when asked.
 - **Codex:** run `codex mcp add emergent -- node <repo>/src/emergent-ide/scripts/mcp-stdio.mjs`,
-  using the absolute repository path.
+  using the absolute repository path. Interactive Codex asks before write tools; for
+  non-interactive `codex exec`, set `mcp_servers.emergent.default_tools_approval_mode = "approve"`.
+
+Smoke tests: `pnpm test:mcp-edit` runs every edit tool against a copy at
+`target/mcp-smoke/game`, which has its own Cargo target. `scripts/mcp-live-smoke.mts`
+checks live IDE updates in Chrome against an isolated dev server; see its header.
 
 `EMERGENT_IDE_URL` overrides the default `http://localhost:3000`, for example
 `http://[::1]:3001` for a test server. Avoid `127.0.0.1` when VS Code is forwarding

@@ -427,7 +427,7 @@ Exit: a developer can build a game, inspect its generated world without running 
 - [x] Optionally include new primitive/light/empty-node assets in the selected scene; asset edits drive real Rust captures and native Run, and invalid reloads preserve the last valid frame.
 - [x] Refine modal visibility/scroll containment, simplify the tree and inspector, bind chat scope to selection, and deduplicate chat context keys.
 - [x] Publish the HTML user guide (intro, getting started, Hello World, projects, capabilities, API) and machine-readable capability catalogue.
-- [x] Expose the project to MCP clients (Claude Code; Codex configured) through durable `asset:`/`scene:`/`instance:` refs, with read and view tools (MCP-1). Guarded edits (MCP-2) are next. See [design](docs/design/project-mcp-server.md).
+- [x] Expose the project to MCP clients (Claude Code and Codex, both verified) through durable `asset:`/`scene:`/`instance:` refs: read and view (MCP-1) plus revision-guarded, Rust-validated, undoable scene edits that appear live in the IDE (MCP-2). Asset creation, run and selection context (MCP-3) are next. See [design](docs/design/project-mcp-server.md).
 - [x] Let the IDE's AI use Claude or Codex, with per-provider model selection.
 - [x] Provide the installed `emergent` coding skill for idiomatic project and engine extension; this is local agent tooling, not a bundled runtime feature.
 

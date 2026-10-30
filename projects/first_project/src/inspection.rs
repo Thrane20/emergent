@@ -312,6 +312,8 @@ pub fn run(project: &emergent::Project, scene_path: &str) -> Result<(), Box<dyn 
     geometry.add_collider_overlays(&mut renderer, &game, engine.world())?;
     let mut tools = Tools::new(&game);
     engine.start(&mut game)?;
+    // Upload synced the camera before start propagated world transforms; resync from the committed pose.
+    crate::visual::sync_camera(&mut renderer, engine.world(), game.loaded.active_camera)?;
     eprintln!(
         "Inspection constructed once: adapter={}, backend={}, instances={}, tick=0",
         renderer.info().adapter_name,

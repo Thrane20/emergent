@@ -88,6 +88,11 @@ export class InspectionSessions {
     if(s.state==="failed")throw new Error(s.error||"Inspection failed.");
     return s.latest && s.latest.sequence>after?s.latest:null;
   }
+  /** The running session showing `scene` for this project, if any; used to push external edits live. */
+  activeFor(project:Binding,scene:string):string|null {
+    const s=this.active;
+    return s&&s.state==="running"&&s.projectId===project.id&&s.root===project.root&&s.scene===scene?s.id:null;
+  }
   async stop(project:Binding,id:string) {const s=this.get(project,id);await this.terminate(s);return this.status(project,id);}
   private get(project:Binding,id:string) {
     const s=this.active;

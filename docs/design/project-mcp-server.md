@@ -1,6 +1,6 @@
 # Project MCP server — design brief
 
-Status: **MCP-1 implemented** 2026-10-30 ([evidence](../platform/project-mcp-server-macos.md)); MCP-2 is next. Queue entry: [plan.md](../../plan.md).
+Status: **MCP-1 and MCP-2 implemented** 2026-10-30 ([evidence](../platform/project-mcp-server-macos.md)); MCP-3 is next. Queue entry: [plan.md](../../plan.md).
 
 ## Goal
 

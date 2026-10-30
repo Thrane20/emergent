@@ -9,6 +9,7 @@
     "lint": "eslint",
     "test": "tsx --conditions=react-server --test tests/*.test.ts",
     "mcp:stdio": "node scripts/mcp-stdio.mjs",
+    "test:mcp-edit": "tsx --conditions=react-server scripts/mcp-edit-smoke.mts",
     "test:ui": "tsx --conditions=react-server scripts/object-creator-smoke.ts",
     "test:scene": "tsx scripts/scene-preview-smoke.ts",
     "test:authored": "tsx scripts/authored-scene-smoke.ts",

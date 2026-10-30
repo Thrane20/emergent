@@ -75,3 +75,90 @@ These are single dev-server samples, not latency budgets.
   the IDE after pulling these dependency changes.
 - One legacy file (`explosion_atlas.png`) has no durable ID and is reported until
   `assign_ids` (MCP-2) exists. MCP-1 makes no writes.
+
+# MCP-2 — guarded edits, undo and live IDE updates (2026-10-30)
+
+## Delivered
+
+- `lib/project-ops.ts` edit layer. Tools:
+  - instance edits: `set_transform` (partial; local or global through Rust world math), `rename`, `reparent`, `delete` (whole subtree)
+  - `place_asset` (new UUID instance with optional parent, name and transform)
+  - `set_material`, `set_physics` and `set_camera` (field patches merged over current settings; `null` resets to the asset defaults)
+  - `set_environment`
+  - `assign_ids`
+  - `undo` and `history`
+- **Guarded writes.** Every edit requires the scene `revision` from `describe` and runs
+  through `commitSceneEdit`, which is refactored out of the IDE's own guarded save: a
+  revision check, a text-preserving edit, native `--validate-scene`, a revision
+  recheck, then atomic publication. IDE behaviour is unchanged. `dryRun` validates
+  and returns a diff without writing.
+- **Undo journal.** Each applied edit is journalled under the IDE data directory
+  (`mcp-changes/<project>/`, owner-only, last 200 entries). `undo` re-applies the
+  pre-image only if every file still matches the post-image, so newer work is never
+  overwritten. Undoing an undo is refused.
+- **Live push.** Transform and reparent edits go straight into the running inspection
+  world (`InspectionSessions.activeFor`). Other edits make the open page restart
+  inspection.
+- **IDE refresh.** `/api/project-events` (server-sent events, bounded subscribers,
+  heartbeat) feeds the Project Studio. It refreshes the graph, inspector and TOML views
+  when that's safe. With unsaved drafts or an active gesture it shows a notice instead.
+- **`assign_ids`.** Adds a UUID `id` to TOML definitions without one, and creates a
+  `media.asset.json` descriptor for loose media through a create-only, contained path.
+  The shared publisher's Rust/TOML-only rule for AI writes is unchanged.
+
+## Bugs found and fixed
+
+- **Deleting the last instance before a trailing table.** `replaceSceneSubtree` treated
+  a trailing `[environment]` table as part of the last instance, so the IDE refused to
+  delete that instance. Instance blocks now end at the next table that isn't their own.
+  A regression test covers it.
+- **Inspection camera.** The inspection worker synced the active camera before
+  `engine.start`, so the first live view rendered from inside geometry until you
+  orbited. This is the same cause as the earlier preview fix and is fixed the same way.
+- **Smoke-test build caches.** Smoke copies shared the repo's Cargo target directory.
+  The game binary embeds `CARGO_MANIFEST_DIR`, so Cargo reused binaries pointing at
+  other or deleted copies, and once overwrote `target/release/emergent-first-project`
+  with a temporary copy. That binary was rebuilt for the real project and checked
+  (`strings`). Smokes now use a fixed copy at `target/mcp-smoke/game` with its own
+  `target/mcp-smoke/target`.
+
+## Measurements (dev server; Rust validation warm)
+
+| Operation | Time |
+| --- | --- |
+| Any edit (validation + publish + new revision) | ~0.9–1.0 s |
+| First edit on a fresh copy (builds the game crate) | 7–16 s |
+| `undo` | ~0.93 s |
+| `describe`, `find`, `history` | ~0.09 s |
+| `view` | ~1.5 s |
+
+These are single dev-server samples, not budgets.
+
+## Validation
+
+- `pnpm test`: 140 pass. Type-check and ESLint on changed files are clean; `cargo fmt`
+  and `cargo clippy -D warnings` (first project) are clean. First-project tests: 16
+  pass, plus the known bounce-height failure.
+- `pnpm test:mcp-edit` passes against a real copy of `first_project` with native validation. It covers:
+  - stale-revision refusal, and a dry run that writes nothing
+  - transform (omitted parts kept), material, rename (ref kept), place with parent,
+    name and transform, reparent, physics, environment and subtree delete
+  - invalid settings rejected, `view` after edits, history order and one event per edit
+  - eight undos restoring **byte-identical** scene text, "nothing to undo", and undo
+    refused after a hand edit
+  - `assign_ids` dry-run, apply and undo
+- `scripts/mcp-live-smoke.mts` passes in headless Chrome against an isolated IDE on
+  `localhost:3001` (Next dev blocks its client runtime for the `[::1]` origin):
+  - the inspection shows real scene content (more than 64 distinct colours)
+  - an AI transform pushes live without a session restart and shows the notice
+  - an AI material change restarts inspection, and the pyramid renders red
+  - an AI rename appears in the scene graph
+  Screenshots were inspected.
+- **Live Claude Code** (strict MCP config, tools only): "make the pyramid green, raise
+  it 1 m, and put a copy of the cube 2 m above it, parented to it, named Hat" produced
+  four journalled, validated edits, confirmed in the scene file. Claude reported which
+  cube asset it chose and used world space for "above" a flipped, stretched parent.
+- **Live Codex** (`codex exec`): find and describe worked. The first rename was refused
+  by Codex's non-interactive approval policy. With
+  `mcp_servers.emergent.default_tools_approval_mode="approve"` it renamed the instance
+  (change `074530e1…`), confirmed in the file. Interactive Codex asks before write tools.

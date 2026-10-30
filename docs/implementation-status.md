@@ -14,8 +14,8 @@ claims Windows/Linux execution or an agreed production frame budget.
 | Check | Result |
 | --- | --- |
 | `cargo test --workspace --all-features` | Engine: 142 pass (103 unit, 25 authored-scene, 9 physics, 3 units, 2 ECS mapping). First project: 15 pass, **1 fails** — `authored_offender_bounces_about_four_metres_above_ground` (measured 3.34 m, expects 4 ± 0.2 m). Cargo stopped at that failure, so later targets did not run. |
-| `pnpm test` (`src/emergent-ide`) | 139 pass, 0 fail (including 11 MCP, index, provider and Claude-request tests) |
-| Project MCP server (MCP-1) | Type-check, lint, Rust fmt/Clippy pass; first project 16 pass + the known bounce failure; live Claude Code session verified; [evidence](platform/project-mcp-server-macos.md) |
+| `pnpm test` (`src/emergent-ide`) | 140 pass, 0 fail |
+| Project MCP server (MCP-1/2) | `pnpm test` 140 pass; `test:mcp-edit` and the live browser smoke pass; type-check, lint, Rust fmt/Clippy clean; first project 16 pass + the known bounce failure; live Claude Code and Codex edit sessions verified; [evidence](platform/project-mcp-server-macos.md) |
 | Terrain performance increment | Engine release tests, Clippy, rustdoc, lint/types/build, browser and native smokes pass; [scope and measurements](benchmarks/terrain-performance/README.md). No cross-platform or continuous-world performance acceptance. |
 
 ## Engine foundation
@@ -69,7 +69,7 @@ claims Windows/Linux execution or an agreed production frame budget.
 | Live inspector | Transform, physics, material, camera and noise sections with automatic save after 300 ms (IDE-LIVE-1) | [archive](history/epic-log-2026-10.md) |
 | AI workflows | Scoped chat, Statements, reuse-first Implement, chat that can apply changes | [statements](design/ide-statements.md), [implementation](design/statement-implementation.md), [chat](design/actionable-project-chat.md) |
 | Run control | Cargo Run/Stop, diagnostics, bounded logs | [design](design/ide-local-run-control.md) |
-| Project MCP server (MCP-1, read) | `/api/mcp` + `scripts/mcp-stdio.mjs`; durable `asset:` / `scene:` / `instance:` refs; `find`, `list`, `describe`, `view`, `project_overview`; project/guide/capability/scene resources; loopback + token auth | [design](design/project-mcp-server.md), [evidence](platform/project-mcp-server-macos.md); edits are MCP-2 |
+| Project MCP server (MCP-1 read, MCP-2 edit) | `/api/mcp` + `scripts/mcp-stdio.mjs`; durable `asset:` / `scene:` / `instance:` refs. Read: `find`, `list`, `describe`, `view`, `project_overview`, `history`. Edit: `set_transform`, `rename`, `reparent`, `delete`, `place_asset`, `set_material` / `set_physics` / `set_camera`, `set_environment`, `assign_ids`, `undo`; all revision-guarded, Rust-validated, dry-runnable and journalled. Live push to inspection and IDE refresh over SSE. Verified with Claude Code and Codex. | [design](design/project-mcp-server.md), [evidence](platform/project-mcp-server-macos.md); MCP-3 next |
 | AI provider selection | Claude (Anthropic Messages, structured output, server-side fallback) or Codex (OpenAI Responses); per-provider model, URL and key | [evidence](platform/project-mcp-server-macos.md) |
 | Add asset | Categorized templates, optional scene inclusion | [design](design/ide-asset-creation.md) |
 | Object Creator `/objects` | fal TRELLIS image-to-3D, recoverable jobs, GLB validation, bundle save | [design](design/object-creator.md); browser preview only, no native GLB |
@@ -86,7 +86,7 @@ claims Windows/Linux execution or an agreed production frame budget.
 ## Known gaps between docs and code
 
 - **Player settings** are saved but have no runtime consumer.
-- **Codex** as an MCP client is configured but not verified live (account usage limit).
+
 - **Scene lighting/skybox** and the **unified terrain builder** have design briefs but
   no `docs/platform/` evidence record.
 - The **bounce-height test** fails against the current authored main scene.

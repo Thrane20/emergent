@@ -201,12 +201,17 @@ export async function renameSceneInstance(project:ProjectSnapshot,path:string,id
 
 const state = globalThis as typeof globalThis & { emergentScenePlacementActive?: boolean };
 export async function saveScenePlacement(project: ProjectSnapshot, path: string, id: string, revision: string, value: unknown, space:TransformSpace="local",positionOnly=false) {
-  return commitPlacement(project,path,revision,space,async source=>{
+  return commitPlacement(project,path,revision,space,transformEdit(project,path,id,value,space,positionOnly));
+}
+
+/** Complete-transform edit; global values convert through the Rust world so parent shear is handled natively. */
+export function transformEdit(project:ProjectSnapshot,path:string,id:string,value:unknown,space:TransformSpace="local",positionOnly=false) {
+  return async (source:string)=>{
     if(value!==null&&fields.some(field=>!(field in table(value))))throw new Error("A placement edit must supply position, rotation and scale vectors.");
     let next=value===null?null:transform(value,identity,space);
     if(next && space==="global")next=transform(await localFromGlobal(project,path,id,next,positionOnly));
     return replaceInstanceTransform(source,id,next);
-  });
+  };
 }
 
 export function replaceInstanceParent(source:string,id:string,parent:string|null) {
@@ -245,12 +250,16 @@ export function replaceSceneSubtree(source:string,id:string) {
   }
   const starts=[...source.matchAll(/^[\t ]*\[\[entities\]\][\t ]*(?:#.*)?\r?$/gm)];
   if(starts.length!==expected.entities.length)throw new Error("Deleting instances requires [[entities]] tables.");
-  let content=source.slice(0,starts[0]?.index??source.length);
+  // An instance's text ends at the next [[entities]] or at the next table that is not one of its own subtables
+  // (for example a trailing [environment]); that text is kept even when the last instance is deleted.
+  const headers=[...source.matchAll(/^[\t ]*\[{1,2}([^\]\n]+)\]{1,2}[\t ]*(?:#.*)?\r?$/gm)];
+  const blockEnd=(start:number)=>headers.find(match=>match.index!>start&&(match[0].trim().startsWith("[[entities]]")||!match[1].trim().startsWith("entities.")))?.index??source.length;
+  let content=source;
   const remaining=expected.entities.filter(value=>!removed.has(table(value).id as string));
-  for(let index=0;index<expected.entities.length;index++){
-    if(removed.has(table(expected.entities[index]).id as string))continue;
-    const start=starts[index].index!,end=starts[index+1]?.index??source.length;
-    content+=source.slice(start,end);
+  for(let index=expected.entities.length-1;index>=0;index--){
+    if(!removed.has(table(expected.entities[index]).id as string))continue;
+    const start=starts[index].index!;
+    content=content.slice(0,start)+content.slice(blockEnd(start));
   }
   expected.entities=remaining;
   if(typeof expected.active_camera==="string"&&removed.has(expected.active_camera)){
@@ -276,6 +285,15 @@ export async function reparentSceneInstance(project:ProjectSnapshot,path:string,
 }
 
 async function commitPlacement(project:ProjectSnapshot,path:string,revision:string,space:TransformSpace,edit:(source:string)=>string|Promise<string>,check?:()=>Promise<void>) {
+  await commitSceneEdit(project,path,revision,edit,{check});
+  return scenePlacement(project,path,space);
+}
+
+/**
+ * The single guarded scene write: revision check, text-preserving edit, native Rust validation,
+ * revision recheck, then atomic publication. `dryRun` stops after validation and publishes nothing.
+ */
+export async function commitSceneEdit(project:ProjectSnapshot,path:string,revision:string,edit:(source:string)=>string|Promise<string>,options:{check?:()=>Promise<void>;dryRun?:boolean}={}) {
   if (state.emergentScenePlacementActive) throw new Error("Another placement is being saved. Wait for it to finish.");
   state.emergentScenePlacementActive = true;
   try {
@@ -284,9 +302,9 @@ async function commitPlacement(project:ProjectSnapshot,path:string,revision:stri
     const content = await edit(before.source);
     await validateProjectScene(project,path,content);
     if ((await snapshot(project,path)).placement.revision !== revision) throw new Error("Scene or asset changed during validation. Reload the inspector before saving.");
-    await check?.();
-    await applyChanges(project,[{path,before:before.source,content}]);
-    return scenePlacement(project,path,space);
+    await options.check?.();
+    if (!options.dryRun) await applyChanges(project,[{path,before:before.source,content}]);
+    return { before: before.source, content, changed: content !== before.source };
   } finally { state.emergentScenePlacementActive = false; }
 }
 
@@ -318,11 +336,17 @@ export function replaceInstanceMaterial(source:string,id:string,value:unknown) {
   return replaceInstanceSettings(source,id,"material",value===null?null:materialSettings(value));
 }
 export async function saveSceneMaterial(project:ProjectSnapshot,path:string,id:string,revision:string,value:unknown,space:TransformSpace="local") {
+  const {edit,check}=await materialEdit(project,id,value);
+  return commitPlacement(project,path,revision,space,edit,check);
+}
+
+/** Material override edit plus a check that referenced textures did not change during validation. */
+export async function materialEdit(project:ProjectSnapshot,id:string,value:unknown) {
   const settings=value===null?null:materialSettings(value);
   for(const channel of materialChannels){const map=settings?.[`${channel}_map`];if(map&&!project.files.some(file=>file.path===map.asset&&file.path.endsWith(".noise.toml")))throw new Error("Choose a noise filter from this project.");}
   for(const map of settings?materialTextures(settings):[])if(!project.files.some(file=>file.path===map.asset&&isTexturePath(file.path)))throw new Error("Choose a PNG or JPEG texture in this project.");
   const stamps=await Promise.all((settings?materialTextures(settings):[]).map(async map=>({path:map.asset,hash:createHash("sha256").update(await readFile(await containedFile(project.root,map.asset,16*1024*1024))).digest("hex")})));
-  return commitPlacement(project,path,revision,space,source=>replaceInstanceMaterial(source,id,settings),async()=>{for(const stamp of stamps)if(createHash("sha256").update(await readFile(await containedFile(project.root,stamp.path,16*1024*1024))).digest("hex")!==stamp.hash)throw new Error("Texture changed during validation. Reload before saving.");});
+  return {edit:(source:string)=>replaceInstanceMaterial(source,id,settings),check:async()=>{for(const stamp of stamps)if(createHash("sha256").update(await readFile(await containedFile(project.root,stamp.path,16*1024*1024))).digest("hex")!==stamp.hash)throw new Error("Texture changed during validation. Reload before saving.");}};
 }
 export async function saveScenePhysics(project:ProjectSnapshot,path:string,id:string,revision:string,value:unknown,space:TransformSpace="local") {
   return commitPlacement(project,path,revision,space,source=>replaceInstancePhysics(source,id,value));

@@ -79,6 +79,25 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
     }).catch(error => { if (active) { setPlacement(null); setPlacementError(error.message); } });
     return () => { active = false; };
   },[project,activeScenePath,inspectorReload,space]);
+  // External (MCP) edits: refresh when safe; never discard drafts or interrupt a gesture.
+  const [externalNotice,setExternalNotice]=useState("");
+  const externalState=useRef({busy:false,dirty:false,scene:activeScenePath,view});
+  externalState.current={busy:sceneLoading||tomlBusy||gizmoBusy,dirty:tomlDirty,scene:activeScenePath,view};
+  useEffect(()=>{
+    const events=new EventSource(`/api/project-events?projectId=${encodeURIComponent(project.id)}`);
+    events.addEventListener("changed",message=>{
+      let change:{summary:string;scenes:string[];live:boolean};
+      try{change=JSON.parse((message as MessageEvent<string>).data);}catch{return;}
+      const current=externalState.current;
+      router.refresh();
+      if(current.busy||current.dirty){setExternalNotice(`AI changed the project (${change.summary}). Save or discard your edit, then reload.`);return;}
+      setInspectorReload(value=>value+1);setTomlEpoch(value=>value+1);
+      if(current.view==="scene"&&current.scene&&change.scenes.includes(current.scene)&&!change.live)restartInspection();
+      setExternalNotice(`AI: ${change.summary}`);
+    });
+    return ()=>events.close();
+  },[project.id,router,restartInspection]);
+  useEffect(()=>{if(!externalNotice)return;const timer=setTimeout(()=>setExternalNotice(""),8000);return ()=>clearTimeout(timer);},[externalNotice]);
   const selected = project.files.find((file) => file.path === selectedPath) ?? project.files[0];
   const selectedNoise=!selectedInstance&&selected.path.endsWith(".noise.toml");
   let selectedCamera:CameraSettings|null=null;
@@ -308,6 +327,7 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
             <div className="view-switch">{(["scene", ...((selectedNoise || selected.kind==="model" || selected.name==="object.asset.json") ? ["preview" as const] : []), "source","toml"] as View[]).map((item) => <button disabled={item==="toml"&&!tomlEditable} key={item} className={view === item ? "selected" : ""} onClick={() => {if(item!==view&&canNavigate())setView(item);}}>{item==="toml"?"TOML":capitalize(item)}</button>)}</div>
           </div>
           {(sceneError || inspectionError) && <p className="scene-load-error" role="alert">{sceneError || inspectionError}</p>}
+          {externalNotice && <p className="scene-external-change" role="status">{externalNotice}</p>}
           {inspection && <section className="scene-canvas-slot" aria-label="Rust-rendered scene preview">
             <InspectionViewport key={inspection.id} frame={currentPlacement?.frame} projectId={project.id} sessionId={inspection.id} sceneName={scenes.find(scene=>scene.path===inspection.scene)?.name??inspection.scene} selectedId={selectedInstance?.id??null} revision={currentPlacement?.revision??""} space={space} disabled={sceneLoading||tomlBusy||tomlDirty||!currentPlacement||activeScenePath!==inspection.scene} onBusy={markGizmoBusy} onCommit={persistGizmo} onSelect={id=>{if(!canNavigate())return;if(id){const instance=currentPlacement?.instances.find(item=>item.id===id);if(instance)selectInstance(instance);}else setInstanceId(null);}} onReady={inspectionReady} onFailure={inspectionFailed} />
           </section>}

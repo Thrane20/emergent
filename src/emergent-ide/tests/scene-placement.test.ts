@@ -120,3 +120,15 @@ test("scene snapshots accept large terrain sidecars, track edits and retain boun
  await truncate(heightPath,TERRAIN_DATA_MAX_BYTES+1);await assert.rejects(scenePlacement(project,project.entryScene),/size limit/);
  await writeFile(heightPath,"values=[]\n");await writeFile(path.join(root,"assets/ground.entity.toml"),'#'+'x'.repeat(256*1024));await assert.rejects(scenePlacement(project,project.entryScene),/size limit/);
 });
+
+test("deleting the last instance keeps trailing scene tables such as [environment]", () => {
+  const source = `schema_version = 1\nid = "s"\n[[entities]]\nid = "a"\nasset = "assets/entities/a.entity.toml"\n[[entities]]\nid = "b"\nasset = "assets/entities/b.entity.toml"\n[entities.material]\nshading = "flat"\n\n[environment]\nambient_intensity = 0.4\n`;
+  const content = replaceSceneSubtree(source, "b");
+  const document = parse(content) as { entities: { id: string }[]; environment: { ambient_intensity: number } };
+  assert.deepEqual(document.entities.map(entity => entity.id), ["a"]);
+  assert.equal(document.environment.ambient_intensity, 0.4);
+  assert.ok(!content.includes("shading"), "the deleted instance's own subtables go with it");
+  const middle = replaceSceneSubtree(source, "a");
+  assert.deepEqual((parse(middle) as { entities: { id: string }[] }).entities.map(entity => entity.id), ["b"]);
+  assert.match(middle, /\[environment\]\nambient_intensity = 0\.4/);
+});
