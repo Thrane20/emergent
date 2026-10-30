@@ -1,3 +1,4 @@
+//! Primitive dimensions are metres. Half-extents/radii are not full widths or diameters.
 use std::f32::consts::{PI, TAU};
 
 use glam::Vec3;
@@ -371,8 +372,8 @@ fn sphere_mesh(
     for ring in 0..ring_count.saturating_sub(1) {
         connect_rings(
             &mut indices,
-            1 + ring * sectors,
             1 + (ring + 1) * sectors,
+            1 + ring * sectors,
             sectors,
         );
     }
@@ -380,6 +381,9 @@ fn sphere_mesh(
     for sector in 0..sectors {
         let next = (sector + 1) % sectors;
         indices.extend_from_slice(&[bottom, last_ring + sector, last_ring + next]);
+    }
+    for v in &mut vertices {
+        *v = MeshVertex::with_normal(v.position(), v.position() / radius, color)?;
     }
     Mesh::new(vertices, indices)
 }
@@ -401,8 +405,8 @@ fn cylinder_mesh(
     connect_rings(&mut indices, 0, segments, segments);
     for segment in 0..segments {
         let next = (segment + 1) % segments;
-        indices.extend_from_slice(&[bottom_center, next, segment]);
-        indices.extend_from_slice(&[top_center, segments + segment, segments + next]);
+        indices.extend_from_slice(&[bottom_center, segment, next]);
+        indices.extend_from_slice(&[top_center, segments + next, segments + segment]);
     }
     Mesh::new(vertices, indices)
 }
@@ -418,8 +422,8 @@ fn cone_mesh(radius: f32, height: f32, segments: u32, color: Color) -> Result<Me
     let mut indices = Vec::with_capacity((6 * segments) as usize);
     for segment in 0..segments {
         let next = (segment + 1) % segments;
-        indices.extend_from_slice(&[segment, next, apex]);
-        indices.extend_from_slice(&[center, next, segment]);
+        indices.extend_from_slice(&[segment, apex, next]);
+        indices.extend_from_slice(&[center, segment, next]);
     }
     Mesh::new(vertices, indices)
 }
@@ -465,8 +469,8 @@ fn capsule_mesh(
     for ring in 0..profile_ring_count - 1 {
         connect_rings(
             &mut indices,
-            1 + ring * segments,
             1 + (ring + 1) * segments,
+            1 + ring * segments,
             segments,
         );
     }
@@ -512,7 +516,7 @@ fn torus_mesh(
             let b = major * minor_segments + next_minor;
             let c = next_major * minor_segments + minor;
             let d = next_major * minor_segments + next_minor;
-            indices.extend_from_slice(&[a, c, d, a, d, b]);
+            indices.extend_from_slice(&[a, d, c, a, b, d]);
         }
     }
     Mesh::new(vertices, indices)
@@ -526,6 +530,7 @@ fn push_ring(vertices: &mut Vec<MeshVertex>, y: f32, radius: f32, segments: u32,
     }
 }
 
+// Outward winding requires the lower Y ring first.
 fn connect_rings(indices: &mut Vec<u32>, lower: u32, upper: u32, segments: u32) {
     for segment in 0..segments {
         let next = (segment + 1) % segments;
@@ -566,6 +571,55 @@ fn validate_subdivision(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closed_primitive_triangles_face_outward() {
+        let shapes = [
+            (
+                "sphere",
+                Primitive::sphere(1.0, 24, 12, Color::WHITE).unwrap(),
+                None,
+            ),
+            (
+                "capsule",
+                Primitive::capsule(1.0, 0.75, 24, 8, Color::WHITE).unwrap(),
+                None,
+            ),
+            (
+                "cylinder",
+                Primitive::cylinder(1.0, 1.0, 24, Color::WHITE).unwrap(),
+                None,
+            ),
+            (
+                "cone",
+                Primitive::cone(1.0, 2.0, 24, Color::WHITE).unwrap(),
+                None,
+            ),
+            (
+                "torus",
+                Primitive::torus(2.0, 0.5, 24, 12, Color::WHITE).unwrap(),
+                Some(2.0),
+            ),
+        ];
+        let mut inverted = std::collections::BTreeSet::new();
+        for (name, primitive, major_radius) in shapes {
+            let mesh = primitive.to_mesh().unwrap();
+            for triangle in mesh.indices().as_chunks::<3>().0 {
+                let [a, b, c] = triangle.map(|index| mesh.vertices()[index as usize].position());
+                let center = (a + b + c) / 3.0;
+                let inside = major_radius.map_or(Vec3::ZERO, |radius| {
+                    Vec3::new(center.x, 0.0, center.z).normalize() * radius
+                });
+                if (b - a).cross(c - a).dot(center - inside) <= 0.0 {
+                    inverted.insert(name);
+                }
+            }
+        }
+        assert!(
+            inverted.is_empty(),
+            "inward-facing primitive triangles: {inverted:?}"
+        );
+    }
 
     #[test]
     fn generates_all_primitive_families_as_valid_meshes() {
@@ -640,5 +694,26 @@ mod tests {
             Primitive::torus(0.5, 0.5, 12, 8, Color::WHITE),
             Err(GeometryError::InvalidTorusRadii)
         );
+    }
+}
+
+#[cfg(test)]
+mod surface_quality_tests {
+    use super::*;
+    #[test]
+    fn sphere_smooth_normals_are_radial_at_every_resolution() {
+        for (sectors, stacks) in [(3, 2), (24, 12), (64, 32), (128, 64)] {
+            let mesh = Primitive::sphere(2.0, sectors, stacks, Color::WHITE)
+                .unwrap()
+                .to_mesh()
+                .unwrap();
+            for vertex in mesh.vertices() {
+                assert!(vertex
+                    .normal()
+                    .unwrap()
+                    .abs_diff_eq(vertex.position().normalize(), 1e-6));
+            }
+            assert_eq!(mesh.indices().len(), (6 * sectors * (stacks - 1)) as usize);
+        }
     }
 }

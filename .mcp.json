@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "emergent": {
+      "command": "node",
+      "args": ["src/emergent-ide/scripts/mcp-stdio.mjs"]
+    }
+  }
+}

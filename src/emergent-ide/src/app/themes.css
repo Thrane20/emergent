@@ -1,0 +1,74 @@
+/* Green retains each existing fallback; charcoal provides the shared UI palette. */
+:root{color-scheme:dark}
+:root[data-theme="charcoal"]{
+ --bg:#23262b;
+ --panel:#292d33;
+ --panel-hi:#30353c;
+ --well:#1e2126;
+ --ink:#e9ecf2;
+ --muted:#a9afb9;
+ --line:#3a4049;
+ --sage:#bbcae2;
+ --aqua:#a9c7f7;
+ --gold:#e6cf93;
+ --theme-well:#1e2126;
+ --theme-surface:#292d33;
+ --theme-surface-high:#323740;
+ --theme-field:#2d323a;
+ --theme-overlay:#24282ee8;
+ --theme-foreground:#e9ecf2;
+ --theme-muted:#b0b6c1;
+ --theme-subtle:#949daa;
+ --theme-on-accent:#202630;
+ --theme-line:#3a4049;
+ --theme-line-strong:#596373;
+ --theme-accent:#bbcae2;
+ --theme-accent-soft:#414e63;
+ --theme-highlight:#ffffff0c;
+ --theme-raised-shadow:7px 7px 16px #15171c99,-5px -5px 13px #41475055;
+ --theme-button-shadow:5px 5px 10px #14171dbb,-3px -3px 8px #4a515d77;
+ --theme-inset-shadow:inset 3px 3px 7px #12151988,inset -2px -2px 5px #454b5544;
+}
+
+/* Shared depth belongs to UI surfaces; image, material, and engine previews retain their colours. */
+:root[data-theme="charcoal"] :is(.panel,.canvas-panel,.settings-panel,.settings-nav,.player-nav,.project-chat,.asset-modal,.new-scene-modal,.image-preview-modal){
+ background:linear-gradient(145deg,#2c3037,#272b31);
+ border-color:var(--line);
+ box-shadow:var(--theme-raised-shadow);
+}
+:root[data-theme="charcoal"] :is(.studio-shell,.settings-shell,.player-shell,.object-shell,.image-shell){
+ background:radial-gradient(ellipse at 65% 5%,#353b4555,transparent 60%),var(--bg);
+}
+:root[data-theme="charcoal"] :is(.topbar,.settings-topbar,.rail){background:#25292f;border-color:var(--line)}
+:root[data-theme="charcoal"] :is(.panel-head,.settings-panel-head,.chat-header,.canvas-toolbar,.asset-modal-head){
+ background:linear-gradient(145deg,#30353d,#2b3037);
+ border-color:var(--line);
+}
+:root[data-theme="charcoal"] :is(.quiet-button,.square-button,.settings-back,.chat-collapse,.asset-cancel,.settings-clear,.add-asset-button,.scene-selector button,.transform-actions button,.inspection-tools button,.model-preview-tools button,.structure-controls button,.structure-toolbar button,.terrain-presets button,.tween-variant-grid button,.noise-inspector button,.toml-editor-head button,.asset-modal-search button,.asset-modal-head>button,.view-switch button){
+ background:linear-gradient(145deg,#373d46,#292d34);border-color:var(--line);
+}
+:root[data-theme="charcoal"] .theme-settings select{background:var(--theme-field);color:var(--ink);border-color:var(--line)}
+:root[data-theme="charcoal"] :is(.settings-save,.asset-create,.chat-composer button,.statement-composer button){
+ background:linear-gradient(145deg,#c7d4e9,#aebed8);color:var(--theme-on-accent);box-shadow:3px 3px 8px #10131988,-2px -2px 6px #52607855;
+}
+:root[data-theme="charcoal"] :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),textarea,select,.search,.source-view pre,.image-library-tile){
+ box-shadow:var(--theme-inset-shadow);
+}
+:root[data-theme="charcoal"] :is(input:not([type]),input:is([type="text"],[type="search"],[type="email"],[type="url"],[type="password"],[type="tel"],[type="number"]),textarea,.search){
+ background:var(--theme-field);color:var(--ink);border-color:var(--line);border-radius:7px;
+}
+:root[data-theme="charcoal"] .search input{background:transparent;box-shadow:none}
+:root[data-theme="charcoal"] :is(.rail-button.active,.rail-button:hover,.asset-row.selected,.tree-file.selected,.scene-node.selected,.view-switch .selected,.object-history-item.selected){
+ background:#364153;border-color:#657994;color:#e5edfb;box-shadow:var(--theme-inset-shadow);
+}
+:root[data-theme="charcoal"] :is(.quiet-button,.square-button,.settings-back,.chat-collapse,.asset-cancel,.settings-clear,.settings-save,.asset-create,.add-asset-button,.run-button,.scene-selector button,.transform-actions button,.inspection-tools button,.model-preview-tools button,.structure-controls button,.structure-toolbar button,.terrain-presets button,.tween-variant-grid button,.noise-inspector button,.toml-editor-head button,.asset-modal-search button,.asset-modal-head>button,.view-switch button,.chat-composer button,.statement-composer button){
+ box-shadow:var(--theme-button-shadow);
+}
+:root[data-theme="charcoal"] :is(button:active,button[aria-pressed="true"],button.selected,.view-switch .selected,.quiet-button:active,.settings-back:active):not(:disabled){box-shadow:var(--theme-inset-shadow)}
+:root[data-theme="charcoal"] button:disabled{box-shadow:none}
+:root[data-theme="charcoal"] :is(button,a,input,textarea,select):focus-visible{outline:2px solid var(--aqua);outline-offset:3px}
+:root[data-theme="charcoal"] :is(input,textarea,select):focus{border-color:var(--aqua)}
+:root[data-theme="charcoal"] :is(.brand-mark,.chat-spark){background:var(--sage);color:var(--theme-on-accent);box-shadow:3px 3px 8px #14171c88,-2px -2px 7px #66748a33}
+:root[data-theme="charcoal"] ::selection{background:#596e91;color:#fff}
+.theme-settings{max-width:560px}.theme-settings select{margin-top:4px}.theme-description{color:var(--muted);font-size:11px;line-height:1.8;margin:14px 0 0}
+#appearance{scroll-margin-top:20px}

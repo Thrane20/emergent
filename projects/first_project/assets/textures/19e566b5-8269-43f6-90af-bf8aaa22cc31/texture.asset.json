@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "generated-texture",
+  "id": "19e566b5-8269-43f6-90af-bf8aaa22cc31",
+  "jobId": "8dfe79f2-8801-4ed3-bbd9-b8b450e5fde2",
+  "name": "Rocky Ground",
+  "image": "assets/textures/19e566b5-8269-43f6-90af-bf8aaa22cc31/Rocky Ground.png",
+  "provider": "fal",
+  "endpoint": "fal-ai/flux/schnell",
+  "requestId": "01a18780-945a-7c60-ac4e-934b079bb2d7",
+  "prompt": "rocky terrain, dirt patches, and grassy crops sparsely littered. Seamless tileable game diffuse surface texture, flat orthographic top-down view, even neutral lighting, no perspective, no objects, no text or borders.",
+  "inputPrompt": "rocky terrain, dirt patches, and grassy crops sparsely littered",
+  "seed": 129,
+  "candidateIndex": 2,
+  "settings": {
+    "image_size": "square_hd",
+    "num_inference_steps": 4,
+    "output_format": "png",
+    "enable_safety_checker": true,
+    "sync_mode": false,
+    "num_images": 4
+  },
+  "modelRevision": null,
+  "createdAt": "2026-10-29T11:51:52.621Z",
+  "savedAt": "2026-10-29T12:30:24.092Z"
+}

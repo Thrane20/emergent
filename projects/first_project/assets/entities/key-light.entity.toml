@@ -1,0 +1,14 @@
+schema_version = 1
+id = "key-light"
+name = "Key light"
+kind = "point-light"
+
+[transform]
+translation = [0.0, 6.0, 4.0]
+
+[light]
+type = "point"
+color = [1.0, 1.0, 1.0]
+intensity = 8.0
+range = 24.0
+casts_shadows = true

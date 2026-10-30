@@ -1,0 +1,5 @@
+schema_version = 1
+id = "bee8db8d-ec4e-423d-bc9e-c90f0aa6add9"
+name = "Campfire"
+kind = "particle-effect"
+particles = "assets/particles/bee8db8d-ec4e-423d-bc9e-c90f0aa6add9.particle.toml"

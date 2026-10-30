@@ -1,0 +1,33 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {mkdir,mkdtemp,readFile,rm,writeFile} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {parse,stringify} from "smol-toml";
+import {prepareTerrainLibrarySave,prepareTerrainPlacement,terrainLibrary} from "../src/lib/terrain-library";
+import {readTerrainAsset,terrainSceneRevision} from "../src/lib/terrain-assets";
+import {terrainThumbnailSvg} from "../src/lib/terrain-thumbnail";
+import {terrainThumbnail} from "../src/lib/terrain-library-preview";
+import {applyChanges} from "../src/lib/statement-files";
+import {readProjectSnapshot} from "../src/lib/project";
+import {DEFAULT_TERRAIN} from "../src/lib/terrain";
+test("terrain library saves independently, preserves edits and places shared assets with distinct instances",async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),"terrain-library-")),previous=process.env.EMERGENT_PROJECT_PATH;process.env.EMERGENT_PROJECT_PATH=root;
+ t.after(async()=>{if(previous===undefined)delete process.env.EMERGENT_PROJECT_PATH;else process.env.EMERGENT_PROJECT_PATH=previous;await rm(root,{recursive:true,force:true});});await mkdir(path.join(root,"assets"));await mkdir(path.join(root,"src"));
+ await writeFile(path.join(root,"emergent.toml"),'schema_version=1\nid="terrain-library"\nname="Terrain library"\nasset_roots=["assets"]\nentry_scene="assets/main.scene.toml"\n');const scenePath="assets/main.scene.toml",scene='# keep scene comment\nschema_version=1\nid="main"\nentities=[] # empty\n';await writeFile(path.join(root,scenePath),scene);
+ await writeFile(path.join(root,"assets/grass.material.toml"),stringify({schema_version:1,id:"grass",name:"Grass",material:{albedo:[.1,.7,.2]}}));
+ const settings={...DEFAULT_TERRAIN,resolution:32},heights=Array.from({length:1024},(_,i)=>Math.fround(i%32/31*12)),paint={schema_version:1,resolution:32,materials:["assets/grass.material.toml"],transitions:[2,6,10],blend:1,weights:Array.from({length:4096},(_,i)=>i%4===0?255:0)},input={name:"Green hills",settings,heights,paint,collider:true};
+ let project=await readProjectSnapshot();const prepared=await prepareTerrainLibrarySave(project,input);assert.ok(prepared.changes.every(change=>!change.path.endsWith(".scene.toml")));await applyChanges(project,prepared.changes);assert.equal(await readFile(path.join(root,scenePath),"utf8"),scene);
+ project=await readProjectSnapshot();assert.equal(terrainLibrary(project)[0].path,prepared.assetPath);let loaded=await readTerrainAsset(project,prepared.assetPath);assert.deepEqual(Array.from(loaded.heights!),heights);assert.deepEqual(loaded.paint,paint);
+ const beforeThumbnail=await terrainThumbnail(project,prepared.assetPath);assert.match(beforeThumbnail,/<svg/);assert.ok(!/NaN|undefined/.test(beforeThumbnail));assert.match(beforeThumbnail,/rgb\(/);
+ const assetFile=path.join(root,prepared.assetPath),original=parse(await readFile(assetFile,"utf8"));original.transform={scale:[2,1,3]};await writeFile(assetFile,"# terrain comment\n"+stringify(original));loaded=await readTerrainAsset(project,prepared.assetPath);
+ const changed=await prepareTerrainLibrarySave(project,{...input,assetPath:prepared.assetPath,revision:loaded.revision,heights:new Array(1024).fill(6)});await applyChanges(project,changed.changes);const updated=await readTerrainAsset(project,prepared.assetPath);assert.equal(updated.asset.id,loaded.asset.id);assert.deepEqual(updated.asset.physics,loaded.asset.physics);assert.deepEqual(updated.asset.transform,loaded.asset.transform);assert.deepEqual(updated.asset.material,loaded.asset.material);assert.ok(updated.assetSource.includes("# terrain comment"));assert.ok(updated.heights!.every(value=>value===6));assert.equal(await readFile(path.join(root,scenePath),"utf8"),scene);assert.notEqual(await terrainThumbnail(project,prepared.assetPath),beforeThumbnail);
+ await assert.rejects(prepareTerrainLibrarySave(project,{...input,assetPath:prepared.assetPath,revision:loaded.revision}),/changed externally/);
+ const placement=await prepareTerrainPlacement(project,{assetPath:prepared.assetPath,revision:updated.revision,scenePath,sceneRevision:terrainSceneRevision(scene)});await applyChanges(project,[placement.change]);const sceneAfter=await readFile(path.join(root,scenePath),"utf8");assert.ok(sceneAfter.startsWith("# keep scene comment"));const again=await prepareTerrainPlacement(project,{assetPath:prepared.assetPath,scenePath,sceneRevision:terrainSceneRevision(sceneAfter)});await applyChanges(project,[again.change]);assert.notEqual(placement.instanceId,again.instanceId);const instances=parse(await readFile(path.join(root,scenePath),"utf8")).entities as {asset:string}[];assert.deepEqual(instances.map(instance=>instance.asset),[prepared.assetPath,prepared.assetPath]);assert.equal((await readTerrainAsset(project,prepared.assetPath)).revision,updated.revision);
+ await assert.rejects(prepareTerrainPlacement(project,{assetPath:prepared.assetPath,scenePath,sceneRevision:terrainSceneRevision(scene)}),/scene changed/);await assert.rejects(readTerrainAsset(project,"../outside.entity.toml"));await assert.rejects(readTerrainAsset(project,"assets/grass.material.toml"));
+ await writeFile(path.join(root,"assets/grass.material.toml"),stringify({schema_version:1,id:"grass",name:"Grass",material:{albedo:[.5,.2,.1]}}));assert.notEqual((await readTerrainAsset(project,prepared.assetPath)).revision,updated.revision);await assert.rejects(prepareTerrainLibrarySave(project,{...input,assetPath:prepared.assetPath,revision:updated.revision}),/changed externally/);
+});
+test("terrain swatches reflect actual height changes and normalized four-channel paint",()=>{
+ const settings={...DEFAULT_TERRAIN,resolution:32},flat=new Float32Array(1024),hill=Float32Array.from({length:1024},(_,i)=>Math.sin(i%32/31*Math.PI)*10),a=terrainThumbnailSvg(settings,flat),b=terrainThumbnailSvg(settings,hill);assert.notEqual(a,b);assert.equal((a.match(/<path /g)??[]).length,800);assert.ok(!a.includes("NaN"));
+ const painted=terrainThumbnailSvg(settings,flat,{schema_version:1,resolution:32,materials:["green"],transitions:[2,6,10],blend:1,weights:Array.from({length:4096},(_,i)=>i%4===0?255:0)},[[0,1,0]]);assert.match(painted,/rgb\(0,230,0\)/);
+});

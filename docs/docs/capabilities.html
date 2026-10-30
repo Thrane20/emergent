@@ -47,12 +47,15 @@
       </div>
     </section>
 
+    <div class="callout"><strong>Diffuse textures (preview):</strong> PNG/JPEG material images now render with triplanar repeat and sRGB mipmaps. Terrain instances can keep named material layers and select an active whole-surface material. Texture Creator at <code>/textures</code> generates fal candidates from prompts and saves chosen images into the same pickers. Brush painting and height-based blending remain planned.</div>
     <section class="capability-section" id="terrain">
       <div class="section-heading"><p class="eyebrow">Constructed worlds</p><h2>Terrain &amp; procedural generation</h2></div>
       <div class="capability-grid">
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Heightmap terrain</h3><p>Bounded height fields, chunk meshes, height queries, collision handoff, and terrain level of detail.</p><code>terrain.heightmap</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Heightmap terrain</h3><p>Saved terrain entities generate bounded smooth meshes and optional static height-field colliders. Chunk streaming, public height queries and terrain level of detail remain planned.</p><code>terrain.heightmap</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Polygonal terrain</h3><p>Arbitrary generated surfaces with explicit topology, chunk boundaries, rebuilds, and seam policy.</p><code>terrain.polygonal</code></article>
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Noise generators</h3><p>Seeded and versioned Perlin, Simplex, value, and Worley noise with fractal combinations and domain warping.</p><code>procedural.noise</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Noise filters</h3><p>Seeded Perlin, OpenSimplex and Worley, bounded octave composition and full 2D/3D fields. The Filters inspector edits inputs and previews grayscale slices. Reusable Rust terrain preparation now supports domain warp; runtime chunk consumers remain planned.</p><code>procedural.noise</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Terrain Builder</h3><p>IDE previews for Hilly, Mountainous, Rivers and Island terrain. Adjust seed, shape, resolution and major mountain count, then orbit an untextured grayscale mesh under directional sunlight. Roughness uses a 0–1 slider. Compare Perlin, diamond-square and an enhanced Rust pipeline with domain warp, multi-summit mountain massifs/ridges and thermal erosion. Explicit version-1 recipes retain their old terrain. Per-result preparation timings and output sizes are visible. Save the displayed recipe to a named terrain asset and instance in the active scene, with optional terrain collision. Water and hydraulic erosion remain planned.</p><code>tools.terrain-builder</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Headless terrain preparation</h3><p>Versioned Rust recipes generate bounded dense world-space heights and smooth meshes. Preparation happens before gameplay; independent patches do not yet have seamless chunk edges.</p><code>terrain.generation</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Streaming &amp; LOD</h3><p>Bounded chunk construction, visibility, background preparation, cancellation, caching, and level transitions.</p><code>terrain · assets</code></article>
       </div>
     </section>
@@ -60,10 +63,10 @@
     <section class="capability-section" id="look">
       <div class="section-heading"><p class="eyebrow">Surface, light, and motion</p><h2>Look &amp; effects</h2></div>
       <div class="capability-grid">
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Materials &amp; textures</h3><p>Shaders, material parameters, PBR maps, samplers, colour spaces, reusable GPU handles, and render state.</p><code>material.resources · texture.resources</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Materials &amp; textures</h3><p>Flat/smooth/unlit material editor, albedo/specular/emission and noise-driven bump. Internal generated noise textures are usable; image textures, PBR maps, shared material assets and shader graphs remain planned.</p><code>material.resources · texture.resources</code></article>
         <article class="capability-card"><span class="status preview">Preview</span><h3>Light-source entities</h3><p>Validated ambient, directional, point, and spot components with colour, intensity, range/cone data, and shadow intent. Renderer illumination is still planned.</p><code>lighting.sources</code></article>
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Shadows</h3><p>Directional cascades, point-light maps, filtering, culling, and explicit quality and frame budgets.</p><code>lighting.shadows</code></article>
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Particles</h3><p>Pooled CPU and GPU emitters, spawn shapes, lifetime curves, billboards, mesh particles, trails, and collision hooks.</p><code>effects.particles</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Shadows</h3><p>One directional map plus two point-light maps, with independent object cast/receive options. Spot shadows, cascades, quality controls and culling remain planned.</p><code>lighting.shadows</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Particles</h3><p>Seeded CPU pools, layered emitters, forces, lifetime color/size/opacity, alpha/additive billboards, animated flipbooks and soft depth intersections. Particle Generator saves, places and reopens effects; fal image/video/matting jobs bake into shared atlases. GPU simulation, collision, mesh particles and trails remain planned.</p><code>effects.particles</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Animation</h3><p>Skeletal clips, blending, state machines, skinning, root motion, morph targets, curves, and procedural poses.</p><code>animation</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Post processing</h3><p>HDR, exposure, tone mapping, anti-aliasing, fog, bloom, colour grading, and render-to-texture.</p><code>render.post-processing</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>2D &amp; text</h3><p>Sprites, atlases, tilemaps, 2D cameras, fonts, text shaping, and world-space or screen-space text.</p><code>render.2d · render.text</code></article>
@@ -83,7 +86,7 @@
       <div class="section-heading"><p class="eyebrow">Player and world interaction</p><h2>Simulation services</h2></div>
       <div class="capability-grid">
         <article class="capability-card"><span class="status planned">Planned</span><h3>Input actions</h3><p>Keyboard, pointer, joystick/gamepad, touch, remapping, dead zones, focus, and fixed-tick snapshots.</p><code>input.actions</code></article>
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Physics &amp; collision</h3><p>Shapes, queries, rigid bodies, triggers, joints, collision layers, and character controllers.</p><code>physics.world</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Physics &amp; collision</h3><p>Rapier static/dynamic bodies, gravity, fitted/explicit box colliders and static terrain heightfield colliders; IDE physics controls and paused box outlines. Queries, other shapes, events, joints and controllers remain planned.</p><code>physics.world</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Navigation</h3><p>Navmeshes, path queries, steering, spatial queries, and bounded dynamic obstacle updates.</p><code>navigation.paths</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Runtime UI</h3><p>Layout, styling, widgets, HUDs, focus/navigation, picking, and accessibility hooks.</p><code>ui.runtime</code></article>
       </div>
@@ -94,7 +97,7 @@
       <div class="capability-grid">
         <article class="capability-card"><span class="status available">Available</span><h3>Project contract</h3><p>Independent crate, versioned manifest, validated asset roots, generated-code boundary, and output declarations.</p><code>project.manifest</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Asset pipeline</h3><p>Import metadata, dependency tracking, derived caches, hot reload, target variants, and streaming policy.</p><code>assets.pipeline</code></article>
-        <article class="capability-card"><span class="status planned">Planned</span><h3>Authored worlds</h3><p>Durable scene IDs, reusable entity compositions, graph validation, link resolution, and coherent instantiation.</p><code>assets.authored-worlds</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Authored worlds</h3><p>Validated primitive/light/empty-node assets, explicit scene instances, parent hierarchy and fresh runtime handles. Nested compositions and authored behaviour links remain planned.</p><code>assets.authored-worlds</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Save, replay &amp; networking</h3><p>Versioned saves, input recordings, replay, network identities, replication, prediction, and authority.</p><code>game.save-replay · game.networking</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Localization</h3><p>Locale resources, formatted messages, translated audio and assets, and runtime language switching.</p><code>game.localization</code></article>
       </div>
@@ -106,10 +109,15 @@
         <article class="capability-card"><span class="status preview">Preview</span><h3>Local project run</h3><p>Start, monitor, and stop the linked Cargo development executable from the IDE with bounded diagnostic output.</p><code>tools.local-run</code></article>
         <article class="capability-card"><span class="status preview">Preview</span><h3>Object Creator</h3><p>Submit hosted TRELLIS jobs, preview GLBs, and save model bundles into the project. Mocked-provider validation passed; live generation remains pending. Runtime model importing is separate.</p><code>tools.object-creator</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Diagnostics &amp; profiling</h3><p>Structured logs, metrics, CPU/GPU timing, allocation evidence, frame capture hooks, and consoles.</p><code>tools.diagnostics</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Scene graph authoring</h3><p>Scene-first tree, keep-local drag/drop and keyboard parenting, inherited transforms and Local/Global inspector editing through Rust math. Sheared transforms expose global position only.</p><code>tools.scene-transforms</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Validated TOML editing</h3><p>Edit scenes and shared entity assets with staged Cargo/all-scene validation, revision guards and draft protection. Load or Restart inspection applies source changes.</p><code>tools.toml-authoring</code></article>
+        <article class="capability-card"><span class="status preview">Preview</span><h3>Viewport picking &amp; gizmos</h3><p>30 Hz target inspection, nearest triangle selection, light/node markers, Local/Global XYZ translate/rotate/scale, drag previews and validated save/cancel.</p><code>tools.viewport-gizmos</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Visual project mode</h3><p>Paused construction preview, cameras, picking, hierarchy and graph inspection, editing, and tick stepping.</p><code>tools.project-mode</code></article>
         <article class="capability-card"><span class="status planned">Planned</span><h3>Multi-platform outputs</h3><p>Independent Windows, Linux, and macOS plans, packages, capability checks, and native validation results.</p><code>platform.multi-output</code></article>
       </div>
     </section>
+
+    <p>Renderable materials expose independent <code>cast_shadows</code> and <code>receive_shadows</code> options. Object shadows support a shadow-enabled directional light and up to two shadow-enabled point lights; spot shadows remain planned.</p>
 
     <h2 id="status-contract">How to read status</h2>
     <table><thead><tr><th>Status</th><th>Meaning</th><th>Safe assumption</th></tr></thead><tbody>

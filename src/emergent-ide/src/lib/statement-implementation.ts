@@ -1,9 +1,9 @@
 import "server-only";
 import { readProjectSnapshot, type ProjectSnapshot } from "./project";
 import { projectCodeContext } from "./project-code-context";
-import { implementationFormat, implementationPrompt, parseImplementation } from "./statement-proposal";
+import { implementationPrompt } from "./statement-proposal";
 import { applyChanges, checkCandidate, prepareChanges } from "./statement-files";
-import { evaluateStatement, statementResponse } from "./statement-ai";
+import { evaluateStatement, implementationResponse } from "./statement-ai";
 import { saveStatementImplementation, statementById, statementsFor } from "./statements";
 
 const state = globalThis as typeof globalThis & { emergentStatementImplementation?: boolean };
@@ -14,7 +14,7 @@ export async function implementStatement(project: ProjectSnapshot, subject: stri
   try {
     const statement = await statementById(project, subject, id);
     const context = await projectCodeContext(project, statement);
-    const proposal = parseImplementation(await statementResponse(implementationPrompt(project, statement, context), implementationFormat, 14_000), context);
+    const proposal = await implementationResponse(implementationPrompt(project, statement, context), context);
     const changes = await prepareChanges(project, proposal, context);
     if (changes.length) {
       await checkCandidate(project, changes, context);

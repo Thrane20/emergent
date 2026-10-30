@@ -52,3 +52,16 @@ run boundary without changing the IDE control contract.
   rejection through the API.
 - Verify the top-bar state transition in the browser.
 - Run IDE lint and production build.
+
+
+## Selected-scene run (2026-10-24)
+
+Run receives the scene picker's current path. /api/run validates linked-project
+membership and a contained existing asset file, then passes
+`-- --run-scene <project-relative-scene-path>` to Cargo. The manifest is unchanged.
+Run snapshots record scenePath, and Stop targets the active run even if selection
+changes. Unsaved/busy authored edits disable a new Run. Refresh retained manager
+methods during development hot reload without losing the active process handle.
+
+Verified with 34 IDE tests, lint/build, browser request checks for two selected
+scenes, and a live selected-physics-scene launch through localhost:3000/api/run.

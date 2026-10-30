@@ -6,8 +6,6 @@ struct ObjectUniform {
 
 struct FrameUniform {
     light_view_projection: mat4x4<f32>,
-    shadow_enabled: u32,
-    _padding: vec3<u32>,
 };
 
 @group(0) @binding(0) var<uniform> object: ObjectUniform;

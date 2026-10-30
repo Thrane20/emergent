@@ -1,0 +1,7 @@
+[output]
+resolution = "1920x1080"
+target_fps = 60
+minimum_fps = 30
+
+[rendering]
+antialiasing = "msaa-4x"

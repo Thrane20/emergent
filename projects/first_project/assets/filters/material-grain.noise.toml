@@ -1,0 +1,18 @@
+schema_version = 1
+id = "material-grain"
+name = "Material grain"
+kind = "noise-function"
+template = "procedural.noise"
+runtime_status = "preview"
+[noise]
+algorithm_version = 1
+algorithm = "perlin"
+seed = 42
+dimensions = 3
+size = 32
+frequency = 1.0
+octaves = 3
+lacunarity = 2.0
+persistence = 0.5
+extent = 4.0
+offset = [0.0, 0.0, 0.0]

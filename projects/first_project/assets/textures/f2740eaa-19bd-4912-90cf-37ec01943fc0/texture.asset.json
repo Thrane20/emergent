@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "generated-texture",
+  "id": "f2740eaa-19bd-4912-90cf-37ec01943fc0",
+  "jobId": "5dd94bdb-9bff-45d9-b1ec-75d2d32d2148",
+  "name": "MossyGround",
+  "image": "assets/textures/f2740eaa-19bd-4912-90cf-37ec01943fc0/MossyGround.png",
+  "provider": "fal",
+  "endpoint": "fal-ai/flux/schnell",
+  "requestId": "01a17211-36b5-7b53-b871-4789aefede13",
+  "prompt": "dense soft moss with patches. Seamless tileable game diffuse surface texture, flat orthographic top-down view, even neutral lighting, no perspective, no objects, no text or borders.",
+  "inputPrompt": "dense soft moss with patches",
+  "seed": 42,
+  "candidateIndex": 0,
+  "settings": {
+    "image_size": "square_hd",
+    "num_inference_steps": 4,
+    "output_format": "png",
+    "enable_safety_checker": true,
+    "sync_mode": false,
+    "num_images": 2
+  },
+  "modelRevision": null,
+  "createdAt": "2026-10-25T07:58:09.752Z",
+  "savedAt": "2026-10-25T07:59:21.189Z"
+}

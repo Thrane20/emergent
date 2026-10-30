@@ -45,7 +45,7 @@ export async function prepareChanges(project: ProjectSnapshot, proposal: Stateme
   return changes;
 }
 
-export async function checkCandidate(project: ProjectSnapshot, changes: FileChange[], context: CodeContext) {
+export async function checkCandidate(project: ProjectSnapshot, changes: FileChange[], context: Pick<CodeContext,"root">, scenes:string[] = []) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "emergent-statement-check-"));
   const stage = path.join(directory, "project");
   try {
@@ -71,9 +71,14 @@ export async function checkCandidate(project: ProjectSnapshot, changes: FileChan
     }
     try {
       await execute("cargo", ["check", "--offline", "--all-targets", "--manifest-path", path.join(stage, "Cargo.toml"), "--target-dir", path.join(context.root, "target")], { cwd: stage, timeout: 120_000, maxBuffer: 1024 * 1024, shell: false, windowsHide: true });
+      if(scenes.length){
+        const dependency=(manifest.dependencies as Record<string,{features?:string[]}>|undefined)?.emergent;
+        // Keep staged validation from overwriting the live game's named Cargo executable.
+        await execute("cargo",["run","--offline","--quiet","--manifest-path",path.join(context.root,"Cargo.toml"),...(dependency?.features?.includes("physics")?["--features","physics"]:[]),"--example","scene_validate","--","--project",stage,"--validate-scenes",...scenes],{cwd:context.root,timeout:120000,maxBuffer:1024*1024,shell:false,windowsHide:true});
+      }
     } catch (error) {
       const diagnostics = error && typeof error === "object" && "stderr" in error ? String(error.stderr).slice(-7000) : "Cargo could not run.";
-      throw new Error(`Candidate failed cargo check; project files were not changed.\n${diagnostics}`);
+      throw new Error(`Candidate failed ${scenes.length?"validation":"cargo check"}; project files were not changed.\n${diagnostics}`);
     }
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

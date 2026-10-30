@@ -52,7 +52,8 @@ export function createTrellisProvider(key: string, transport: typeof fetch = fet
     },
     async submit(imageUrl, seed) {
       try {
-        const result = await client.queue.submit(OBJECT_ENDPOINT, { input: { ...GENERATION_SETTINGS, texture_size: "1024", image_url: imageUrl, seed }, abortSignal: AbortSignal.timeout(30_000) });
+        // @ts-expect-error -- fal expects numeric texture_size; the SDK incorrectly declares string literals.
+        const result = await client.queue.submit(OBJECT_ENDPOINT, { input: { ...GENERATION_SETTINGS, image_url: imageUrl, seed }, abortSignal: AbortSignal.timeout(30_000) });
         if (typeof result.request_id !== "string" || !result.request_id) throw new Error("Provider returned no request ID.");
         return result.request_id;
       } catch (error) { throw providerFailure(error); }

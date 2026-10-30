@@ -1,0 +1,5 @@
+schema_version = 1
+id = "1bcc5beb-03b3-4c9c-8197-b306cde6b44a"
+name = "Untitled particle system"
+kind = "particle-effect"
+particles = "assets/particles/1bcc5beb-03b3-4c9c-8197-b306cde6b44a.particle.toml"

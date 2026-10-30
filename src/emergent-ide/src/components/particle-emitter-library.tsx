@@ -1,0 +1,7 @@
+"use client";
+import {useRef} from "react";
+import {PARTICLE_EMITTER_PRESETS} from "@/lib/particle-emitter-presets";
+export function ParticleEmitterLibrary({name,disabled,onApply}:{name:string;disabled:boolean;onApply:(id:string)=>void}){
+ const dialog=useRef<HTMLDialogElement>(null);
+ return <div className="particle-emitter-library"><button type="button" className="quiet-button" disabled={disabled} aria-haspopup="dialog" onClick={()=>dialog.current?.showModal()}>Emitter library · {PARTICLE_EMITTER_PRESETS.length} types</button><dialog ref={dialog} className="particle-sprite-dialog particle-emitter-dialog" aria-labelledby="particle-emitter-library-title"><div className="panel-head"><h2 id="particle-emitter-library-title">Choose emitter type</h2><button type="button" className="quiet-button" onClick={()=>dialog.current?.close()}>Close</button></div><p className="particle-note">Replaces “{name}” only, including its sprite and flipbook settings. The other emitters stay unchanged. These starting points use a soft circle; choose a library sprite for leaves, flakes or paper shapes.</p><div className="particle-emitter-preset-grid">{PARTICLE_EMITTER_PRESETS.map(preset=><button type="button" className="quiet-button" key={preset.id} aria-label={`Apply ${preset.name} emitter`} disabled={disabled} onClick={()=>{onApply(preset.id);dialog.current?.close();}}><small>{preset.category}</small><strong>{preset.name}</strong><span>{preset.description}</span></button>)}</div></dialog></div>;
+}

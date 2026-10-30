@@ -1,0 +1,13 @@
+schema_version = 1
+id = "pyramid"
+name = "Pyramid"
+kind = "primitive"
+
+[transform]
+translation = [0.0, -1.0, -2.5]
+
+[geometry]
+primitive = "pyramid"
+half_extent = 0.8
+height = 1.8
+color = [1.0, 1.0, 0.0, 1.0]

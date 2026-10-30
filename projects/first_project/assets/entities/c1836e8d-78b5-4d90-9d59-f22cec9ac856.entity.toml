@@ -1,0 +1,17 @@
+schema_version = 1
+id = "c1836e8d-78b5-4d90-9d59-f22cec9ac856"
+name = "Offender"
+kind = "primitive"
+template = "object.cube"
+runtime_status = "available"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [0.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[geometry]
+primitive = "cube"
+half_extent = 0.5
+color = [1.0, 1.0, 1.0, 1.0]

@@ -1,5 +1,5 @@
 schema_version = 1
-engine_version = "0.10.0"
+engine_version = "0.11.0"
 status_values = ["available", "preview", "planned"]
 
 # This is a planning and discovery contract. Only `available` entries are stable
@@ -31,7 +31,7 @@ name = "3D transforms"
 status = "available"
 owner = "world"
 depends_on = ["world.entity-hierarchy"]
-summary = "Local and propagated global translation, rotation, and scale."
+summary = "Local and propagated global translation, rotation and scale, with a derived normalized world-space look direction."
 
 [[capabilities]]
 id = "behavior.typed-graph"
@@ -82,10 +82,10 @@ summary = "One indexed cube rendered from copied simulation transform data."
 id = "render.cameras"
 category = "render-foundation"
 name = "Cameras and viewports"
-status = "planned"
+status = "preview"
 owner = "render"
 depends_on = ["render.native-surface", "world.transforms-3d"]
-summary = "Entity-linked cameras, projections, viewports, layers, and render targets."
+summary = "Entity-linked active cameras with perspective/FOV and orthographic projections, clipping planes, asset/instance inspector editing, a selected-camera frustum overlay, selection framing and alignment to the editor view. Viewports, layers and render targets remain planned."
 
 [[capabilities]]
 id = "render.extraction"
@@ -139,7 +139,7 @@ name = "Procedural 3D primitives"
 status = "available"
 owner = "geometry"
 depends_on = ["geometry.meshes"]
-summary = "Validated planes, cuboids, pyramids, UV spheres, cylinders, cones, capsules, and toruses with bounded tessellation."
+summary = "Validated planes, cuboids, pyramids, UV spheres, cylinders, cones, capsules, and toruses with bounded tessellation. Authored planes default to a 1m-square mesh when half-extents are omitted, supporting scale-based sizing while preserving explicit legacy dimensions."
 
 [[capabilities]]
 id = "geometry.meshes"
@@ -163,10 +163,10 @@ summary = "Normals, tangents, UVs, submeshes, bounds, model composition, and lev
 id = "terrain.heightmap"
 category = "terrain"
 name = "Heightmap terrain"
-status = "planned"
+status = "preview"
 owner = "terrain"
 depends_on = ["geometry.meshes", "procedural.noise"]
-summary = "Bounded height fields, chunks, queries, collision handoff, and level of detail."
+summary = "Versioned terrain entity assets generate bounded smooth meshes on scene load and optional static Rapier terrain heightfield colliders. Terrain Builder has a visual project terrain library with independent save/load/copy and revision-checked placement of shared assets into selected scenes; optional validated frozen heightfields feed both mesh and static collider. Chunk streaming, height-query API, polygonal terrain and LOD remain planned."
 
 [[capabilities]]
 id = "terrain.polygonal"
@@ -178,22 +178,49 @@ depends_on = ["geometry.meshes", "procedural.noise"]
 summary = "Arbitrary generated terrain surfaces with chunk and topology contracts."
 
 [[capabilities]]
-id = "procedural.noise"
+id = "terrain.raymarched-prototype"
 category = "terrain"
+name = "Bounded ray-marched terrain prototype"
+status = "preview"
+owner = "terrain"
+depends_on = ["render.depth-geometry"]
+summary = "Versioned RaymarchedTerrain fields: legacy v1 preserves 8..64m analytical fixtures; v2 defaults to 1024m biome terrain with 64..4096m extents, world-space biome scale, rolling plains, ridged mountains, bounded 3D rock displacement and winding cave carving. CPU/WGSL share seeded value noise and conservative distance bounds, with fixed trace caps. Procedural slope/elevation colours blend meadow/rock/snow. Region extent does not rescale features. Schema-1 entity assets use ordinary World components and up to eight renderer-scoped SlotMap regions. Terrain Builder shares a Height Field / Ray March switch and eight-biome modal. Explicit Plain/Hilly/Mountainous/Island/Rivers/Canyon/Underwater/CaveCavern fields persist as strings; missing biome retains mixed v2 output. A retained camera-only native worker supports live orbit/pan/zoom/projection with bounded inspection queues and lifecycle reaping. Recipe/seed/extent/relief/overhang/cave controls and guarded library/scene integration remain available. Physics and library material attachments remain unsupported; collision, lighting/shadow parity, streaming, LOD and broad performance acceptance remain open."
+
+[[capabilities]]
+id = "terrain.raymarch-diagnostics"
+category = "terrain"
+name = "Ray terrain bounds, diagnostics and preview quality"
+status = "preview"
+owner = "render"
+depends_on = ["terrain.raymarched-prototype"]
+summary = "Conservative clip-plane culling and projected scissor rectangles retain full-viewport fallback for near-plane intersections. Runtime RaymarchedRenderOptions toggles bounds and a step/exhaustion heatmap without changing authored recipes. Last-prepared region/submission/scissor-area statistics and a warmed release capture benchmark are available. Terrain Builder offers Auto/Full/Half quality, with half-resolution movement frames upscaled into the existing 960x540 protocol. Capture wall time includes GPU completion/readback; the separate render.gpu-pass-profiling capability adds GPU timestamps. Gameplay traversal/memory budgets and large-world acceptance remain open."
+
+[[capabilities]]
+id = "render.gpu-pass-profiling"
+category = "render"
+name = "Optional native offscreen GPU pass profiling"
+status = "preview"
+owner = "render"
+depends_on = ["render.depth-geometry"]
+summary = "Optional TIMESTAMP_QUERY support is requested only when advertised. Explicit blocking profile_lit_frame returns main/shadow GPU timings and separate CPU preparation/encoding/completion times, reusing diagnostic target/query/map buffers and preserving normal frame paths. Metal resolves are submitted after host-observed pass completion; zero/reversed counters fail explicitly. Unsupported devices return no sample. Uploaded geometry_buffer_bytes validates renderer-scoped generational handles and excludes materials/driver memory. A release native camera-route benchmark covers 1km/4km/eight ray regions, cavern and 128/512/1024 heightfields. Presentation, particle timing, allocator/driver memory and gameplay acceptance remain open."
+
+[[capabilities]]
+id = "procedural.noise"
+category = "filters"
 name = "Seeded noise generators"
-status = "planned"
+status = "preview"
 owner = "procedural"
 depends_on = []
-summary = "Versioned Perlin, Simplex, value, and Worley noise with fractal and warp composition."
+summary = "Version-1 seeded Perlin, OpenSimplex and distance-Worley with bounded octave composition, normalized 2D squares / full 3D cubes, prepared sampling and a validated project noise-filter definition. Pinned noise-rs 0.9.0. Value noise, domain warping and runtime terrain integration remain planned."
 
 [[capabilities]]
 id = "material.resources"
 category = "materials"
 name = "Materials and shaders"
-status = "planned"
+status = "preview"
 owner = "render"
 depends_on = ["geometry.meshes"]
-summary = "Reusable material handles, shader contracts, parameters, and render state."
+summary = "MaterialDefinition/Material: flat, smooth and unlit shading; linear albedo/specular/emission, shininess and noise-driven bump. Per-channel noise filters bake once into renderer-owned RGBA16Float volumes at selectable 32/64/128 resolution with a bounded bake budget; object-space bump gradients and radial sphere normals; dedicated Material Generator and schema-1 shared .material.toml library assets selected by objects. Nested material references are rejected. PBR and shader graphs remain planned."
 
 [[capabilities]]
 id = "texture.resources"
@@ -211,7 +238,7 @@ name = "Light sources"
 status = "preview"
 owner = "lighting"
 depends_on = ["world.entity-hierarchy", "world.transforms-3d", "ecs.schedules"]
-summary = "Preview bounded renderer inputs for ambient, directional, point, and spot light entities; up to eight copied lights use Lambert illumination."
+summary = "Preview bounded renderer inputs for ambient, directional, point, and spot light entities; up to nine copied lights use Lambert illumination. Authored scenes retain eight entity-light slots so the ninth slot can hold scene ambient."
 
 [[capabilities]]
 id = "lighting.shadows"
@@ -220,16 +247,25 @@ name = "Shadows"
 status = "planned"
 owner = "render"
 depends_on = ["lighting.sources", "render.extraction"]
-summary = "Preview one selected directional comparison-shadow map at fixed resolution; cascades, point-light maps, filtering, and shadow culling remain planned."
+summary = "One directional map plus two omnidirectional point-light maps (six 512-square faces each), with independent object cast/receive flags. Point lights use world position/range; extra shadow requests fail explicitly. Spot shadows, cascades, quality controls and culling remain planned."
 
 [[capabilities]]
 id = "effects.particles"
 category = "effects"
-name = "Particle systems"
-status = "planned"
+name = "Particle systems and generator"
+status = "preview"
 owner = "effects"
-depends_on = ["render.extraction", "material.resources"]
-summary = "Pooled CPU and GPU emitters, spawn shapes, curves, billboards, meshes, and trails."
+depends_on = ["render.extraction", "texture.resources"]
+summary = "Seeded bounded CPU pools owned through typed SlotMap handles; point/cone/box/sphere emitters, rate/bursts, forces, lifetime color/size/opacity, local/world space, alpha/additive instanced billboards, forward/ping-pong flipbooks and soft depth intersections. IDE Particle Generator saves/places/reopens layered effect assets and connects fal sprite/video/matting jobs to local atlas baking. GPU simulation, mesh particles, collision and trails remain planned."
+
+[[capabilities]]
+id = "animation.tweens"
+category = "animation"
+name = "Scalar tweens and easing editor"
+status = "preview"
+owner = "animation"
+depends_on = ["world.transforms-3d"]
+summary = "Headless scalar lerp with linear, sine, quadratic and cubic easing; explicit simulation-time sampling, once/loop/ping-pong playback, schema-1 reusable assets and an IDE motion/curve editor. Scene behaviour binding remains explicit game code."
 
 [[capabilities]]
 id = "animation.skeletal"
@@ -316,10 +352,10 @@ summary = "Keyboard, pointer, gamepad, joystick, touch, mapping, rebinding, and 
 id = "physics.world"
 category = "simulation"
 name = "Physics and collision"
-status = "planned"
+status = "preview"
 owner = "physics"
 depends_on = ["world.transforms-3d", "ecs.schedules"]
-summary = "Shapes, queries, rigid bodies, triggers, joints, and character controllers."
+summary = "Optional physics feature: Rapier static/dynamic bodies, gravity, per-fixed-tick force application, fitted/explicit box colliders, static terrain heightfield colliders and fixed-tick contacts. IDE instance controls, terrain enablement/type selection and paused box collider outlines. Queries, other shapes, triggers, joints and controllers remain planned."
 
 [[capabilities]]
 id = "navigation.paths"
@@ -352,10 +388,10 @@ summary = "Import, metadata, dependency tracking, derived caches, hot reload, an
 id = "assets.authored-worlds"
 category = "assets"
 name = "Authored scenes and entities"
-status = "planned"
+status = "preview"
 owner = "project"
 depends_on = ["project.manifest", "world.entity-hierarchy", "behavior.typed-graph"]
-summary = "Durable IDs, reusable compositions, graph validation, and runtime instantiation."
+summary = "Schema-1 primitive/light/empty-node assets and explicit scene instances with transform and local display-name overrides, durable IDs, validated hierarchy and fresh SlotMap instantiation. Nested compositions, authored behaviour links and type-registry exports remain planned."
 
 [[capabilities]]
 id = "game.save-replay"
@@ -427,7 +463,7 @@ name = "Rust-rendered IDE scene preview"
 status = "preview"
 owner = "ide"
 depends_on = ["project.manifest", "render.offscreen-capture"]
-summary = "Scene dropdown and Load invoke a registered project Rust builder at tick zero and display its native PNG frame in the IDE. Static capture; arbitrary authored-world loading and live streaming remain planned."
+summary = "Scene dropdown and Load construct authored primitive/light scenes plus optional registered project Rust extensions at tick zero and display a native PNG frame. Persistent Inspect now adds a separate bounded PNG session; production video encoding and picking remain planned."
 
 [[capabilities]]
 id = "tools.statement-implementation"
@@ -455,3 +491,118 @@ status = "planned"
 owner = "platform"
 depends_on = ["project.manifest", "assets.pipeline"]
 summary = "Independent Windows, Linux, and macOS build plans, packages, and validation results."
+
+[[capabilities]]
+id = "tools.scene-transforms"
+category = "tools"
+name = "Scene-instance Transform inspector"
+status = "preview"
+owner = "tools"
+depends_on = ["assets.authored-worlds", "tools.scene-preview"]
+summary = "Scene-first hierarchy, keep-local drag/drop and keyboard parenting, Local/Global TRS editing through Rust World math, uniform scale, reset, revision checks and Rust candidate validation. Sheared global transforms expose position only. Picking and axis gizmos are available in persistent inspection; undo/redo remains planned."
+
+[[capabilities]]
+id = "tools.persistent-inspection"
+category = "tooling"
+name = "Persistent native inspection session"
+status = "preview"
+owner = "ide"
+depends_on = ["tools.scene-preview", "world.transforms-3d", "assets.authored-worlds"]
+summary = "Retained native tick-zero world/renderer, 960x540 latest-frame PNG delivery targeting 30 Hz, acknowledged orbit/pan/zoom and saved instance edits, stale-session protection and process leases. Mac Metal prototype measured; production video remains planned. Picking and axis gizmos are a separate delivered slice."
+
+
+[[capabilities]]
+id = "tools.toml-authoring"
+category = "tooling"
+name = "Validated scene and entity TOML editor"
+status = "preview"
+owner = "ide"
+depends_on = ["assets.authored-worlds", "tools.scene-transforms"]
+summary = "Whole-file scene/shared-entity/noise-filter TOML editing beside Overview, Connections and Source; staged Cargo and all-scene Rust validation, shared-asset checks, bounded source, revision guards and unsaved-draft protection. Load/Restart inspection applies raw source changes."
+
+
+[[capabilities]]
+id = "tools.viewport-gizmos"
+category = "tooling"
+name = "Viewport picking and transform gizmos"
+status = "preview"
+owner = "ide"
+depends_on = ["tools.persistent-inspection", "tools.scene-transforms", "geometry.meshes"]
+summary = "Rust triangle picking against rendered tessellation, light/node origin markers, unified scene selection, Local/Global XYZ translate/rotate/scale handles, transient previews, one validated save on release, Escape rollback, gesture tokens and external-edit rejection. Fixed 960x540 viewport; snapping, multi-select and undo remain planned."
+
+
+[[capabilities]]
+id = "tools.noise-filters"
+category = "tooling"
+name = "Noise filter asset inspector"
+status = "preview"
+owner = "ide"
+depends_on = ["procedural.noise", "project.manifest", "tools.toml-authoring"]
+summary = "Filters / Noise function creation, editable seeds and octave/domain inputs, grayscale generation via headless Rust, full 3D fields viewed as XY slices, separate guarded Save settings and raw TOML editing. Material channels consume noise filters through the material preview. Baked exports, runtime terrain consumers and filter composition graphs remain planned."
+
+
+[[capabilities]]
+id = "tools.terrain-builder"
+category = "tooling"
+name = "Terrain Builder preview"
+status = "preview"
+owner = "ide"
+depends_on = ["procedural.noise", "project.manifest"]
+summary = "Unified Height Field / Ray March controls with a shared eight-biome modal. Heightfields support Plain, Hilly, Mountainous, Rivers, Island, Canyon and Underwater seabed through the reusable Rust pipeline; enclosed Cave/Cavern requires Ray March. The ray-marched option uses a persistent native live orbit/pan/zoom preview, without saving draft assets. Perlin/diamond-square bases, bounded domain warp, multi-summit mountain groups/ridges and optional thermal erosion; matched three-way comparisons with generation/GLB preparation times and exact output sizes. Bounded 32–1024 grids (three-way comparisons capped at 256), smooth grayscale GLB, adjustable sun and orbit/zoom/reset. Top-down circular grayscale brushes raise/lower, smooth or flatten to a chosen height with radius/strength and one-stroke undo. Save to scene publishes the displayed versioned recipe and any frozen sculpted heightfield as a terrain entity asset and UUID scene instance with optional static terrain collider. Selected scene terrain opens through Edit terrain with exact saved samples or its procedural recipe; in-place saves preserve identity, placement and physics and update shared instances. Four library material slots support manual soft painting and an explicit height-band process with transition widths in local metres, per-process undo and exact blend-map save/reopen. Staged native validation and conflict checks precede publication. Water/hydraulic erosion, chunking and LOD remain planned."
+
+
+[[capabilities]]
+id = "terrain.generation"
+category = "terrain"
+name = "Headless terrain preparation"
+status = "preview"
+owner = "terrain"
+depends_on = ["geometry.meshes", "procedural.noise"]
+summary = "TerrainSettings validates/serializes independent-patch recipes, defaulting to algorithm v2 mountain massifs with uneven summits/saddles/shoulders while preserving explicit v1 output. generate returns an owned TerrainField with world-space heights and a smooth Mesh conversion; from_heights validates frozen authored samples. Perlin and diamond-square, controlled main peaks/ridges, domain warp, bounded conservative thermal erosion. This is preparation outside the game loop; no new identity owner, streaming, saved terrain loader, collider or seamless edge contract."
+
+
+[[capabilities]]
+id = "materials.diffuse-images"
+category = "render"
+name = "Diffuse image textures and terrain material palette"
+status = "preview"
+owner = "render"
+depends_on = ["geometry.meshes", "project.manifest"]
+summary = "PNG/JPEG diffuse_map references, bounded native decoding, sRGB colour sampling, gamma-correct mipmaps and object-space triplanar repeat. Live image swatches and project import; terrain instances retain up to eight named layers with one active whole-surface material. Legacy image palettes remain supported. New terrain paint sidecars blend up to four complete library materials through RGBA weights, with soft manual brushes and height-based river-bed/ground/mountain/summit transitions. Terrain images share a 1024-pixel array and noise maps are capped at 64 cubed per layer. The IDE preview shows diffuse colours/images; native inspection renders all channels. Slope rules, alpha cutouts, shared texture caching and UV authoring remain future work."
+
+
+[[capabilities]]
+id = "tools.texture-creator"
+category = "tooling"
+name = "AI texture creation"
+status = "preview"
+owner = "ide"
+depends_on = ["project.manifest", "materials.diffuse-images"]
+summary = "Prompt-based fal FLUX.1 Schnell batches with shared local fal credentials, durable queue history, bounded native-validated previews and selected-result saves. Generated PNG/JPEG assets and provenance sidecars enter existing object/terrain material pickers. Paid submissions are claimed once; uncertain outcomes are not automatically resubmitted. Tile-friendly prompts do not guarantee seamless images; painting/blending remain separate work."
+
+[[capabilities]]
+id = "geometry.authored-structures"
+category = "geometry"
+name = "Editable polygon structure assets"
+status = "preview"
+owner = "geometry"
+depends_on = ["geometry.meshes", "assets.authored-worlds"]
+summary = "Schema-1 StructureDefinition authoring graphs retain durable part IDs, local TRS, shared polygon vertices and faces. Bounded dominant-plane ear clipping supports simple concave polygons; hierarchy cycles, invalid topology, singular transforms and degenerate triangles are rejected. Preparation compiles parts into one ordinary Mesh on the existing World EntityId/renderer GeometryId, including reflection winding. A structure entity references its editable .structure.toml sidecar. Per-part runtime behaviours, booleans and mesh streaming remain outside this contract."
+
+[[capabilities]]
+id = "tools.object-builder"
+category = "ide"
+name = "Object Builder"
+status = "preview"
+owner = "ide"
+depends_on = ["geometry.authored-structures", "material.resources"]
+summary = "Primitive palette, local hierarchy drag/reparent/reorder with cycle guards and keyboard alternatives, object/face/point picking and direct 3D dragging, XYZ handles, object rotate/scale, face extrusion with connected side faces, centroid-based percentage inset, bounded undo/redo and metre-based numeric controls. Editable topology saves to the structure library, places in scenes and reopens from Edit object. Shared library materials apply to the assembled mesh. Journal publication follows staged native validation and revision checks. The browser viewport is a geometry preview; full surface shading is rendered natively."
+
+[[capabilities]]
+id = "scene.environment"
+category = "graphics"
+name = "Scene global lighting and panoramic skyboxes"
+status = "available"
+owner = "scene"
+depends_on = ["project.manifest", "lighting.sources", "render.depth-geometry"]
+summary = "Optional scene EnvironmentDefinition resolves bounded project PNG/JPEG 2:1 equirectangular panoramas. Global linear ambient colour/intensity, solid background colour, skybox rotation and brightness persist in [environment]. GeometryRenderer uploads one optional panorama outside the frame loop and draws a fullscreen background before geometry, with perspective/orthographic rays independent of camera translation. Eight authored lights plus scene ambient are supported. Lighting page includes native scene preview, guarded validated saves, scene selection and project skybox swatches. Image Generator shares import, explicit candidate promotion, relabel and deletion with a Skybox category; default fal FLUX Schnell requests 1024x512, custom models require an advertised 2:1 size. LDR backgrounds only; HDR, image-based illumination, reflection probes and seamless AI output are not provided."

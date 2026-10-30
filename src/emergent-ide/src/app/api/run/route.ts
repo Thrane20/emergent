@@ -10,8 +10,8 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const project = await matchingProject(request);
-    return noStore(await projectRunManager.start(project), 202);
+    const { project, body } = await matchingProject(request);
+    return noStore(await projectRunManager.start(project, body.scenePath), 202);
   } catch (error) {
     return runError(error);
   }
@@ -19,7 +19,7 @@ export async function POST(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const project = await matchingProject(request);
+    const { project } = await matchingProject(request);
     return noStore(projectRunManager.stop(project.id));
   } catch (error) {
     return runError(error);
@@ -27,12 +27,12 @@ export async function DELETE(request: Request) {
 }
 
 async function matchingProject(request: Request) {
-  const body = await request.json() as { projectId?: unknown };
+  const body = await request.json() as { projectId?: unknown; scenePath?: unknown };
   const project = await readProjectSnapshot();
   if (body.projectId !== project.id) {
     throw new ProjectRunError("The run request does not match the linked project.", 409);
   }
-  return project;
+  return { project, body };
 }
 
 function noStore(value: unknown, status = 200) {

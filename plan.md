@@ -1,176 +1,74 @@
-# Emergent implementation plan
+# Emergent plan
 
-## Epic OC-1 — Object Creator with hosted TRELLIS
+Last updated: **2026-10-30**. This is the live work queue. Keep it short: move a
+finished item into [docs/implementation-status.md](docs/implementation-status.md) in
+the same change that finishes it. Long-range goals and stage gates are in
+[GOALS.MD](GOALS.MD); the documentation map is in [docs/README.md](docs/README.md).
 
-Status: **In progress — IDE workflow implemented; live fal acceptance pending**
+## Now
 
-Decision date: 2026-10-23
+- **Bounded meshed-density comparison.** GPU pass profiling and native offscreen
+  camera routes are delivered. Compare a mesh extracted from the same field with
+  direct ray marching, including overhang/cavern quality and collision suitability.
+  Research focused Rust extraction options and write the design before choosing
+  an implementation. Keep gameplay and full resource budgets open.
+  [Detailed checklist](docs/plans/terrain.md#current-priority--terrain-performance-v1).
+- **Project MCP server: MCP-2 (edits).** MCP-1 (read and view) is delivered. Next:
+  guarded transform, rename, reparent, delete, place-asset and component edits, with
+  dry-run, an undo journal, a live inspection push, IDE refresh over SSE, and
+  `assign_ids` for files without durable IDs.
+  [Design](docs/design/project-mcp-server.md).
 
-Progress: **3 of 5 implementation stages complete** (OC-1.2, OC-1.3, OC-1.4).
-OC-1.1 has its design brief; OC-1.5 has local automated and browser validation.
-Both remain open until real hosted generation is verified.
+## Known issues
 
-### Goal and agreed decisions
+- `first_project` test `authored_offender_bounces_about_four_metres_above_ground`
+  fails: it measures 3.34 m against an expected 4 ± 0.2 m. It is tied to the
+  authored main scene, so decide whether the scene or the test is wrong. This
+  failure also stops `cargo test --workspace` before later targets run.
+- Player settings (`/player`, `player.settings.toml`) are not consumed at runtime.
+  Either wire resolution/fps/AA into the native run, or label the page as planned.
+- No evidence record exists yet for scene lighting/skyboxes.
+- `assets/textures/c6dfc7dc-…/explosion_atlas.png` has no descriptor, so it has no
+  durable ID and the MCP server can't address it. MCP-2 `assign_ids` will fix this.
+- Codex as an MCP client is configured but not yet verified in a live session: the
+  account hit its usage limit on 2026-10-30. Claude Code is verified.
+- About a week of work (physics, terrain, particles, materials, tweens, structures,
+  IDE editors) is uncommitted; the last commit is 2026-10-23.
 
-Let a developer generate a 3D object from a reference image, inspect it in the
-Emergent IDE, and save the chosen result into the linked game project's assets.
+## Next
 
-- Use fal's hosted `fal-ai/trellis` image-to-3D endpoint initially.
-- Start with image upload. Add text-to-reference-image creation later.
-- Preview and save GLB models in the IDE first. Runtime importing and rendering
-  in the game are a separate engine increment.
-- Use the locally installed `@google/model-viewer` package for browser previews.
-- Keep generation outside the Rust engine and its frame-critical game loop.
-- Preserve durable project asset identities; resolve them to fresh SlotMap-backed
-  runtime handles when runtime loading is implemented.
+Ordered by the current [terrain milestone](docs/plans/terrain.md), then the
+foundation gates in [GOALS.MD](GOALS.MD) that block the developer-framework proof:
 
-This epic changes the IDE authoring workflow and project asset metadata. It does
-not make the engine's planned model importer, texture, or material capabilities
-available.
+1. Choose the density representation/collision path from the bounded comparison;
+   validate cave/overhang contacts and replacement safety.
+2. Heightfield shared sampling, chunk visibility and distance LOD, following
+   measured terrain budgets and the stage gates in the terrain plan.
+3. Bounded preparation and streaming after visibility/LOD; include 1024 authoring
+   responsiveness (GLB packing, paint, save, upload and collider activation).
+4. Interactive play / pause / single-step with backlog reset, in the engine and IDE
+   (Stage 2, Stage 3A).
+5. Authored composition: nested reusable entities, authored behaviour links, type
+   registry and schema/graph exports with structured diagnostics (Stage 2A).
+6. Broader Stage 0 budgets: target hardware, workload sizes and frame/memory budgets, so
+   that performance claims have something to be measured against.
 
-### User workflow
+Project MCP server, after MCP-2: MCP-3 (create assets, validate/run, IDE selection
+as "this"), then MCP-4 (cost-confirmed generators).
 
-1. Open **Object Creator** from the IDE navigation for the currently linked project.
-2. Enter an object name and upload a reference image; inspect that image before
-   submitting generation.
-3. Generate and follow queued, generating, downloading, ready, or failed state.
-4. Orbit, zoom, and reset the generated model in a large preview viewport.
-5. Select a candidate from the project's generation history and **Save to project**.
-6. Find the saved model and its dependencies in Files & Assets and the Project Map.
-   Selecting a saved model reopens its preview.
+## Backlog
 
-### Implementation stages
+Grouped by area. Each item is open; see the linked plan or design for scope.
 
-#### OC-1.1 — Provider feasibility and design brief
-
-- [x] Write a concise implementation design brief covering ownership, durable
-  asset identities, data flow, resource limits, and validation before adding the
-  substantial job/asset system.
-- [ ] Use a configured fal account to submit one real image-to-3D request.
-- [ ] Download the result, validate that it is GLB, and open it with the chosen viewer.
-- [ ] Record the observed output format and integration result. The provider API's
-  example file metadata is inconsistent, so actual GLB compatibility is an
-  acceptance gate, not an assumption to carry into implementation.
-
-#### OC-1.2 — Provider settings and persistent jobs
-
-- [x] Add **Object generation** settings with a fal API key and connection status.
-  Follow the existing server-only IDE settings pattern and expose only a masked
-  key hint to the browser.
-- [x] Add a small server-only provider adapter using `@fal-ai/client`, supporting
-  only `fal-ai/trellis` initially. Upload images and submit requests through the IDE
-  server.
-- [x] Start with the documented provider defaults: 1,024-pixel textures and default
-  sampling/simplification settings. Generate and record an explicit seed.
-- [x] Persist local job IDs, provider request IDs, settings, timestamps, errors, and
-  artifact locations under the IDE data directory, partitioned by project.
-- [x] Poll while Object Creator is open; recover known jobs after page refresh or
-  IDE restart without submitting another paid request.
-- [x] Download completed artifacts into the local job cache. Preview and save from
-  that cache rather than relying on provider URLs remaining available.
-- [x] Handle transient status failures as recoverable. Show uncertain submission
-  outcomes explicitly; never automatically resubmit a possibly accepted request.
-  Retrying a confirmed failure is an explicit user action.
-
-#### OC-1.3 — Object Creator interface and preview
-
-- [x] Add Object Creator to the IDE navigation, bound to the linked project.
-- [x] Provide object naming, reference-image upload/preview, Generate, status,
-  useful errors, and project-specific generation history.
-- [x] Load `@google/model-viewer` only in the browser and provide orbit, zoom, and
-  reset-view controls for cached GLB output.
-- [x] Keep unsuccessful attempts and unsaved candidates in generation history;
-  do not add every attempt to the project's asset tree.
-- [x] Validate GLB output before enabling Save to project. A successful provider
-  response alone does not establish a valid model.
-
-#### OC-1.4 — Save model bundles and connect the project graph
-
-- [x] Save accepted objects as a bundle under a declared project asset root:
-
-  ```text
-  assets/models/<object-slug>/
-    model.glb
-    reference.<original-image-extension>
-    object.asset.json
-  ```
-
-- [x] Define a versioned descriptor containing a durable asset ID, display name,
-  project-relative model/reference paths, provider endpoint/request ID, seed,
-  generation settings, and timestamps. Record the model revision when supplied;
-  otherwise mark it unavailable. A recorded seed is provenance, not a guarantee of
-  identical future hosted output.
-- [x] Publish the complete bundle only after every file is ready. Never overwrite
-  an existing object; request another name on collision. Repeated saves of the
-  same candidate return the existing saved asset.
-- [x] Add explicit descriptor-to-model and descriptor-to-reference graph edges.
-  Support preview when selecting the saved model from Files & Assets.
-- [x] Retain existing file-scoped chat and Statements support for saved assets.
-- [x] Serve cached/project artifacts through scoped routes with validated paths,
-  bounded uploads/downloads, and enforcement of the project's declared asset roots.
-  Never persist runtime SlotMap or ECS keys.
-
-#### OC-1.5 — Verification and documentation
-
-- [x] Test missing/invalid credentials, failed generation, interrupted polling,
-  refresh/restart recovery, and prevention of unintended duplicate submissions.
-- [x] Test malformed model output, duplicate saves, naming collisions, incomplete
-  bundle failures, and paths outside the linked project or cache.
-- [x] Use mocked provider responses for automated tests; keep the real paid
-  generation as an explicit integration check.
-- [x] Run IDE lint, TypeScript checks, and production build.
-- [ ] Verify live upload → generate → preview → save → reopen with fal. The same
-  workflow, including server restart, passes with mocked generation and a real GLB fixture.
-- [x] Update IDE/user documentation and capability documentation where applicable,
-  distinguishing IDE previews from engine runtime model support.
-
-### Epic acceptance criteria
-
-- A developer can configure fal, upload an image, generate an object, inspect its
-  GLB, and save it into `first_project`.
-- Refresh/restart can resume a known generation; reopening the IDE can preview a
-  saved model without depending on a temporary provider URL.
-- Saved assets and provenance appear with meaningful connections in the Project Map.
-- Errors preserve existing valid project assets, and provider credentials remain
-  outside the project graph and browser responses.
-- Generation and preview introduce no work into the Rust simulation/render loop.
-- All verification above has recorded outcomes. No runtime model capability is
-  claimed on the basis of browser preview alone.
-
-### Dependencies and follow-up epics
-
-Implementation needs a funded fal account and key configured through IDE settings
-or server configuration. Never store that key in the game project or source control.
-
-Later increments: text-to-reference-image creation; evaluation of TRELLIS.2;
-runtime GLB importing and textured materials; model placement in authored scenes;
-self-hosted generation workers. None are required to complete OC-1.
-
-### Research references
-
-- [Microsoft TRELLIS](https://github.com/Microsoft/TRELLIS)
-- [TRELLIS text generation and GLB export example](https://github.com/microsoft/TRELLIS/blob/main/example_text.py)
-- [fal TRELLIS API and queue contract](https://fal.ai/models/fal-ai/trellis/api)
-- [Model Viewer](https://modelviewer.dev/)
-- [TRELLIS.2 model card for later evaluation](https://huggingface.co/microsoft/TRELLIS.2-4B)
-
-Research establishes documented feasibility. Actual hosted generation and local
-compatibility of a real TRELLIS result remain unverified until OC-1.1 passes.
-
-### Implementation evidence — 2026-10-23
-
-- Design: `docs/design/object-creator.md`.
-- Implemented `/objects`, object-provider settings, persistent job and artifact
-  routes, browser GLB preview, safe bundle saving, and explicit project graph edges.
-- Service tests cover journal recovery, duplicate paid-call prevention, failure
-  handling, GLB validation, collision safety, path/symlink checks, and key masking.
-- `pnpm test`, `pnpm exec tsc --noEmit`, `pnpm lint`, and `pnpm build` pass.
-- `pnpm test:ui` passes against the production server using an isolated temporary
-  game. Generation is mocked; the real GLB viewer, settings, save routes, server
-  restart recovery, and project-tree selection are exercised in headless Chrome.
-- Browser screenshot inspection caught a stale Turbopack CSS cache; a fresh build
-  and an added computed-layout assertion verify the intended desktop layout.
-- No fal key is configured in the current environment or IDE settings. No paid
-  generation has been submitted. Enter a key in Settings → Object generation to
-  perform the remaining provider acceptance check.
-- No Rust engine/runtime model-import capability was changed or claimed.
+- **Terrain** — continuous-world stages 0–6, volumetric/Marching Cubes research,
+  hydraulic erosion, slope/biome material rules: [terrain plan](docs/plans/terrain.md).
+- **Rendering** — spot shadows, cascades, culling/batching, polylines and debug overlays,
+  native GLB import and materials, HDR/IBL, post-processing.
+- **Physics** — kinematic bodies, sphere/capsule/convex shapes, triggers and events,
+  public queries, joints, character controllers.
+- **Animation** — tween bindings to scene properties from the inspector.
+- **Authoring/IDE** — undo/redo, preserve-world reparent, snapping and multi-select,
+  text-to-reference-image for Object Creator, model placement in scenes.
+- **Platform** — Windows/Linux native runs, multi-output build and packaging,
+  minimum OS policy.
+- **Audio, input mapping, UI runtime** — not started; see the capability catalogue.

@@ -28,22 +28,28 @@ impl Default for EngineConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EngineError {
+    Particles(crate::ParticleError),
     ZeroFixedTimestep,
     ZeroStepLimit,
     AlreadyStarted,
     NotStarted,
     World(WorldError),
+    #[cfg(feature = "physics")]
+    Physics(crate::PhysicsError),
 }
 
 impl fmt::Display for EngineError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Particles(error) => write!(formatter, "particle simulation: {error}"),
             Self::ZeroFixedTimestep => formatter.write_str("fixed timestep must be non-zero"),
             Self::ZeroStepLimit => formatter.write_str("max steps per frame must be non-zero"),
             Self::AlreadyStarted => formatter.write_str("engine is already started"),
             Self::NotStarted => formatter.write_str("engine has not been started"),
+            #[cfg(feature = "physics")]
+            Self::Physics(error) => write!(formatter, "physics error: {error}"),
             Self::World(error) => write!(formatter, "world integrity error: {error}"),
         }
     }
@@ -296,12 +302,22 @@ impl Engine {
         self.world.evaluate_behaviors(self.config.fixed_timestep)?;
         self.world.commit_lifecycle_commands();
         self.world.propagate_transforms();
+        #[cfg(feature = "physics")]
+        {
+            self.world
+                .step_physics(self.config.fixed_timestep)
+                .map_err(EngineError::Physics)?;
+            self.world.propagate_transforms();
+        }
         self.world
             .run_component_schedule(&mut self.schedules.post_fixed)?;
         {
             let mut context = self.context();
             game.after_fixed_update(&mut context);
         }
+        self.world
+            .step_particles(self.config.fixed_timestep.as_secs_f32())
+            .map_err(EngineError::Particles)?;
         self.tick = self.tick.saturating_add(1);
         Ok(())
     }

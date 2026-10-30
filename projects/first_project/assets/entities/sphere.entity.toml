@@ -1,0 +1,19 @@
+schema_version = 1
+id = "sphere"
+name = "Sphere"
+kind = "primitive"
+template = "object.sphere"
+runtime_status = "available"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [2.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[geometry]
+primitive = "sphere"
+radius = 0.5
+sectors = 24
+stacks = 12
+color = [1.0, 1.0, 1.0, 1.0]

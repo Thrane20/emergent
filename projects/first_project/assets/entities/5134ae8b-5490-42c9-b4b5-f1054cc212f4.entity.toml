@@ -1,0 +1,18 @@
+schema_version = 1
+id = "5134ae8b-5490-42c9-b4b5-f1054cc212f4"
+name = "Ground"
+kind = "primitive"
+template = "object.plane"
+runtime_status = "available"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [0.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[geometry]
+primitive = "plane"
+half_width = 1.0
+half_depth = 1.0
+color = [1.0, 1.0, 1.0, 1.0]

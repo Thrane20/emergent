@@ -1,0 +1,4 @@
+0 live / 0 emitters / 512x512 / 20 captures: wall p50 0.700 ms p95 1.004 ms (includes GPU wait/readback)
+1000 live / 3 emitters / 512x512 / 20 captures: wall p50 0.899 ms p95 1.312 ms (includes GPU wait/readback)
+10000 live / 3 emitters / 512x512 / 20 captures: wall p50 1.955 ms p95 2.334 ms (includes GPU wait/readback)
+Particle GPU checks passed on Apple M3 Pro / Metal

@@ -1,0 +1,9 @@
+schema_version = 1
+id = "material-demo"
+name = "Materials — noise and bump"
+[[entities]]
+id = "material-sphere"
+asset = "assets/entities/material-sphere.entity.toml"
+[[entities]]
+id = "key-light"
+asset = "assets/entities/key-light.entity.toml"

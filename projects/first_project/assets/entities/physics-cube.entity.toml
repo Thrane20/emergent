@@ -1,0 +1,15 @@
+schema_version = 1
+id = "physics-cube"
+name = "Falling cube"
+kind = "primitive"
+[transform]
+translation = [0.0, 3.0, 0.0]
+[geometry]
+primitive = "cube"
+half_extent = 0.5
+color = [0.1, 0.8, 1.0, 1.0]
+[physics]
+body = "dynamic"
+mass = 1.0
+friction = 0.5
+restitution = 0.15

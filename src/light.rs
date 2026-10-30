@@ -25,7 +25,7 @@ pub enum ShadowCasting {
 ///
 /// The entity transform supplies position and orientation. Directional and spot
 /// lights face along the entity's transformed negative Z axis. The current
-/// renderer does not yet evaluate lights or render shadows.
+/// renderer evaluates these lights and supports one directional shadow map plus two point-light shadow maps.
 #[derive(Clone, Copy, Component, Debug, PartialEq)]
 pub struct LightSource {
     kind: LightKind,

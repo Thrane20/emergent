@@ -1,0 +1,18 @@
+schema_version = 1
+id = "a8d675db-7319-40e7-a85b-79c1f6b0057a"
+name = "Sun"
+kind = "directional-light"
+template = "light.directional"
+runtime_status = "preview"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [0.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[light]
+type = "directional"
+intensity = 3.0
+color = [1.0, 1.0, 1.0]
+casts_shadows = true

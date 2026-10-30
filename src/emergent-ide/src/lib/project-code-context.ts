@@ -7,11 +7,15 @@ import type { ProjectStatement } from "./statements";
 
 export type CodeContext = { root: string; files: Map<string, string>; search: string[] };
 
-export async function projectCodeContext(project: ProjectSnapshot, statement: ProjectStatement): Promise<CodeContext> {
+export async function foundationRoot(project:ProjectSnapshot) {
   const cargo = parse(await readFile(path.join(project.root, "Cargo.toml"), "utf8"));
   const dependency = (cargo.dependencies as Record<string, unknown> | undefined)?.emergent;
   if (!dependency || typeof dependency !== "object" || !("path" in dependency) || typeof dependency.path !== "string") throw new Error("This implementation preview needs a local path dependency on Emergent to inspect the actual public contracts.");
-  const root = await realpath(path.resolve(project.root, dependency.path));
+  return realpath(path.resolve(project.root, dependency.path));
+}
+
+export async function projectCodeContext(project: ProjectSnapshot, statement: Pick<ProjectStatement,"subject"|"text">): Promise<CodeContext> {
+  const root = await foundationRoot(project);
   const files = new Map<string, string>();
   const subjectPath = statement.subject.slice("file:".length);
   let budget = 180_000;

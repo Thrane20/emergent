@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "kind": "generated-texture",
+  "id": "90db7235-7a1c-4b78-bed7-2cb457d8e9ab",
+  "jobId": "b39c793b-5f6a-4326-896c-ba640bd267f3",
+  "name": "BrightSky",
+  "image": "assets/textures/90db7235-7a1c-4b78-bed7-2cb457d8e9ab/BrightSky.png",
+  "provider": "fal",
+  "endpoint": "fal-ai/flux/schnell",
+  "requestId": "01a18ab5-7ec6-7db2-b229-30e92797b176",
+  "prompt": "A lightblue bright sky with scattered clouds. Full 360-degree equirectangular environment panorama, 2:1 aspect ratio, level horizon at the vertical center, sky above and ground below, continuous left and right edges, no text, no borders, no panorama frame.",
+  "inputPrompt": "A lightblue bright sky with scattered clouds",
+  "seed": 1379370567,
+  "candidateIndex": 0,
+  "settings": {
+    "image_size": {
+      "width": 1024,
+      "height": 512
+    },
+    "num_inference_steps": 4,
+    "output_format": "png",
+    "enable_safety_checker": true,
+    "sync_mode": false,
+    "prompt": "A lightblue bright sky with scattered clouds. Full 360-degree equirectangular environment panorama, 2:1 aspect ratio, level horizon at the vertical center, sky above and ground below, continuous left and right edges, no text, no borders, no panorama frame.",
+    "seed": 1379370567,
+    "num_images": 1
+  },
+  "modelRevision": null,
+  "createdAt": "2026-10-30T02:48:32.184Z",
+  "savedAt": "2026-10-30T02:48:44.153Z"
+}

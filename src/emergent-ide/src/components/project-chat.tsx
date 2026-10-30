@@ -1,9 +1,8 @@
 "use client";
 
-import { FormEvent, KeyboardEvent, useMemo, useRef, useState } from "react";
+import { FormEvent, KeyboardEvent, useRef, useState } from "react";
 import Link from "next/link";
 import type { PublicAISettings } from "@/lib/ai-settings";
-import type { ProjectFile } from "@/lib/project";
 
 type ChatMessage = {
   id: number;
@@ -14,28 +13,33 @@ type ChatMessage = {
 
 type Props = {
   projectId: string;
-  selectedFile: ProjectFile;
+  projectName: string;
+  scene?: { path: string; name: string };
+  object?: { scope: string; name: string };
   aiSettings: PublicAISettings;
+  disabled: boolean;
+  onBusy: (busy:boolean)=>void;
+  onApplied: ()=>void;
 };
 
-export function ProjectChat({ projectId, selectedFile, aiSettings }: Props) {
-  const [draft, setDraft] = useState("");
+export function ProjectChat({ projectId, projectName, scene, object, aiSettings, disabled, onBusy, onApplied }: Props) {
+  const [scopeKind, setScopeKind] = useState<"game" | "scene" | "object">("object");
+  const [drafts, setDrafts] = useState<Record<string,string>>({});
   const [expanded, setExpanded] = useState(true);
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
   const [sending, setSending] = useState(false);
   const nextMessageId = useRef(0);
-  const activeScope = `file:${selectedFile.path}`;
+  const kind = scopeKind === "object" && !object ? (scene ? "scene" : "game") : scopeKind === "scene" && !scene ? "game" : scopeKind;
+  const activeScope = kind === "object" && object ? object.scope : kind === "scene" && scene ? `file:${scene.path}` : `project:${projectId}`;
+  const scopeLabel = kind === "object" && object ? object.name : kind === "scene" && scene ? scene.name : projectName;
   const thread = messages[activeScope] ?? [];
-  const scopeLabel = selectedFile.name;
-  const definitions = useMemo(
-    () => [...new Set(["emergent.toml", selectedFile.path])],
-    [selectedFile.path],
-  );
+  const draft = drafts[activeScope] ?? "";
+  const setDraft = (text:string) => setDrafts(current=>({...current,[activeScope]:text}));
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
     const text = draft.trim();
-    if (!text || sending) return;
+    if (!text || sending || disabled) return;
     if (!aiSettings.configured) {
       const messageId = ++nextMessageId.current;
       setMessages((current) => ({
@@ -53,11 +57,12 @@ export function ProjectChat({ projectId, selectedFile, aiSettings }: Props) {
       [requestScope]: [
         ...(current[requestScope] ?? []),
         { id: userMessageId, role: "user", text },
-        { id: assistantMessageId, role: "assistant", text: "Thinking with the linked project graph…", state: "pending" },
+        { id: assistantMessageId, role: "assistant", text: "Inspecting the project and preparing changes…", state: "pending" },
       ],
     }));
     setDraft("");
     setSending(true);
+    onBusy(true);
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -65,13 +70,15 @@ export function ProjectChat({ projectId, selectedFile, aiSettings }: Props) {
         body: JSON.stringify({
           projectId,
           scope: requestScope,
+          scenePath: scene?.path,
           message: text,
           history: requestHistory.map(({ role, text: historyText }) => ({ role, text: historyText })),
         }),
       });
-      const result = await response.json() as { text?: string; error?: string };
+      const result = await response.json() as { text?: string; error?: string; applied?: boolean; files?: string[] };
       if (!response.ok || !result.text) throw new Error(result.error ?? "The AI provider returned no response.");
       replacePending(requestScope, assistantMessageId, { id: assistantMessageId, role: "assistant", text: result.text });
+      if (result.applied) onApplied();
     } catch (error) {
       replacePending(requestScope, assistantMessageId, {
         id: assistantMessageId,
@@ -81,6 +88,7 @@ export function ProjectChat({ projectId, selectedFile, aiSettings }: Props) {
       });
     } finally {
       setSending(false);
+      onBusy(false);
     }
   };
 
@@ -105,22 +113,23 @@ export function ProjectChat({ projectId, selectedFile, aiSettings }: Props) {
           <span className="chat-spark">✦</span>
           <span><b>Build with AI</b><small>{scopeLabel}</small></span>
         </button>
-        <Link className={aiSettings.configured ? "provider-status connected" : "provider-status"} href="/settings" title="Open AI settings"><i />{aiSettings.configured ? `Codex · ${aiSettings.model}` : "AI not connected"}</Link>
+        <Link className={aiSettings.configured ? "provider-status connected" : "provider-status"} href="/settings" title="Open AI settings"><i />{aiSettings.configured ? `${aiSettings.label} · ${aiSettings.model}` : "AI not connected"}</Link>
         <button className="chat-collapse" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? "Collapse chat" : "Expand chat"}>{expanded ? "⌄" : "⌃"}</button>
       </header>
       {expanded && <>
         <div className="chat-context">
-          <div className="chat-bound-scope"><span>Scope</span><b>{selectedFile.name}</b></div>
-          <div className="definition-links"><span>Context</span>{definitions.map((definition) => <b key={definition}>{definition}</b>)}</div>
+          <label className="chat-bound-scope"><span>Scope</span><select aria-label="AI scope" value={kind} onChange={event=>setScopeKind(event.target.value as "game"|"scene"|"object")}>
+            <option value="game">Game</option><option value="scene" disabled={!scene}>Scene</option><option value="object" disabled={!object}>Object</option>
+          </select></label>
         </div>
         <div className="chat-messages">
           {thread.length === 0
-            ? <div className="chat-empty"><span>Ask for a component, behaviour, scene change, or new project file.</span><small>The selected scope and definitions will travel with the request.</small></div>
+            ? <div className="chat-empty"><span>Ask for a component, behaviour, scene change, or new project file.</span><small>Requests can update project files; questions receive an answer.</small></div>
             : thread.map((message) => <div className={`chat-message ${message.role} ${message.state ?? ""}`} key={message.id}><b>{message.role === "user" ? "You" : "Emergent"}</b><p>{message.text}</p></div>)}
         </div>
         <form className="chat-composer" onSubmit={submit}>
-          <textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={`Describe what to build for ${scopeLabel}…`} rows={2} />
-          <button type="submit" disabled={!draft.trim() || sending} title="Send request to Codex">{sending ? "…" : "↑"}</button>
+          <textarea disabled={disabled || sending} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={`Describe what to build for ${scopeLabel}…`} rows={2} />
+          <button type="submit" disabled={!draft.trim() || sending || disabled} title="Send request to Codex">{sending ? "…" : "↑"}</button>
         </form>
       </>}
     </section>

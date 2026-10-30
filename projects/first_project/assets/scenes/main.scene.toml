@@ -2,17 +2,125 @@ schema_version = 1
 id = "main"
 builder = "emergent.first-project.generated.main_scene"
 
-# This file establishes the durable entry-scene asset. Runtime scene
-# interpretation is deliberately deferred; src/generated/main_scene.rs builds
-# the equivalent scene through public engine APIs in this iteration.
+# Instances resolve authored asset definitions to fresh runtime handles.
 
+active_camera = "7c10b616-becf-4d62-a112-ac704dad2b7c"
 [[entities]]
 id = "key-light"
-kind = "point-light"
-translation = [0.0, 6.0, 4.0]
+asset = "assets/entities/key-light.entity.toml"
 
-[entities.light]
-color = [1.0, 1.0, 1.0]
-intensity = 8.0
-range = 24.0
-casts_shadows = true
+[entities.transform]
+translation = [-5.8988867,4.9224477,4]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+[[entities]]
+id = "ground"
+asset = "assets/entities/ground.entity.toml"
+
+[entities.transform]
+translation = [0,-1.0863346,0]
+rotation_degrees = [0,0,0]
+scale = [12,1,12]
+[entities.material]
+asset = "assets/materials/8e98bd84-791b-47ae-9b5c-8329950e82df.material.toml"
+
+[[entities]]
+id = "pyramid"
+asset = "assets/entities/pyramid.entity.toml"
+
+[entities.transform]
+translation = [0.07295987,-0.20303124,-2.5]
+rotation_degrees = [-160.75679,0,0]
+scale = [1.0532434,1.8545134,1]
+
+[[entities]]
+id = "cube"
+asset = "assets/entities/cube.entity.toml"
+
+[entities.transform]
+translation = [2.2061982,0,0]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+[[entities]]
+parent = "cube"
+id = "sphere"
+asset = "assets/entities/sphere.entity.toml"
+
+[entities.transform]
+translation = [2.627283,0,2.6087596]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+[[entities]]
+name = "Defender"
+id = "a5be312c-a7b9-4d9b-9eff-5be691a320b2"
+asset = "assets/entities/a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml"
+
+[entities.transform]
+translation = [-1.5689248,0,2]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+[[entities]]
+name = "OffenderBox"
+id = "c1836e8d-78b5-4d90-9d59-f22cec9ac856"
+asset = "assets/entities/c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml"
+
+[entities.transform]
+translation = [1,0,2]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+[entities.material]
+shading = "flat"
+cast_shadows = true
+receive_shadows = true
+specular = [ 0, 0, 0 ]
+shininess = 32
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0.1
+noise_resolution = 32
+terrain_layers = []
+albedo = [ 1, 1, 1 ]
+
+[entities.material.diffuse_map]
+asset = "assets/textures/f2740eaa-19bd-4912-90cf-37ec01943fc0/MossyGround.png"
+scale = 1
+
+
+[[entities]]
+id = "7c10b616-becf-4d62-a112-ac704dad2b7c"
+asset = "assets/entities/7c10b616-becf-4d62-a112-ac704dad2b7c.entity.toml"
+
+[entities.transform]
+translation = [1.6943636,0.9867525,13.062682]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+[entities.camera]
+projection = "perspective"
+field_of_view_degrees = 35
+near = 0.1
+far = 100
+
+
+[[entities]]
+id = "a4c0ea40-7938-4cd6-a96c-ae0d66fa5968"
+asset = "assets/structures/c4c10463-2bc3-481a-8bf9-f0191c18e43f.entity.toml"
+
+[entities.transform]
+translation = [0,0,0]
+rotation_degrees = [0,-59.29321,0]
+scale = [1,1,1]
+
+
+[[entities]]
+id = "e424712c-c93e-4dc5-a57f-aca53d97c59a"
+asset = "assets/particles/bee8db8d-ec4e-423d-bc9e-c90f0aa6add9.entity.toml"
+
+[entities.transform]
+translation = [5.364612,-1.0270336,0]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+

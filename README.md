@@ -65,7 +65,7 @@ cargo test
 cargo clippy --all-targets --all-features -- -D warnings
 ```
 
-Default builds remain headless. The optional graphics boundary and first platform result are recorded in `ITERATION_6.md`, `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`. Geometry ownership is recorded in `ITERATION_8.md`; procedural primitive contracts are recorded in `ITERATION_9.md`; light-source entity data is recorded in `ITERATION_10.md`.
+Default builds remain headless. The optional graphics boundary and first platform result are recorded in `docs/history/foundation-iterations.md` (iteration 6), `docs/adr/0005-graphics-boundary.md`, and `docs/platform/iteration-6-macos-smoke.md`. Geometry ownership is recorded in `docs/history/foundation-iterations.md` (iteration 8); procedural primitive contracts are recorded in `docs/history/foundation-iterations.md` (iteration 9); light-source entity data is recorded in `docs/history/foundation-iterations.md` (iteration 10).
 
 ## User guide
 
@@ -85,7 +85,7 @@ cargo run --release --example transform_bench
 
 The full capability horizon and project mode remain staged work described in `GOALS.md` and `docs/capabilities/engine-capabilities.toml`. Coordinate and transform conventions are recorded in `docs/adr/0001-coordinate-transform-conventions.md`.
 
-The completed transform-graph increment is described in `ITERATION_2.md`.
+The completed transform-graph increment is described in `docs/history/foundation-iterations.md` (iteration 2).
 
 The development-only ECS comparison harness can be run with:
 
@@ -93,9 +93,9 @@ The development-only ECS comparison harness can be run with:
 cargo run --release --example ecs_compare -- all
 ```
 
-The resulting standalone `bevy_ecs` direction, including its costs and SlotMap integration rules, is recorded in `ITERATION_3.md` and `docs/adr/0002-ecs-direction.md`.
+The resulting standalone `bevy_ecs` direction, including its costs and SlotMap integration rules, is recorded in `docs/history/foundation-iterations.md` (iteration 3) and `docs/adr/0002-ecs-direction.md`.
 
-The production component mapping, lifecycle queue, and `PreFixed` / `Fixed` / `PostFixed` schedule contract are described in `ITERATION_4.md` and `docs/adr/0003-ecs-lifecycle-and-schedules.md`.
+The production component mapping, lifecycle queue, and `PreFixed` / `Fixed` / `PostFixed` schedule contract are described in `docs/history/foundation-iterations.md` (iteration 4) and `docs/adr/0003-ecs-lifecycle-and-schedules.md`.
 
 Run the complete 100,000-entity fixed-tick baseline with:
 
@@ -105,7 +105,7 @@ cargo run --release --example runtime_bench -- all
 
 The recorded workload and results are in `docs/benchmarks/iteration-4-runtime-integration.md`.
 
-The typed behaviour graph, snapshot semantics, unavailable-input rules, and lifecycle ownership are described in `ITERATION_5.md` and `docs/adr/0004-behavior-graph-snapshots.md`. Run its release baseline with:
+The typed behaviour graph, snapshot semantics, unavailable-input rules, and lifecycle ownership are described in `docs/history/foundation-iterations.md` (iteration 5) and `docs/adr/0004-behavior-graph-snapshots.md`. Run its release baseline with:
 
 ```sh
 cargo run --release --example behavior_bench -- all

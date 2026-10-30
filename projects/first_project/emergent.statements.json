@@ -1,0 +1,134 @@
+{
+  "schema_version": 1,
+  "statements": [
+    {
+      "id": "d92b5d32-dbe0-4313-b6f0-a2836911e6e6",
+      "subject": "file:assets/entities/cube.entity.toml",
+      "text": "this cube just spins slowly on its z-axis",
+      "implemented": true,
+      "confidence": "high",
+      "evidence": "src/game.rs applies src/spin.rs’s 15-degrees-per-second local Z rotation to the authored cube every fixed update while preserving translation and scale.",
+      "checkedAt": "2026-10-23T13:01:55.579Z",
+      "implementation": {
+        "summary": "Added a reusable fixed-step Z-axis rotation helper, resolved the authored `cube` to a canonical runtime `EntityId` in the generated scene, updated it at 15 degrees per second, and included it in native and tick-zero offscreen rendering with its authored dimensions and color. Rotation preserves translation and scale, while existing scene objects and behaviors remain unchanged.",
+        "reused": [
+          "foundation/src/engine.rs · EngineContext::fixed_delta: Supplies the engine-owned fixed timestep used to calculate frame-rate-independent angular motion.",
+          "foundation/src/world.rs · World::local_transform / World::set_local_transform: Reads and updates the canonical entity transform through public APIs while retaining translation and scale.",
+          "foundation/src/world.rs · Transform::new: Reconstructs the rotated transform without replacing its authored translation or scale.",
+          "foundation/src/world.rs · EntityId: Keeps the generated scene's runtime resolution of durable authored identity on the engine's canonical SlotMap-backed handle.",
+          "foundation/src/primitives.rs · Primitive::cube: Creates renderer geometry corresponding to the authored cube primitive without introducing a custom mesh implementation.",
+          "src/visual.rs · scene_matrices / GeometryInstance::new: Existing native and offscreen render extraction paths are extended to include the authored cube's propagated transform."
+        ],
+        "files": [
+          "src/spin.rs",
+          "src/main.rs",
+          "src/game.rs",
+          "src/generated/main_scene.rs",
+          "src/visual.rs"
+        ],
+        "validatedAt": "2026-10-23T13:01:51.595Z"
+      }
+    },
+    {
+      "id": "0d11ea8c-398d-4ccc-b54d-1714b5ba4fa0",
+      "subject": "file:assets/entities/ground.entity.toml",
+      "text": "this is a brown ground plane",
+      "implemented": true,
+      "confidence": "high",
+      "evidence": "assets/entities/ground.entity.toml defines Ground as a plane with brown RGBA color [0.36, 0.18, 0.07, 1.0].",
+      "checkedAt": "2026-10-24T12:06:29.996Z",
+      "implementation": {
+        "summary": "Changed the authored ground plane’s geometry color from green to brown. Existing scene loading and renderer extraction already instantiate and render the ground in native play, headless mode, and tick-zero previews.",
+        "reused": [
+          "foundation/src/primitives.rs · Primitive::plane: The existing authored primitive loader uses the engine’s validated plane geometry; no new geometry behavior is needed.",
+          "src/game.rs · FirstProjectGame::new: Already loads and instantiates the entry scene, preserving durable authored IDs resolved to runtime EntityId values.",
+          "src/visual.rs · ProjectGeometry::upload: Already uploads every authored renderable, including the ground plane, to the native and offscreen renderers."
+        ],
+        "files": [
+          "assets/entities/ground.entity.toml"
+        ],
+        "validatedAt": "2026-10-24T12:06:27.160Z"
+      }
+    },
+    {
+      "id": "1d40ecc1-84a1-4669-9a5a-68bbeca5c228",
+      "subject": "file:assets/entities/a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml",
+      "text": "this object doesn't like being chased, it will try and get away from the object called \"OffenderBox\" - it needs to translate a minimum distance of 2 units away if it comes near.",
+      "implemented": true,
+      "confidence": "high",
+      "evidence": "assets/scenes/main.scene.toml instantiates Defender and OffenderBox, while src/game.rs calls src/avoidance.rs each fixed update to move Defender away whenever their world-space separation is below 2 units.",
+      "checkedAt": "2026-10-25T05:22:52.966Z",
+      "implementation": {
+        "summary": "Added project-owned minimum-distance avoidance using canonical EntityId handles. The Defender and OffenderBox authored assets are now instantiated in the entry scene, passed through the generated scene builder, updated during fixed simulation, and automatically included in native/headless/tick-zero rendering through the existing LoadedScene pipeline. The correction maintains at least 2 world units of separation while preserving the Defender's local rotation and scale.",
+        "reused": [
+          "foundation/src/world.rs · World::local_from_global_position: Converts the corrected world-space Defender position into its authored local hierarchy space while retaining local rotation and scale.",
+          "foundation/src/world.rs · EntityId: Used as the canonical runtime identity resolved from durable authored scene IDs; no runtime SlotMap key is serialized.",
+          "foundation/src/engine.rs · Game: The avoidance correction is wired into the existing fixed_update callback used by native and headless simulation.",
+          "src/generated/main_scene.rs · build_main_scene: Extended the existing registered entry-scene builder so the authored Defender and OffenderBox runtime entities are explicitly wired into generated scene state.",
+          "src/visual.rs · ProjectGeometry::upload: Existing LoadedScene renderable extraction automatically uploads and renders the two newly authored entry-scene instances without a parallel renderer path.",
+          "assets/scenes/bda577fe-67ad-439b-a556-8a2ef548f2e9.scene.toml · bda577fe-67ad-439b-a556-8a2ef548f2e9.scene.toml: Inspected to reuse the existing durable Defender and OffenderBox asset identities and the authored OffenderBox display name.",
+          "assets/entities/a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml · a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml: Reused the selected authored Defender primitive rather than creating duplicate geometry.",
+          "assets/entities/c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml · c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml: Reused the existing authored cube associated with the OffenderBox scene instance."
+        ],
+        "files": [
+          "src/avoidance.rs",
+          "src/generated/main_scene.rs",
+          "src/game.rs",
+          "src/main.rs",
+          "assets/scenes/main.scene.toml"
+        ],
+        "validatedAt": "2026-10-25T05:22:50.748Z"
+      }
+    },
+    {
+      "id": "573fd075-d826-4ce0-a181-8940b36b3089",
+      "subject": "file:assets/entities/c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml",
+      "text": "this object bounces with upwards force when it hits the ground/terrain. suggest about 4m high bouncing.",
+      "implemented": true,
+      "confidence": "high",
+      "evidence": "src/game.rs instantiates and fixed-updates GroundBounce for the authored OffenderBox and ground, while src/bounce.rs launches it upward to an approximately 4.0 m apex on contact.",
+      "checkedAt": "2026-10-25T12:17:32.487Z",
+      "implementation": {
+        "summary": "Implemented a deterministic fixed-step ground bounce for the authored OffenderBox. Its durable scene ID is resolved to the canonical runtime EntityId, it falls under project-owned gravity, and each ground impact launches it to approximately 4 metres above the contact height. Tick-zero inspection/preview remains unchanged, while native and headless play use the same callback. Rotation and scale are preserved.",
+        "reused": [
+          "src/generated/main_scene.rs · MainScene: Reuses the generated scene's canonical offender EntityId rather than introducing or serializing another runtime identity.",
+          "src/game.rs · fixed_update: Wires the bounce into the existing fixed-step game callback used by native and headless execution.",
+          "foundation/src/engine.rs · EngineContext: Uses the public fixed_delta supplied by the engine for gravity and launch integration.",
+          "foundation/src/world.rs · local_from_global_position: Converts the desired world-space bounce position back to local space while preserving the entity's existing local rotation and scale.",
+          "assets/scenes/main.scene.toml · main.scene.toml: Resolves the selected OffenderBox and authored ground through their durable scene instance IDs.",
+          "src/visual.rs · extract: The existing native render extraction already reads the canonical entity's propagated transform every frame, so the bounce requires no competing renderer path."
+        ],
+        "files": [
+          "src/bounce.rs",
+          "src/game.rs",
+          "src/main.rs"
+        ],
+        "validatedAt": "2026-10-25T12:17:27.856Z"
+      }
+    },
+    {
+      "id": "70632416-4352-4642-a74e-f5360ce0ef05",
+      "subject": "file:assets/scenes/physics.scene.toml",
+      "text": "The fallng cube is like a mexican jumping bean. everynoew and again it will pop off the ground.",
+      "implemented": false,
+      "confidence": "high",
+      "evidence": "assets/scenes/physics.scene.toml only configures a gravity-driven dynamic cube with restitution and provides no periodic impulse or called update behavior to make it pop off the ground.",
+      "checkedAt": "2026-10-29T12:18:47.494Z",
+      "implementation": {
+        "summary": "Implemented the falling cube as a deterministic Mexican jumping bean. The authored `falling-cube` EntityId is resolved from the loaded physics scene, then receives a fixed-step, one-tick upward impulse every four seconds through the public physics force API. Native play and headless simulation advance it normally, while tick-zero preview remains unchanged.",
+        "reused": [
+          "src/bounce.rs · GroundBounce: Extended the existing project-owned fixed-step bouncing module rather than creating a competing motion subsystem.",
+          "src/game.rs · FirstProjectGame: Reused the existing scene construction and fixed-update callback to resolve the authored `falling-cube` identity and execute its behavior.",
+          "foundation/src/world.rs · World::add_force: Uses the inspected public engine contract for applying a world-space force to a dynamic body without replacing physics ownership of its transform.",
+          "foundation/src/engine.rs · EngineContext: Uses `fixed_delta` from the fixed simulation callback for both interval timing and timestep-independent impulse conversion.",
+          "assets/scenes/physics.scene.toml · physics.scene.toml: The selected authored scene supplies the durable `falling-cube` instance ID and its dynamic physics body."
+        ],
+        "files": [
+          "src/bounce.rs",
+          "src/game.rs"
+        ],
+        "validatedAt": "2026-10-29T12:18:37.930Z"
+      }
+    }
+  ]
+}

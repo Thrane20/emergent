@@ -1,0 +1,11 @@
+schema_version = 1
+id = "shadow-sun"
+name = "Shadow sun"
+kind = "directional-light"
+[transform]
+rotation_degrees = [-55.0, -30.0, 0.0]
+[light]
+type = "directional"
+color = [1.0, 0.95, 0.85]
+intensity = 1.1
+casts_shadows = true

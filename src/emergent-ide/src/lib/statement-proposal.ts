@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { CodeContext } from "./project-code-context";
 import type { ProjectSnapshot } from "./project";
 import type { ProjectStatement } from "./statements";
@@ -7,7 +8,7 @@ const string = { type: "string" };
 export const implementationFormat = { format: { type: "json_schema", name: "emergent_statement_implementation", strict: true, schema: {
   type: "object", additionalProperties: false, required: ["summary", "reuse", "files"], properties: {
     summary: string,
-    reuse: { type: "array", items: { type: "object", additionalProperties: false, required: ["path", "symbol", "reason"], properties: { path: string, symbol: string, reason: string } } },
+    reuse: { type: "array", items: { type: "object", additionalProperties: false, required: ["path", "symbol", "reason"], properties: { path: { type: "string", description: "Exact inspected FILE path, project-relative or foundation/..." }, symbol: { type: "string", description: "An exact source identifier, or the filename/path for a TOML asset" }, reason: string } } },
     files: { type: "array", items: { type: "object", additionalProperties: false, required: ["path", "content"], properties: { path: string, content: string } } },
   },
 } } };
@@ -27,13 +28,31 @@ export function implementationPrompt(project: ProjectSnapshot, statement: Projec
   ].join("\n\n");
 }
 
+export class ReuseEvidenceError extends Error {
+  constructor(detail: string) { super(`AI reuse evidence does not match the inspected project/foundation code. ${detail} No files were applied.`); }
+}
+
+export function reuseEvidenceGuide(context: CodeContext): string {
+  const citations = Array.from(context.files, ([file, source]) => {
+    const symbols = file.endsWith(".toml") ? [path.posix.basename(file)] : [...source.matchAll(/\b(?:fn|struct|enum|trait|type|const|static)\s+([A-Za-z_]\w*)/g)].slice(0,8).map(match=>match[1]);
+    return symbols.length ? { path:file, symbols } : null;
+  }).filter(Boolean);
+  return `REUSE CITATION EXAMPLES\nCopy an exact path and one symbol from the same entry below, or quote another actual identifier from that FILE. Do not add a project-root prefix. Asset filenames are valid references; prose descriptions are not symbols.\n${JSON.stringify(citations)}`;
+}
+
 export function parseImplementation(text: string, context: CodeContext): StatementProposal {
   const proposal = JSON.parse(text) as StatementProposal;
-  if (!proposal || typeof proposal.summary !== "string" || !proposal.summary.trim() || proposal.summary.length > 2000 || !Array.isArray(proposal.reuse) || !proposal.reuse.length || proposal.reuse.length > 20 || !Array.isArray(proposal.files) || proposal.files.length > 8) throw new Error("AI implementation did not include bounded changes and reuse evidence.");
-  for (const entry of proposal.reuse) {
-    const source = context.files.get(entry.path);
-    const symbol = typeof entry.symbol === "string" ? entry.symbol.split("::").at(-1)! : "";
-    if (!source || !symbol || !source.includes(symbol) || typeof entry.reason !== "string" || !entry.reason.trim()) throw new Error("AI reuse evidence does not match the inspected project/foundation code.");
+  if (!proposal || typeof proposal.summary !== "string" || !proposal.summary.trim() || proposal.summary.length > 2000 || !Array.isArray(proposal.reuse) || proposal.reuse.length > 20 || !Array.isArray(proposal.files) || proposal.files.length > 8 || proposal.files.length > 0 && !proposal.reuse.length) throw new Error("AI implementation did not include bounded changes and reuse evidence.");
+  for (const [index, entry] of proposal.reuse.entries()) {
+    if (!entry || typeof entry.path !== "string" || typeof entry.symbol !== "string" || typeof entry.reason !== "string" || !entry.reason.trim()) throw new ReuseEvidenceError(`Reuse entry ${index + 1} needs a path, symbol and reason.`);
+    const file = entry.path.replace(/\\/g, "/").replace(/^\.\//, "");
+    const source = context.files.get(file);
+    if (source === undefined) throw new ReuseEvidenceError(`Reuse path ${JSON.stringify(entry.path.slice(0,300))} was not inspected. Copy an exact FILE path from the prompt.`);
+    const reference = entry.symbol.trim().replace(/^`([^`]+)`$/, "$1");
+    const symbol = reference.split("::").at(-1)!.replace(/^fn\s+/, "").replace(/\(\)$/, "");
+    const assetReference = file.endsWith(".toml") && (reference === file || reference === path.posix.basename(file));
+    if (!assetReference && (!symbol || !source.includes(symbol))) throw new ReuseEvidenceError(`Reuse symbol ${JSON.stringify(entry.symbol.slice(0,300))} does not occur in ${JSON.stringify(file)}. Use an exact source identifier or, for TOML assets, its filename.`);
+    entry.path = file;
   }
   let bytes = 0;
   const paths = new Set<string>();

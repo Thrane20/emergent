@@ -1,6 +1,6 @@
 schema_version = 1
 id = "cube"
-name = "Cube"
+name = "Cube3"
 kind = "primitive"
 template = "object.cube"
 runtime_status = "available"

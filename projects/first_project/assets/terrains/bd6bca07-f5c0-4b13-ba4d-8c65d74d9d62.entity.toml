@@ -1,0 +1,33 @@
+schema_version = 1
+id = "bd6bca07-f5c0-4b13-ba4d-8c65d74d9d62"
+name = "Terrain"
+kind = "terrain"
+
+[terrain]
+algorithmVersion = 2
+generator = "noise"
+domainWarp = 0.25
+ridgeStrength = 0.5
+erosionIterations = 16
+preset = "hilly"
+seed = 42
+resolution = 128
+size = 100
+height = 18
+frequency = 0.65
+octaves = 4
+roughness = 0.45
+mountainCount = 3
+
+[material]
+shading = "smooth"
+albedo = [ 0.65, 0.65, 0.65 ]
+
+[physics]
+enabled = true
+body = "static"
+friction = 0.5
+restitution = 0
+
+[physics.collider]
+shape = "terrain"

@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "generated-texture",
+  "id": "949dce14-3eae-476f-b7dc-773676f56171",
+  "jobId": "6dc5f9fe-a9db-42b4-b2d3-724d2e078cfb",
+  "name": "Particle sprite",
+  "image": "assets/textures/949dce14-3eae-476f-b7dc-773676f56171/Particle sprite.png",
+  "provider": "fal",
+  "endpoint": "fal-ai/flux/schnell",
+  "requestId": "01a1828a-3127-7a50-bf6f-efa4d483ce1d",
+  "prompt": "Dark hazy smoke in a that looks like perlin noise",
+  "inputPrompt": "Dark hazy smoke in a that looks like perlin noise",
+  "seed": 89,
+  "candidateIndex": 3,
+  "settings": {
+    "image_size": "square_hd",
+    "num_inference_steps": 4,
+    "output_format": "png",
+    "enable_safety_checker": true,
+    "sync_mode": false,
+    "num_images": 4
+  },
+  "modelRevision": null,
+  "createdAt": "2026-10-28T12:44:14.052Z",
+  "savedAt": "2026-10-29T11:26:53.084Z"
+}

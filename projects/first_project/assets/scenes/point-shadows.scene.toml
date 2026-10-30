@@ -1,0 +1,12 @@
+schema_version = 1
+id = "point-shadow-demo"
+name = "Point shadows — lamp and cube"
+[[entities]]
+id = "caster"
+asset = "assets/entities/shadow-cube.entity.toml"
+[[entities]]
+id = "receiver"
+asset = "assets/entities/shadow-floor.entity.toml"
+[[entities]]
+id = "lamp"
+asset = "assets/entities/shadow-point.entity.toml"

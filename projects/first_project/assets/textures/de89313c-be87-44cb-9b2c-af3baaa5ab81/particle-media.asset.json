@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "id": "de89313c-be87-44cb-9b2c-af3baaa5ab81",
+  "projectId": "emergent.first-project",
+  "output": "sprite",
+  "stage": "animate",
+  "source": "assets/textures/949dce14-3eae-476f-b7dc-773676f56171/Particle sprite.png",
+  "prompt": "The blue smoke swirls menacingly - nothing but smoke, no additional images, no text",
+  "seed": 1236907999,
+  "settings": {
+    "image_url": "https://v3b.fal.media/files/b/0ab06245/xqzrzlycSxWFHQ7tO7m9__1793316532085.png",
+    "prompt": "The blue smoke swirls menacingly - nothing but smoke, no additional images, no text. Isolated game VFX sprite, locked camera, no camera motion or zoom, steady lighting, entire effect inside frame with empty padding, no text.",
+    "negative_prompt": "camera motion, zoom, pan, text, cropped effect",
+    "seed": 1236907999,
+    "num_frames": 81,
+    "frames_per_second": 24,
+    "resolution": "580p",
+    "aspect_ratio": "auto",
+    "interpolator_model": "none",
+    "enable_safety_checker": true,
+    "enable_output_safety_checker": true
+  },
+  "endpoint": "fal-ai/wan/v2.2-5b/image-to-video",
+  "requestId": "01a189fe-c249-7cd1-9ca7-1f806fdee367",
+  "spriteFamily": "1f6e8d6b-dbf0-4977-b435-92dd75e7108f",
+  "state": "baking",
+  "error": null,
+  "createdAt": "2026-10-29T23:28:56.367Z",
+  "file": "source.mp4",
+  "atlas": {
+    "columns": 8,
+    "rows": 4,
+    "frames": 32,
+    "fps": 8,
+    "alpha": false,
+    "path": "assets/textures/de89313c-be87-44cb-9b2c-af3baaa5ab81/Particle sprite animation.png"
+  },
+  "alphaMode": "additive-only",
+  "loop": "unverified",
+  "sourceClipRetained": true,
+  "sourceClipLocation": "ide-job-journal",
+  "modelRevision": null
+}

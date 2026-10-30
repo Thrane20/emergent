@@ -1,6 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element -- local image blobs and scoped reference routes */
+import {FalBalance} from "@/components/fal-balance";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ModelPreview } from "./model-preview";
@@ -75,7 +76,7 @@ export function ObjectCreator({ projectId, projectName, initialJobs, settings }:
   }
 
   return <main className="object-shell">
-    <header className="settings-topbar"><Link className="brand" href="/"><span className="brand-mark">E</span><span>Emergent</span><b>IDE</b></Link><span className="settings-breadcrumb">{projectName} / <b>Object Creator</b></span><Link href="/settings#object-generation" className="settings-back">Generation settings</Link><Link href="/" className="quiet-button">Project map ↗</Link></header>
+    <header className="settings-topbar"><Link className="brand" href="/"><span className="brand-mark">E</span><span>Emergent</span><b>IDE</b></Link><span className="settings-breadcrumb">{projectName} / <b>Object Creator</b></span><Link href="/terrain" className="quiet-button">Terrain Builder</Link><Link href="/textures" className="quiet-button">Texture Creator</Link><Link href="/settings#object-generation" className="settings-back">Generation settings</Link><Link href="/" className="quiet-button">Project map ↗</Link><FalBalance/></header>
     <div className="object-heading"><div><span className="eyebrow">IMAGE TO OBJECT · TRELLIS</span><h1>Give your world a new shape.</h1><p>Start from a reference. Explore the result. Keep what belongs.</p></div><span className={settings.configured ? "settings-state connected" : "settings-state"}>{settings.configured ? "fal key configured" : "Connect fal to begin"}</span></div>
     <div className="object-layout">
       <aside className="object-sidebar"><section className="panel object-input-panel"><div className="panel-head"><h2>Create an object</h2><span className="kind-badge">01 / REFERENCE</span></div>

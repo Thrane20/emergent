@@ -1,11 +1,18 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { readProjectSnapshot } from "./project";
+import { readProjectSnapshot,readProjectBinding } from "./project";
 import { ObjectCreatorError } from "./object-types";
 
 export async function objectProject(id: unknown) {
   const project = await readProjectSnapshot();
   if (id !== project.id) throw new ObjectCreatorError("The request does not match the linked project.", 409);
+  return project;
+}
+
+// Session traffic validates the binding without racing the asset tree's atomic saves.
+export async function inspectionProject(id:unknown){
+  const project=await readProjectBinding();
+  if(id!==project.id)throw new ObjectCreatorError("The request does not match the linked project.",409);
   return project;
 }
 

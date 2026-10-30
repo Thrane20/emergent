@@ -1,0 +1,13 @@
+"use client";
+import Link from "next/link";
+import {useEffect,useState} from "react";
+import {materialSettings,type MaterialSettings} from "@/lib/material-settings";
+import type {SceneInstance} from "@/lib/scene-placement";
+import type {NoiseAsset} from "./noise-swatch";
+import type {TextureAsset} from "./texture-picker";
+export function MaterialInspector({projectId,instance,disabled,onApply,onBusy}:{projectId:string;instance:SceneInstance;noiseAssets:NoiseAsset[];textureAssets:TextureAsset[];disabled:boolean;onApply:(value:MaterialSettings|null)=>Promise<void>;onDirty:(dirty:boolean)=>void;onBusy:(busy:boolean)=>void}){
+ const [items,setItems]=useState<{path:string;name:string}[]>([]),[error,setError]=useState(""),[busy,setBusy]=useState(false);
+ useEffect(()=>{const controller=new AbortController();fetch(`/api/materials?projectId=${encodeURIComponent(projectId)}`,{signal:controller.signal}).then(async response=>{const result=await response.json();if(!response.ok)throw new Error(result.error);setItems(result.materials);}).catch(error=>{if(!controller.signal.aborted)setError(error.message);});return()=>controller.abort();},[projectId]);
+ async function apply(asset:string){setBusy(true);onBusy(true);setError("");try{await onApply(asset?materialSettings({asset}):null);}catch(error){setError(error instanceof Error?error.message:"Material could not be applied.");}finally{setBusy(false);onBusy(false);}}
+ return <section className="material-inspector"><h3>Material</h3><label className="material-field">Library material<select aria-label="Object material" disabled={disabled||busy||Boolean(instance.material?.terrain_paint)} value={instance.material?.asset??""} onChange={event=>void apply(event.target.value)}><option value="">{instance.material?.terrain_paint?"Terrain painted materials":instance.material?.asset?"Material defaults":"Current inline material / defaults"}</option>{items.map(item=><option key={item.path} value={item.path}>{item.name}</option>)}</select></label><p className="transform-note">{instance.material?.terrain_paint?"Edit or clear painted terrain materials in Terrain Builder. ":""}Create and edit reusable surfaces in the Material Generator. Shared edits affect every object and terrain using that material.</p><Link className="quiet-button" href={instance.material?.asset?`/materials?asset=${encodeURIComponent(instance.material.asset)}`:`/materials?source=${encodeURIComponent(JSON.stringify(instance.material?.terrain_paint?{}:instance.material??{}))}`}>Open Material Generator ↗</Link><button type="button" disabled={disabled||busy||!instance.materialOverridden} onClick={()=>void apply("")}>Use asset material</button>{error&&<p role="alert">{error}</p>}</section>;
+}

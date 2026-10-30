@@ -1,0 +1,33 @@
+schema_version = 1
+id = "28f2400d-04e2-47f9-8a0c-d804a29e10c9"
+name = "Island"
+kind = "terrain"
+
+[terrain]
+algorithmVersion = 2
+generator = "diamond-square"
+domainWarp = 0.25
+ridgeStrength = 0.5
+erosionIterations = 16
+preset = "island"
+seed = 42
+resolution = 128
+size = 1000
+height = 35
+frequency = 0.8
+octaves = 5
+roughness = 0.67
+mountainCount = 3
+
+[material]
+shading = "smooth"
+albedo = [ 0.65, 0.65, 0.65 ]
+
+[physics]
+enabled = true
+body = "static"
+friction = 0.5
+restitution = 0
+
+[physics.collider]
+shape = "terrain"

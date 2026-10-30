@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { ProjectRunSnapshot, ProjectRunState } from "@/lib/project-runner";
 
-type Props = { projectId: string };
+type Props = { projectId: string; scenePath?: string; disabled?: boolean };
 
-export function ProjectRunControl({ projectId }: Props) {
+export function ProjectRunControl({ projectId, scenePath, disabled = false }: Props) {
   const [run, setRun] = useState<ProjectRunSnapshot | null>(null);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
@@ -47,7 +47,7 @@ export function ProjectRunControl({ projectId }: Props) {
       const response = await fetch("/api/run", {
         method: stop ? "DELETE" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId }),
+        body: JSON.stringify({ projectId, scenePath }),
       });
       const result = await response.json() as ProjectRunSnapshot & { error?: string };
       if (!response.ok) throw new Error(result.error ?? "Project run request failed.");
@@ -60,11 +60,12 @@ export function ProjectRunControl({ projectId }: Props) {
   };
 
   const state = run?.state ?? "idle";
-  const detail = error || runDetail(run);
+  const active = isActive(state);
+  const detail = error || (active ? runDetail(run) : scenePath ? `Run scene: ${scenePath}` : "Choose a scene to run");
   return <div className="run-control">
     <button
       className={`run-button ${state}`}
-      disabled={pending || state === "stopping"}
+      disabled={pending || state === "stopping" || (!active && (disabled || !scenePath))}
       onClick={toggle}
       title={detail}
     >

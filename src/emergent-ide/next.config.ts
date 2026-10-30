@@ -1,9 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  distDir: process.env.EMERGENT_NEXT_DIST_DIR ?? ".next",
   cacheComponents: true,
   partialPrefetching: true,
+  experimental: {
+    // The persisted dev graph has resumed into a rebuild loop on restart.
+    turbopackFileSystemCacheForDev: false,
+  },
   turbopack: {
     rules: {
       "*.css": {

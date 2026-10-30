@@ -1,0 +1,18 @@
+schema_version = 1
+id = "0d8bc844-cd37-405b-8a8b-b98a245c92b0"
+name = "Offender"
+kind = "directional-light"
+template = "light.directional"
+runtime_status = "preview"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [0.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[light]
+type = "directional"
+intensity = 3.0
+color = [1.0, 1.0, 1.0]
+casts_shadows = true

@@ -1,0 +1,18 @@
+schema_version = 1
+id = "ee5a2995-2be7-4bc0-b2a5-439c527447df"
+name = "Perspective camera"
+kind = "camera"
+template = "camera.perspective"
+runtime_status = "available"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [7.0, 5.0, 9.0]
+rotation_degrees = [-20.0, 38.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[camera]
+projection = "perspective"
+field_of_view_degrees = 60.0
+near = 0.1
+far = 1000.0

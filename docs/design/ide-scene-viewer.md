@@ -17,9 +17,10 @@ preview through an object URL; errors retain the last valid frame. Loading does
 not change project assets or run gameplay ticks. The first bridge is one paused
 frame per Load, not an interactive simulation stream.
 
-The current reference project registers its existing generated main_scene builder.
-Other scene files remain selectable but unsupported builders fail explicitly.
-Arbitrary authored-world loading, live frame streaming, camera input transport,
+The reference now loads validated authored primitive/light/empty-node instances
+through SceneDefinition. An optional registered main_scene builder adds the
+project motion chain; data-only scenes need no builder. Unsupported builders fail
+explicitly. Nested compositions, live frame streaming, camera input transport,
 and engine GLB support remain separate increments. Model Viewer remains appropriate
 for standalone generated-asset inspection, not engine scene rendering.
 

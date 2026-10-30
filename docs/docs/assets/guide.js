@@ -1,4 +1,11 @@
 const pages = [
+  { title: "Particle engine and generator", section: "API", url: "api.html#particles", terms: "smoke fire sparks dust particles emitter billboard flipbook atlas fal video transparency alpha" },
+  { title: "Noise filter assets", section: "Guide", url: "projects.html#noise-filters", terms: "filters perlin opensimplex worley cellular noise seed frequency octaves 2d 3d grayscale volume slices" },
+  { title: "Picking and transform gizmos", section: "Guide", url: "projects.html#viewport-tools", terms: "viewport select click picking gizmo translate rotate scale drag cancel escape 30 fps sandbox" },
+  { title: "Scene graph and Local/Global transforms", section: "Guide", url: "projects.html#scene-placement", terms: "parent child hierarchy drag drop reparent scene instances world local global scale rotation" },
+  { title: "Edit scene and entity TOML", section: "Guide", url: "projects.html#toml-editor", terms: "source save validate shared entity overrides conflicts" },
+  { title: "Persistent inspection", section: "Guide", url: "projects.html#persistent-inspection", terms: "live stream native Rust Metal Inspect orbit pan zoom tick zero PNG camera session" },
+  { title: "Scene Transform inspector", section: "Guide", url: "projects.html#scene-placement", terms: "placement instance position rotation scale uniform overrides reset defaults inspector" },
   { title: "Introduction", section: "Guide", url: "index.html", terms: "features architecture slotmap overview emergent" },
   { title: "Getting started", section: "Guide", url: "getting-started.html", terms: "install rust run cargo graphics setup" },
   { title: "Hello World", section: "Guide", url: "hello-world.html", terms: "example game behavior entity scene linear motion" },
@@ -10,6 +17,9 @@ const pages = [
   { title: "Lighting and effects", section: "Capabilities", url: "capabilities.html#look", terms: "lights shadows particles materials textures animation post processing" },
   { title: "Light-source entities", section: "API", url: "api.html#lighting", terms: "ambient directional point spot color colour intensity range cone shadow casting component" },
   { title: "Audio", section: "Capabilities", url: "capabilities.html#audio", terms: "sound mixer clips stream music spatial listener attenuation doppler" },
+  { title: "Object shadows", section: "API", url: "api.html#materials", terms: "cast shadows receive shadows directional sun point light lamp cube faces shadow map material inspector" },
+  { title: "Material editor", section: "API", url: "api.html#materials", terms: "material shading flat smooth unlit albedo specular shininess emission bump noise filter map colour color" },
+  { title: "Physics preview", section: "API", url: "api.html#physics", terms: "rapier gravity rigid body static dynamic box collider mass friction bounce restitution physics enabled inspector" },
   { title: "Simulation services", section: "Capabilities", url: "capabilities.html#simulation", terms: "input joystick gamepad physics collision navigation ui" },
   { title: "Library and API", section: "Reference", url: "api.html", terms: "engine world methods structs enums reference" },
   { title: "Engine lifecycle", section: "API", url: "api.html#engine", terms: "Engine Game EngineConfig run run_ticks advance_frame" },
@@ -19,6 +29,8 @@ const pages = [
   { title: "ECS integration", section: "API", url: "api.html#ecs", terms: "bevy component resource schedule lifecycle queue" },
   { title: "Graphics and geometry", section: "API", url: "api.html#graphics", terms: "wgpu winit GeometryRenderer GeometryId GeometryInstance Point Line Polygon Mesh render resize" },
   { title: "Project contract", section: "API", url: "api.html#projects", terms: "Project ProjectManifest output asset path schema" },
+  { title: "Authored scene loading", section: "API", url: "api.html#scene-loading", terms: "SceneDefinition LoadedScene SceneError primitive light instance parent validation asset" },
+  { title: "Include an asset in a scene", section: "Guide", url: "projects.html#authored-assets", terms: "add cube pyramid torus light transform colour color load render" },
 ];
 
 const root = document.documentElement.dataset.root || ".";

@@ -2,6 +2,8 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 
 export type ProjectFileKind =
+  | "tween"
+  | "filter"
   | "manifest"
   | "scene"
   | "entity"
@@ -16,6 +18,7 @@ export type ProjectFileKind =
 export type ProjectFile = {
   path: string;
   name: string;
+  displayName?: string;
   kind: ProjectFileKind;
   bytes: number;
   modifiedAt: string;
@@ -68,6 +71,12 @@ export type ProjectSnapshot = {
 const defaultProjectRoot = path.resolve(process.cwd(), "../../projects/first_project");
 const textExtensions = new Set([".md", ".rs", ".toml", ".txt", ".wgsl", ".json", ".ron"]);
 
+export async function readProjectBinding():Promise<Pick<ProjectSnapshot,"id"|"root">> {
+  const root=path.resolve(/* turbopackIgnore: true */ process.env.EMERGENT_PROJECT_PATH??defaultProjectRoot);
+  const manifest=await readFile(path.join(root,"emergent.toml"),"utf8");
+  return {root,id:valueFor(manifest,"id")??"unidentified-project"};
+}
+
 export async function readProjectSnapshot(): Promise<ProjectSnapshot> {
   const root = path.resolve(
     /* turbopackIgnore: true */ process.env.EMERGENT_PROJECT_PATH ?? defaultProjectRoot,
@@ -82,6 +91,9 @@ export async function readProjectSnapshot(): Promise<ProjectSnapshot> {
   );
   const manifestFile = await projectFile(manifestPath, root, generatedRoot);
   const files = [manifestFile, ...discovered.flat()].sort(fileOrder);
+  for(const descriptor of files.filter(file=>file.name==="texture.asset.json"&&file.content)){
+    try{const asset=JSON.parse(descriptor.content!);if(asset.schema_version===1&&asset.kind==="generated-texture"&&typeof asset.name==="string"){const image=files.find(file=>file.path===asset.image);if(image)image.displayName=asset.name;}}catch{/* Invalid sidecars remain visible for repair. */}
+  }
   const entryScene = valueFor(manifest, "entry_scene") ?? "No entry scene declared";
 
   return {
@@ -114,13 +126,20 @@ async function projectFile(absolute: string, root: string, generatedRoot: string
   const details = await stat(absolute);
   const relative = portable(path.relative(root, absolute));
   const extension = path.extname(relative).toLowerCase();
+  const content = textExtensions.has(extension) ? await readFile(absolute, "utf8") : null;
+  let displayName = relative.endsWith(".toml") && content ? valueFor(content.split(/^\[/m)[0], "name") : undefined;
+  if (path.basename(relative) === "object.asset.json" && content) {
+    try { const descriptor = JSON.parse(content); if (typeof descriptor.name === "string") displayName = descriptor.name; }
+    catch { /* Invalid descriptors remain available in source view. */ }
+  }
   return {
     path: relative,
     name: path.basename(relative),
+    displayName,
     kind: fileKind(relative),
     bytes: details.size,
     modifiedAt: details.mtime.toISOString(),
-    content: textExtensions.has(extension) ? await readFile(absolute, "utf8") : null,
+    content,
     authored: relative === "emergent.toml" || relative.startsWith("assets/"),
     generated: relative === generatedRoot || relative.startsWith(`${generatedRoot}/`),
   };
@@ -232,7 +251,9 @@ function entitiesFor(files: ProjectFile[]): ProjectEntity[] {
 }
 
 function fileKind(relative: string): ProjectFileKind {
+  if (relative.endsWith(".tween.toml")) return "tween";
   if (relative === "emergent.toml") return "manifest";
+  if (relative.endsWith(".noise.toml")) return "filter";
   if (relative.endsWith(".md")) return "documentation";
   if (relative.toLowerCase().endsWith(".glb")) return "model";
   if (/\.(png|jpe?g|webp)$/i.test(relative)) return "texture";

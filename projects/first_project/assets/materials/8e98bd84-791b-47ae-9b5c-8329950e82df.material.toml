@@ -1,0 +1,16 @@
+schema_version = 1
+id = "8e98bd84-791b-47ae-9b5c-8329950e82df"
+name = "DirtBrown"
+
+[material]
+shading = "smooth"
+cast_shadows = true
+receive_shadows = true
+specular = [ 0, 0, 0 ]
+shininess = 32
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0.1
+noise_resolution = 64
+terrain_layers = []
+albedo = [ 0.3277780980565422, 0.12743768043564743, 0.03688945040110004 ]

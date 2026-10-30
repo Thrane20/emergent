@@ -1,0 +1,20 @@
+schema_version = 1
+id = "torus"
+name = "torus"
+kind = "primitive"
+template = "object.torus"
+runtime_status = "available"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [0.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[geometry]
+primitive = "torus"
+major_radius = 1.0
+minor_radius = 0.25
+major_segments = 32
+minor_segments = 16
+color = [1.0, 1.0, 1.0, 1.0]

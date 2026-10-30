@@ -1,0 +1,14 @@
+algorithmVersion = 1
+preset = "mountainous"
+generator = "noise"
+seed = 42
+resolution = 128
+size = 100.0
+height = 38.0
+frequency = 0.65
+octaves = 4
+roughness = 0.35
+mountainCount = 3
+domainWarp = 0.25
+ridgeStrength = 0.5
+erosionIterations = 16

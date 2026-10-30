@@ -1,0 +1,51 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { parse, stringify } from "smol-toml";
+import { implementChat } from "../src/lib/chat-implementation";
+import { readProjectSnapshot } from "../src/lib/project";
+import { validateChatRequest } from "../src/lib/ai-chat";
+
+// Exercises the actual publication pipeline with synthetic AI output and native validation.
+test("chat applies a centre cube, answers questions, and rejects invalid/conflicting changes",{timeout:240000},async t=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),"emergent-chat-")),root=path.join(directory,"game"),foundation=path.resolve(process.cwd(),"../..");
+ const oldRoot=process.env.EMERGENT_PROJECT_PATH,oldData=process.env.EMERGENT_IDE_DATA_DIR;
+ t.after(async()=>{if(oldRoot===undefined)delete process.env.EMERGENT_PROJECT_PATH;else process.env.EMERGENT_PROJECT_PATH=oldRoot;if(oldData===undefined)delete process.env.EMERGENT_IDE_DATA_DIR;else process.env.EMERGENT_IDE_DATA_DIR=oldData;await rm(directory,{recursive:true,force:true});});
+ await cp(path.join(foundation,"projects/first_project/src"),path.join(root,"src"),{recursive:true});
+ await mkdir(path.join(root,"assets/entities"),{recursive:true});await mkdir(path.join(root,"assets/scenes"),{recursive:true});
+ const cargo=parse(await readFile(path.join(foundation,"projects/first_project/Cargo.toml"),"utf8"));
+ const dependencies=cargo.dependencies as Record<string,{path?:string}>;dependencies.emergent.path=foundation;
+ await writeFile(path.join(root,"Cargo.toml"),stringify(cargo));
+ const scene="assets/scenes/chat.scene.toml",asset="assets/entities/cube.entity.toml";
+ const original='# retain scene note\nschema_version=1\nid="chat-scene"\n[[entities]]\nid="original"\nasset="assets/entities/cube.entity.toml"\n';
+ const manifest=parse(await readFile(path.join(foundation,"projects/first_project/emergent.toml"),"utf8"));
+ manifest.id="chat-test";manifest.name="Chat test";manifest.entry_scene=scene;
+ await writeFile(path.join(root,"emergent.toml"),stringify(manifest));
+ await writeFile(path.join(root,scene),original);
+ await writeFile(path.join(root,asset),'schema_version=1\nid="cube-asset"\nname="Cube"\nkind="primitive"\n[geometry]\nprimitive="cube"\nhalf_extent=0.5\ncolor=[1.0,1.0,1.0,1.0]\n');
+ process.env.EMERGENT_PROJECT_PATH=root;process.env.EMERGENT_IDE_DATA_DIR=path.join(directory,"data");
+ let project=await readProjectSnapshot();
+ const request=validateChatRequest({projectId:project.id,scope:`file:${scene}`,scenePath:scene,message:"add a new cube at the world centre",history:[]});
+ const reuse=[{path:asset,symbol:"cube.entity.toml",reason:"Reuse the existing cube asset"}];
+ let created="", attempts=0;
+ const result=await implementChat(project,request,async prompt=>{
+  assert.ok(prompt.includes(`ACTIVE SCENE ${scene}`));assert.ok(prompt.includes("not merely suggest a snippet"));
+  if (++attempts === 1) return JSON.stringify({summary:"Add cube",reuse:[{path:asset,symbol:"Cube primitive asset",reason:"Reuse the cube"}],files:[]});
+  assert.ok(prompt.includes("REUSE CORRECTION"));
+  created=prompt.match(/AVAILABLE NEW DURABLE IDS ([a-f0-9-]+)/)![1];
+  return JSON.stringify({summary:"Added a cube at the world centre",reuse,files:[{path:scene,content:original+`\n[[entities]]\nid="${created}"\nasset="${asset}"\n[entities.transform]\ntranslation=[0,0,0]\nrotation_degrees=[0,0,0]\nscale=[1,1,1]\n`}]});
+ });
+ assert.equal(attempts,2);
+ assert.equal(result.applied,true);assert.deepEqual(result.files,[scene]);assert.match(result.text,/validation passed/);
+ const saved=await readFile(path.join(root,scene),"utf8"),entries=parse(saved).entities as {id:string;parent?:string;transform?:{translation:number[]}}[];
+ assert.equal(entries[0].id,"original");assert.equal(entries[1].id,created);assert.equal(entries[1].parent,undefined);assert.deepEqual(entries[1].transform?.translation,[0,0,0]);assert.ok(saved.startsWith("# retain scene note"));
+ project=await readProjectSnapshot();
+ const answer=await implementChat(project,{...request,message:"How many cubes?"},async()=>JSON.stringify({summary:"There are two cubes.",reuse:[],files:[]}));assert.equal(answer.applied,false);assert.equal(await readFile(path.join(root,scene),"utf8"),saved);
+ await assert.rejects(implementChat(project,request,async()=>JSON.stringify({summary:"Broken geometry",reuse,files:[{path:asset,content:'schema_version=1\nid="cube-asset"\nname="Cube"\nkind="primitive"\n[geometry]\nprimitive="cube"\nhalf_extent=-1.0\ncolor=[1.0,1.0,1.0,1.0]\n'}]})),/Candidate failed validation/);
+ assert.equal(await readFile(path.join(root,scene),"utf8"),saved);assert.match(await readFile(path.join(root,asset),"utf8"),/half_extent=0.5/);
+ await assert.rejects(implementChat(project,request,async()=>JSON.stringify({summary:"Invented ID",reuse,files:[{path:scene,content:saved+'\n[[entities]]\nid="duplicate-name-as-id"\nasset="'+asset+'"\n'}]})),/supplied unique IDs/);
+ await assert.rejects(implementChat(project,request,async()=>{await writeFile(path.join(root,scene),saved+"\n# external edit\n");return JSON.stringify({summary:"Stale edit",reuse,files:[{path:scene,content:saved+"\n# proposed edit\n"}]});}),/changed or was not inspected/);
+ assert.equal(await readFile(path.join(root,scene),"utf8"),saved+"\n# external edit\n");
+});

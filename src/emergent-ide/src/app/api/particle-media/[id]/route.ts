@@ -1,0 +1,4 @@
+import {objectProject,sameOrigin} from "@/lib/object-http";
+import {boundedBody} from "@/lib/object-files";
+import {particleMedia} from "@/lib/particle-media";
+export async function POST(request:Request,context:{params:Promise<{id:string}>}){try{sameOrigin(request);const {id}=await context.params,b=JSON.parse((await boundedBody(new Response(request.body,{headers:request.headers}),8192)).toString("utf8")),p=await objectProject(b.projectId);if(b.action==="delete")return Response.json(await particleMedia.discard(p,id));if(b.action==="refresh")return Response.json(await particleMedia.refresh(p,id));if(b.action==="bake"&&typeof b.alpha==="boolean")return Response.json(await particleMedia.atlas(p,id,b.alpha));throw new Error("Choose refresh, bake or delete.");}catch(e){return Response.json({error:e instanceof Error?e.message:"Media operation failed."},{status:400});}}

@@ -2,6 +2,7 @@ use std::any::TypeId;
 use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use bevy_ecs::change_detection::Mut;
@@ -144,12 +145,45 @@ impl EntityLifecycleResults {
 /// An entity's authored transform relative to its parent.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Transform {
+    /// Position in metres, relative to the parent coordinate frame.
     pub translation: Vec3,
     pub rotation: Quat,
+    /// Dimensionless multipliers of local geometry and child coordinates; one preserves size.
     pub scale: Vec3,
 }
 
 impl Transform {
+    /// Converts an affine matrix only when a finite, invertible TRS reproduces it.
+    /// Shear is rejected rather than silently discarded.
+    pub fn try_from_matrix(matrix: Mat4) -> Result<Self, WorldError> {
+        if !matrix.is_finite() || !matrix.inverse().is_finite() {
+            return Err(WorldError::UnrepresentableTransform);
+        }
+        let (scale, rotation, translation) = matrix.to_scale_rotation_translation();
+        let result = Self::new(translation, rotation, scale);
+        if !result.is_valid() || scale.abs().min_element() == 0.0 {
+            return Err(WorldError::UnrepresentableTransform);
+        }
+        let reconstructed = Mat4::from_scale_rotation_translation(scale, rotation, translation);
+        if matrix
+            .to_cols_array_2d()
+            .iter()
+            .zip(reconstructed.to_cols_array_2d())
+            .any(|(expected, actual)| {
+                let tolerance = expected
+                    .iter()
+                    .fold(0.0_f32, |max, value| max.max(value.abs()))
+                    * 0.0001;
+                expected
+                    .iter()
+                    .zip(actual)
+                    .any(|(a, b)| (a - b).abs() > tolerance)
+            })
+        {
+            return Err(WorldError::UnrepresentableTransform);
+        }
+        Ok(result)
+    }
     pub const IDENTITY: Self = Self {
         translation: Vec3::ZERO,
         rotation: Quat::IDENTITY,
@@ -209,6 +243,11 @@ impl GlobalTransform {
         self.affine.translation.into()
     }
 
+    /// Normalized world-space local -Z; absent for a degenerate transform.
+    pub fn look_direction(self) -> Option<Vec3> {
+        self.affine.transform_vector3(Vec3::NEG_Z).try_normalize()
+    }
+
     pub fn transform_point(self, point: Vec3) -> Vec3 {
         self.affine.transform_point3(point)
     }
@@ -254,6 +293,7 @@ pub enum WorldError {
     MissingEntity(EntityId),
     HierarchyCycle,
     InvalidTransform,
+    UnrepresentableTransform,
     ComponentMappingMissing(EntityId),
     ComponentMappingCorrupt(EntityId),
     ComponentStoreCardinality,
@@ -268,6 +308,7 @@ impl fmt::Display for WorldError {
             Self::WrongWorld(id) => write!(formatter, "entity {id:?} belongs to another world"),
             Self::MissingEntity(id) => write!(formatter, "entity {id:?} does not exist"),
             Self::HierarchyCycle => formatter.write_str("parenting would create a hierarchy cycle"),
+            Self::UnrepresentableTransform => formatter.write_str("transform cannot be represented as position/rotation/scale without shear or a singular matrix; use Local mode or change the parent scale"),
             Self::InvalidTransform => formatter
                 .write_str("transform values must be finite and rotations must be normalized"),
             Self::ComponentMappingMissing(id) => {
@@ -305,7 +346,13 @@ pub struct World {
     unauthorized_entity_query:
         QueryState<EcsEntity, (Without<EntityIdentity>, Without<IsResource>)>,
     behaviors: BehaviorGraph,
+    particles: Option<crate::ParticleStore>,
+    particle_query: QueryState<(&'static EntityIdentity, &'static crate::ParticleEffect)>,
     transform_stack: Vec<EntityKey>,
+    #[cfg(feature = "physics")]
+    physics: Option<crate::physics::runtime::PhysicsState>,
+    #[cfg(feature = "physics")]
+    physics_query: QueryState<(&'static EntityIdentity, &'static crate::PhysicsBody)>,
 }
 
 impl Default for World {
@@ -326,6 +373,9 @@ impl World {
         components.insert_resource(ComponentIntegrity::default());
         let unauthorized_entity_query = components
             .query_filtered::<EcsEntity, (Without<EntityIdentity>, Without<IsResource>)>();
+        #[cfg(feature = "physics")]
+        let physics_query = components.query::<(&EntityIdentity, &crate::PhysicsBody)>();
+        let particle_query = components.query::<(&EntityIdentity, &crate::ParticleEffect)>();
         let id = NEXT_WORLD_ID.fetch_add(1, Ordering::Relaxed);
         Self {
             id,
@@ -334,8 +384,86 @@ impl World {
             components,
             unauthorized_entity_query,
             behaviors: BehaviorGraph::new(id),
+            particles: Some(crate::ParticleStore::default()),
+            particle_query,
             transform_stack: Vec::with_capacity(capacity),
+            #[cfg(feature = "physics")]
+            physics: None,
+            #[cfg(feature = "physics")]
+            physics_query,
         }
+    }
+
+    /// Steps physics only when explicitly called by the fixed simulation loop.
+    #[cfg(feature = "physics")]
+    pub(crate) fn step_physics(&mut self, dt: Duration) -> Result<(), crate::PhysicsError> {
+        let mut state = self.physics.take().unwrap_or_default();
+        state.inputs.clear();
+
+        state.inputs.extend(
+            self.physics_query
+                .iter(&self.components)
+                .map(|(id, body)| (id.id(), *body)),
+        );
+        let result = state.step(self, dt);
+        self.physics = Some(state);
+        result
+    }
+
+    /// Current particle simulation data, extracted read-only by a renderer.
+    pub fn particles(&self) -> &crate::ParticleStore {
+        self.particles
+            .as_ref()
+            .expect("particle store is restored before world traversal")
+    }
+
+    pub(crate) fn step_particles(&mut self, dt: f32) -> Result<(), crate::ParticleError> {
+        let mut store = self
+            .particles
+            .take()
+            .expect("particle stepping is not reentrant");
+        let result = (|| {
+            let mut bindings = std::mem::take(&mut store.bindings);
+            bindings.retain(|entity, handle| {
+                let keep = self
+                    .component::<crate::ParticleEffect>(*entity)
+                    .ok()
+                    .flatten()
+                    .is_some();
+                if !keep {
+                    store.remove(*handle);
+                }
+                keep
+            });
+            store.bindings = bindings;
+            for (identity, effect) in self.particle_query.iter(&self.components) {
+                let entity = identity.id();
+                let model = self.entities[entity.key].global_transform.matrix();
+                if let Some(&handle) = store.bindings.get(&entity) {
+                    if store
+                        .bound_effect(handle)
+                        .is_some_and(|old| Arc::ptr_eq(&old.definition, &effect.definition))
+                    {
+                        store.set_transform(handle, model)?;
+                        continue;
+                    }
+                    store.remove(handle);
+                }
+                let handle = store.insert(effect.clone(), model)?;
+                store.bindings.insert(entity, handle);
+            }
+            if store.bindings.is_empty() {
+                return Ok(());
+            }
+            let steps = (dt / 0.1).ceil().clamp(1., 120.) as usize;
+            let step = dt / steps as f32;
+            for _ in 0..steps {
+                store.step(step)?;
+            }
+            Ok(())
+        })();
+        self.particles = Some(store);
+        result
     }
 
     pub fn len(&self) -> usize {
@@ -420,7 +548,40 @@ impl World {
         let mut entity = self.components.entity_mut(component_entity);
         let existed = entity.contains::<T>();
         entity.remove::<T>();
+        if TypeId::of::<T>() == TypeId::of::<crate::ParticleEffect>() {
+            if let Some(store) = &mut self.particles {
+                if let Some(handle) = store.bindings.remove(&id) {
+                    store.remove(handle);
+                }
+            }
+        }
         Ok(existed)
+    }
+
+    /// Adds a force to a dynamic body for its next fixed physics step.
+    ///
+    /// The force is a world-space vector in newtons. Forces submitted multiple
+    /// times for the same entity before that step are summed. Submit the force
+    /// again on later ticks to keep applying it.
+    pub fn add_force(&mut self, id: EntityId, force: Vec3) -> Result<(), crate::PhysicsError> {
+        #[cfg(feature = "physics")]
+        {
+            self.key_for(id)?;
+            if !matches!(
+                self.component::<crate::PhysicsBody>(id)?,
+                Some(body) if body.body == crate::BodyKind::Dynamic
+            ) {
+                return Err(crate::PhysicsError::NotDynamicBody);
+            }
+            self.physics
+                .get_or_insert_with(crate::physics::runtime::PhysicsState::default)
+                .queue_force(id, force)
+        }
+        #[cfg(not(feature = "physics"))]
+        {
+            let _ = (id, force);
+            Err(crate::PhysicsError::FeatureDisabled)
+        }
     }
 
     pub fn insert_resource<R: Resource>(&mut self, resource: R) {
@@ -542,6 +703,53 @@ impl World {
         Ok(&self.entities[key].global_transform)
     }
 
+    /// Resolves a desired global TRS to local TRS using propagated parent state.
+    pub fn local_from_global(
+        &self,
+        id: EntityId,
+        desired: Transform,
+    ) -> Result<Transform, WorldError> {
+        if !desired.is_valid() {
+            return Err(WorldError::InvalidTransform);
+        }
+        let parent = self
+            .parent(id)?
+            .map(|parent| self.global_transform(parent).map(|t| t.matrix()))
+            .transpose()?
+            .unwrap_or(Mat4::IDENTITY);
+        Transform::try_from_matrix(
+            parent.inverse()
+                * Mat4::from_scale_rotation_translation(
+                    desired.scale,
+                    desired.rotation,
+                    desired.translation,
+                ),
+        )
+    }
+
+    /// Moves a world-space position while retaining the current local rotation/scale.
+    pub fn local_from_global_position(
+        &self,
+        id: EntityId,
+        position: Vec3,
+    ) -> Result<Transform, WorldError> {
+        if !position.is_finite() {
+            return Err(WorldError::InvalidTransform);
+        }
+        let parent = self
+            .parent(id)?
+            .map(|parent| self.global_transform(parent).map(|t| t.matrix()))
+            .transpose()?
+            .unwrap_or(Mat4::IDENTITY);
+        let local = parent.inverse().transform_point3(position);
+        if !local.is_finite() {
+            return Err(WorldError::UnrepresentableTransform);
+        }
+        let mut result = *self.local_transform(id)?;
+        result.translation = local;
+        Ok(result)
+    }
+
     pub fn is_transform_dirty(&self, id: EntityId) -> Result<bool, WorldError> {
         let key = self.key_for(id)?;
         Ok(self.entities[key].transform_dirty)
@@ -629,7 +837,13 @@ impl World {
 
         for index in 0..self.transform_stack.len() {
             let key = self.transform_stack[index];
-            self.behaviors.remove_owner(self.id_for(key));
+            let id = self.id_for(key);
+            if let Some(store) = &mut self.particles {
+                if let Some(handle) = store.bindings.remove(&id) {
+                    store.remove(handle);
+                }
+            }
+            self.behaviors.remove_owner(id);
         }
         self.behaviors.compact_order();
 
@@ -895,6 +1109,150 @@ impl World {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn look_direction_follows_rotation_and_scaled_parent_hierarchy() {
+        use super::*;
+        assert_eq!(
+            GlobalTransform::IDENTITY.look_direction(),
+            Some(Vec3::NEG_Z)
+        );
+        let mut world = World::new();
+        let parent = world.spawn("parent");
+        let child = world.spawn_child(parent, "child").unwrap();
+        world
+            .set_local_transform(
+                parent,
+                Transform::new(
+                    Vec3::new(10., 20., 30.),
+                    Quat::from_rotation_z(0.7),
+                    Vec3::new(2., 3., 4.),
+                ),
+            )
+            .unwrap();
+        world
+            .set_local_transform(
+                child,
+                Transform::from_rotation(Quat::from_euler(crate::EulerRot::XYZ, 0.2, 0.4, 0.6)),
+            )
+            .unwrap();
+        world.propagate_transforms();
+        let global = world.global_transform(child).unwrap();
+        let direction = global.look_direction().unwrap();
+        assert!((direction.length() - 1.).abs() < 1e-6);
+        assert!(direction.abs_diff_eq(
+            global.matrix().transform_vector3(Vec3::NEG_Z).normalize(),
+            1e-6
+        ));
+        world
+            .set_local_transform(child, Transform::from_scale(Vec3::ZERO))
+            .unwrap();
+        world.propagate_transforms();
+        assert_eq!(
+            world.global_transform(child).unwrap().look_direction(),
+            None
+        );
+    }
+    #[test]
+    fn global_edit_resolves_rotated_scaled_parent_without_changing_world_identity() {
+        let mut world = World::new();
+        let parent = world.spawn("parent");
+        let child = world.spawn_child(parent, "child").unwrap();
+        world
+            .set_local_transform(
+                parent,
+                Transform::new(
+                    Vec3::new(10., 0., 0.),
+                    Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
+                    Vec3::splat(2.),
+                ),
+            )
+            .unwrap();
+        world
+            .set_local_transform(child, Transform::from_translation(Vec3::X))
+            .unwrap();
+        world.propagate_transforms();
+        assert!(world
+            .global_transform(child)
+            .unwrap()
+            .translation()
+            .abs_diff_eq(Vec3::new(10., 2., 0.), 1e-5));
+        let desired = Transform::new(
+            Vec3::new(10., 4., 0.),
+            Quat::from_rotation_z(std::f32::consts::PI),
+            Vec3::splat(4.),
+        );
+        let local = world.local_from_global(child, desired).unwrap();
+        assert!(local.translation.abs_diff_eq(Vec3::new(2., 0., 0.), 1e-5));
+        assert!(local.scale.abs_diff_eq(Vec3::splat(2.), 1e-5));
+        world.set_local_transform(child, local).unwrap();
+        world.propagate_transforms();
+        let expected = Mat4::from_scale_rotation_translation(
+            desired.scale,
+            desired.rotation,
+            desired.translation,
+        );
+        assert!(world
+            .global_transform(child)
+            .unwrap()
+            .matrix()
+            .abs_diff_eq(expected, 1e-4));
+        world.remove_subtree(parent).unwrap();
+        assert!(matches!(
+            world.local_from_global(child, desired),
+            Err(WorldError::MissingEntity(_))
+        ));
+    }
+    #[test]
+    fn global_position_preserves_sheared_hierarchy_and_global_trs_rejects_lossy_conversion() {
+        let mut world = World::new();
+        let parent = world.spawn("parent");
+        let child = world.spawn_child(parent, "child").unwrap();
+        world
+            .set_local_transform(parent, Transform::from_scale(Vec3::new(2., 1., 1.)))
+            .unwrap();
+        let original = Transform::new(
+            Vec3::X,
+            Quat::from_rotation_z(std::f32::consts::FRAC_PI_4),
+            Vec3::ONE,
+        );
+        world.set_local_transform(child, original).unwrap();
+        world.propagate_transforms();
+        let before = world.global_transform(child).unwrap().matrix();
+        assert_eq!(
+            Transform::try_from_matrix(before),
+            Err(WorldError::UnrepresentableTransform)
+        );
+        assert!(world
+            .local_from_global(child, Transform::from_rotation(original.rotation))
+            .is_err());
+        let local = world
+            .local_from_global_position(child, Vec3::new(10., 3., 0.))
+            .unwrap();
+        assert_eq!(local.rotation, original.rotation);
+        assert_eq!(local.scale, original.scale);
+        world.set_local_transform(child, local).unwrap();
+        world.propagate_transforms();
+        let after = world.global_transform(child).unwrap().matrix();
+        assert!(after
+            .w_axis
+            .truncate()
+            .abs_diff_eq(Vec3::new(10., 3., 0.), 1e-5));
+        assert_eq!(before.x_axis, after.x_axis);
+        assert_eq!(before.y_axis, after.y_axis);
+        assert!(Transform::try_from_matrix(Mat4::ZERO).is_err());
+    }
+    #[test]
+    fn decomposable_small_global_scale_is_not_confused_with_shear() {
+        let matrix = Mat4::from_scale(Vec3::splat(1e-6));
+        let transform = Transform::try_from_matrix(matrix).unwrap();
+        assert!(transform.scale.abs_diff_eq(Vec3::splat(1e-6), 1e-10));
+        let sheared = Mat4::from_scale(Vec3::new(2e-6, 1e-6, 1e-6))
+            * Mat4::from_rotation_z(std::f32::consts::FRAC_PI_4);
+        assert_eq!(
+            Transform::try_from_matrix(sheared),
+            Err(WorldError::UnrepresentableTransform)
+        );
+    }
     use std::f32::consts::FRAC_PI_2;
 
     use super::*;

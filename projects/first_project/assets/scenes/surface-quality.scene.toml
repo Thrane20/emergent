@@ -1,0 +1,32 @@
+schema_version = 1
+id = "surface-quality"
+name = "Surface quality — low vs standard"
+[[entities]]
+id = "corrected-low"
+asset = "assets/entities/surface-low.entity.toml"
+[entities.transform]
+translation = [-1.2, 0.0, 0.0]
+[entities.material]
+shading = "smooth"
+cast_shadows = true
+receive_shadows = true
+specular = [ 0.55, 0.55, 0.55 ]
+shininess = 64
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0.15
+noise_resolution = 128
+albedo = [ 0.22, 0.45, 0.65 ]
+
+[entities.material.bump_map]
+asset = "assets/filters/material-grain.noise.toml"
+strength = 1
+
+[[entities]]
+id = "corrected-standard"
+asset = "assets/entities/surface-standard.entity.toml"
+[entities.transform]
+translation = [1.2, 0.0, 0.0]
+[[entities]]
+id = "light"
+asset = "assets/entities/surface-quality-light.entity.toml"

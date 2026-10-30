@@ -1,0 +1,34 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {mkdir,mkdtemp,readFile,rm,writeFile} from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import {parse} from "smol-toml";
+import {DEFAULT_RAYMARCHED,raymarchedSettings} from "../src/lib/raymarched-terrain";
+import {prepareRaymarchedSave,readRaymarchedAsset,raymarchedLibrary} from "../src/lib/raymarched-assets";
+import {applyChanges} from "../src/lib/statement-files";
+import {readProjectSnapshot} from "../src/lib/project";
+import {terrainSceneRevision} from "../src/lib/terrain-assets";
+test("ray-marched recipe rejects malformed values and bounds field size",()=>{
+ assert.deepEqual(raymarchedSettings({seed:42,size:32}),{...DEFAULT_RAYMARCHED,version:1,seed:42,size:32,biome:"blend"});
+ assert.deepEqual(raymarchedSettings(DEFAULT_RAYMARCHED),DEFAULT_RAYMARCHED);
+ assert.equal(raymarchedSettings({...DEFAULT_RAYMARCHED,size:4096}).size,4096);
+ for(const value of [{...DEFAULT_RAYMARCHED,size:8192},{...DEFAULT_RAYMARCHED,version:3},{...DEFAULT_RAYMARCHED,relief:1000},{...DEFAULT_RAYMARCHED,cave_radius:-1}])assert.throws(()=>raymarchedSettings(value));
+ for(const value of [null,{}, {seed:-1,size:32},{seed:0.5,size:32},{seed:4294967296,size:32},{seed:1,size:NaN},{seed:1,size:128},{seed:1,size:32,physics:true}])assert.throws(()=>raymarchedSettings(value));
+});
+test("ray-marched library preserves identity/transforms, guards stale edits and places shared instances",async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),"raymarched-test-")),previous=process.env.EMERGENT_PROJECT_PATH;process.env.EMERGENT_PROJECT_PATH=root;
+ t.after(async()=>{if(previous===undefined)delete process.env.EMERGENT_PROJECT_PATH;else process.env.EMERGENT_PROJECT_PATH=previous;await rm(root,{recursive:true,force:true});});
+ await mkdir(path.join(root,"assets"));await mkdir(path.join(root,"src"));await writeFile(path.join(root,"emergent.toml"),'schema_version=1\nid="raymarch"\nname="Raymarch"\nentry_scene="assets/main.scene.toml"\nasset_roots=["assets"]\n');
+ const source='# scene comment\nschema_version=1\nid="main"\nentities=[]\n',scenePath="assets/main.scene.toml";await writeFile(path.join(root,scenePath),source);
+ let project=await readProjectSnapshot();const input={name:"Cave",settings:{seed:42,size:32}},created=await prepareRaymarchedSave(project,input);await applyChanges(project,created.changes);
+ assert.equal(await readFile(path.join(root,scenePath),"utf8"),source);project=await readProjectSnapshot();assert.equal(raymarchedLibrary(project).length,1);
+ const assetPath=created.assetPath;await writeFile(path.join(root,assetPath),'# keep asset comment\n'+await readFile(path.join(root,assetPath),"utf8")+'\n[transform]\ntranslation=[2,3,4]\n');
+ const old=await readRaymarchedAsset(project,assetPath),updated=await prepareRaymarchedSave(project,{...input,settings:{seed:4,size:40},assetPath,revision:old.revision});await applyChanges(project,updated.changes);
+ const saved=await readRaymarchedAsset(project,assetPath);assert.equal(saved.asset.id,old.asset.id);assert.deepEqual(saved.asset.transform,old.asset.transform);assert.match(saved.source,/# keep asset comment/);assert.equal(saved.settings.size,40);
+ await assert.rejects(prepareRaymarchedSave(project,{...input,assetPath,revision:old.revision}),/changed externally/);
+ const placed=await prepareRaymarchedSave(project,{...input,action:"place",assetPath,revision:saved.revision,scenePath,sceneRevision:terrainSceneRevision(source)});await applyChanges(project,placed.changes);
+ const next=await readFile(path.join(root,scenePath),"utf8");assert.match(next,/# scene comment/);assert.equal((parse(next).entities as {asset:string}[])[0].asset,assetPath);
+ await assert.rejects(prepareRaymarchedSave(project,{...input,action:"place",assetPath,revision:saved.revision,scenePath,sceneRevision:terrainSceneRevision(source)}),/scene changed/);
+ await assert.rejects(readRaymarchedAsset(project,"../outside.entity.toml"));
+});

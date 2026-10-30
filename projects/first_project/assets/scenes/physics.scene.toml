@@ -1,0 +1,67 @@
+schema_version = 1
+id = "physics-demo"
+name = "Physics — falling cube"
+
+[[entities]]
+id = "ground"
+asset = "assets/entities/physics-ground.entity.toml"
+
+[entities.transform]
+translation = [-0.44898963,-0.25,0]
+rotation_degrees = [0,0,0]
+scale = [10,0.5,10]
+
+[[entities]]
+id = "falling-cube"
+asset = "assets/entities/physics-cube.entity.toml"
+
+[entities.transform]
+translation = [0,3,0]
+rotation_degrees = [20,0,0]
+scale = [1,1,1]
+[entities.physics]
+enabled = true
+body = "dynamic"
+gravity_scale = 1
+mass = 10
+friction = 0.2
+restitution = 0.45
+
+[entities.physics.collider]
+shape = "box"
+[entities.material]
+shading = "flat"
+specular = [ 0, 0, 0 ]
+shininess = 32
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0.1
+albedo = [ 0.5711248294648731, 0.030713443732993635, 0.5840784178911641 ]
+
+[[entities]]
+id = "key-light"
+asset = "assets/entities/key-light.entity.toml"
+
+[entities.transform]
+translation = [0,6,4.193477]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+
+[[entities]]
+id = "torus"
+asset = "assets/entities/torus.entity.toml"
+
+[entities.transform]
+translation = [-0.34873873,1.1886852,3.7936277]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+[entities.material]
+shading = "smooth"
+specular = [ 0.6239603916750761, 0.45641102318040466, 0.45641102318040466 ]
+shininess = 65
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0.1
+albedo = [ 0.01599629336550963, 0.08437621154414882, 0.35153259950043936 ]
+

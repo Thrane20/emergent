@@ -1,6 +1,16 @@
 # Emergent — Foundation Goals
 
-Status: the verified initial headless foundation is tagged `v0.1.0-foundation`; the transform graph, ECS selection and integration, behaviour graph, first wgpu object, independent project boundary, first-class geometry, procedural primitives, and headless light-source entities through `ITERATION_10.md` are complete. ADR 0002 locks in standalone `bevy_ecs` for general components and scheduled systems while SlotMap remains canonical for identity and hierarchy. The capability catalogue records the wider graphics, audio, simulation, content, and tooling horizon. Broader staged acceptance gates remain open.
+Last reconciled: **2026-10-30**. This file holds the vision, architecture contracts and
+stage gates. It is not a changelog. Where things stand:
+
+- [plan.md](plan.md): what is being worked on now and next
+- [docs/implementation-status.md](docs/implementation-status.md): delivered slices with design/evidence links
+- [docs/README.md](docs/README.md): documentation map and update rules
+
+`[x]` means the stated slice is implemented; it does not imply that the enclosing
+stage's exit gate has passed. Windows/Linux runtime validation, authored
+compositions/behaviour links, play/pause/step controls and production performance
+acceptance remain open across stages.
 
 ## Vision
 
@@ -296,7 +306,9 @@ If a higher-level rendering framework becomes necessary, evaluate it against the
 
 ### Stage 0 — Resolve the foundation choices
 
-- [ ] Write short decision records for identity/storage boundaries, coordinate conventions, tick semantics, and module lifecycle.
+- [x] Record identity/ECS boundaries, coordinate conventions, lifecycle commit points, and behaviour tick semantics in ADRs 0001–0004.
+- [ ] Define a dependency-validated application/module builder with ordered startup and shutdown.
+- [x] Define a versioned project manifest, durable project/output IDs, asset roots, and a tiny independent project fixture.
 - [ ] Define the game project manifest, authored scene/composition format, durable identity scopes, registration/schema export, and graph inspection/validation contract with a tiny project fixture.
 - [ ] Define build-output graph nodes, OS/architecture support, minimum OS versions, per-target configuration, artifact layout, and required build/verification runners.
 - [ ] Define construction versus simulation schedules, project/play transitions, authoring edit persistence, external-file conflict handling, and the minimum project-mode tool interface.
@@ -309,8 +321,8 @@ Exit: evidence-backed decisions and a bounded implementation plan. Separate meas
 
 ### Stage 1 — Headless world and composition
 
-- [ ] Establish a Rust workspace and the minimal module lifecycle.
-- [ ] Implement mathematical conventions, transforms, typed SlotMap identities, entities, scene roots, and hierarchy operations.
+- [x] Establish a Rust workspace and minimal application start/fixed-update/shutdown lifecycle.
+- [x] Implement mathematical conventions, transforms, typed SlotMap identities, entities, scene roots, and hierarchy operations.
 - [x] Implement the selected component storage direction and internal identity mapping.
 - [x] Demonstrate nesting, reparenting, transform propagation, and subtree destruction without graphics dependencies.
 
@@ -319,7 +331,8 @@ Exit: tests cover cycle rejection, stale keys, world boundaries, deep hierarchie
 ### Stage 2 — Behaviour composition and simulation
 
 - [x] Implement behaviour attachment, typed linking, initial values, committed snapshots, and stable execution/commit rules.
-- [ ] Add fixed-step timing, bounded catch-up, pause, and headless tick control.
+- [x] Add configurable fixed-step timing, bounded catch-up, and exact headless tick control.
+- [ ] Add interactive pause/resume and single-step controls with explicit backlog reset.
 - [x] Build the linked-motion composition example and a feedback-cycle example.
 - [x] Exercise link rewiring, target deletion, disabled behaviours, and scene teardown.
 
@@ -328,7 +341,10 @@ Exit: behaviour changes arise from composition and links; equivalent runs with t
 ### Stage 2A — Game project and authoring foundation
 
 - [x] Supply an independent game project template using only public engine APIs, with project guidance for AI generators.
-- [ ] Implement minimum scene and reusable-composition loading, durable-ID resolution, type registration, and schema/graph validation.
+- [x] Define macOS, Windows, and Linux output declarations in the sample manifest; enable the locally verified macOS development output.
+- [x] Reproduce the linked-motion example in project-owned generated Rust and run it headlessly and visibly without engine-source edits.
+- [x] Load bounded schema-1 scenes referencing primitive/light/empty-node assets, resolve instance IDs to fresh SlotMap handles, and validate paths, schemas, values and parent graphs before construction.
+- [ ] Extend loading to nested reusable compositions, authored behaviour links, full type registration and registry/schema exports.
 - [ ] Provide structured registry and graph exports plus actionable validation diagnostics.
 - [ ] Add manifest-driven output selection and build planning for Windows, Linux, and macOS, with isolated artifacts and explicit per-output prerequisite and result reporting.
 - [ ] Test single-output and multi-output selection, shared content resolution, target overrides, unsupported targets, and artifact isolation.
@@ -336,13 +352,17 @@ Exit: behaviour changes arise from composition and links; equivalent runs with t
 - [ ] Test duplicate IDs, missing assets/types/ports, invalid link types, recursive composition, hierarchy cycles, unsupported schemas, and failed-load cleanup.
 - [ ] Complete the AI-generated project proof and record any manual corrections.
 
+The narrower live AI proof is complete: a cube Statement generated a project-owned spin helper, passed staged compilation and an independent check, and was tested in the reference game. Manual cleanup is recorded. The full authored-composition/type-registry proof above remains open.
+
 Exit: a developer or AI generator can extend, validate, build, and run a headless game project without editing the engine. Minimal authored-scene persistence is included; full runtime save games remain deferred.
 
 ### Stage 3 — Minimal visible 3D foundation
 
 - [x] Connect platform events and the renderer to the existing headless-capable runtime.
-- [ ] Display the composition example with a camera, depth-tested geometry, and inherited transforms.
-- [ ] Launch the independently authored sample game through its project entry scene and asset roots.
+- [x] Display the composition example with a camera, depth-tested geometry, and inherited transforms.
+- [x] Launch the independent reference game in a native window, with headless and bounded smoke modes.
+- [x] Resolve the reference entry scene to its registered generated Rust builder for paused previews.
+- [x] Launch the independent sample game through its entry scene and referenced primitive/light assets; preserve project Rust behaviour extensions.
 - [ ] Build and package the sample project's selected Windows, Linux, and macOS outputs from the same source and authored scene graph using suitable runners.
 - [ ] Verify native launch, resize, minimize/restore, presentation, asset loading, and clean shutdown on Windows, Linux, and macOS; record results per output.
 
@@ -355,20 +375,38 @@ Exit: the same simulation drives both headless and visible examples; platform/ru
 - [x] Add validated ambient, directional, point, and spot light components on canonical entities, including colour, intensity, range/cone data, and shadow-casting intent.
 - [ ] Promote cameras and renderable mesh/material instances to public, SlotMap-compatible engine concepts with explicit render extraction.
 - [ ] Extend vector and debug geometry with polylines, concave and outlined polygons, grids, axes, bounds, overlays, and gizmos.
-- [ ] Add mesh and texture resource ownership, material/shader contracts, visibility, culling, batching, and measured GPU upload rules.
-- [ ] Add seeded noise generators plus bounded heightmap and polygonal terrain examples with chunk and level-of-detail contracts.
-- [ ] Extract ambient, directional, point, and spot lights into a lit renderer, followed by explicitly budgeted shadow techniques.
-- [ ] Add a bounded particle system with pooled CPU emitters first and a measured GPU path when workload evidence justifies it.
+- [x] Own uploaded geometry through renderer-scoped generational handles and reuse per-instance uniform staging.
+- [ ] Add texture resource ownership, material/shader contracts, visibility, culling, batching, and measured GPU upload rules. *(Diffuse textures, materials and a shared material library are delivered; culling, batching and upload budgets remain open.)*
+- [x] Add versioned seeded Perlin, OpenSimplex and Worley noise filters, bounded 2D/3D generation, editable inspector inputs/seeds and grayscale slice previews.
+- [x] Add a heightmap terrain consumer: generated/sculpted fields, painted materials, scene placement and heightfield collision. See [terrain plan](docs/plans/terrain.md).
+- [ ] Add polygonal terrain and chunk/level-of-detail/streaming contracts (terrain plan stages 0–6). An experimental ray-marched variant is prototyped.
+- [x] Extract ambient, directional, point, and spot lights into a bounded eight-light Lambert renderer, with authored/generated normals and inverse-transpose normal matrices.
+- [x] Provide flat/smooth mesh shading and one directional shadow map with explicit first bounds (2048-square map, first eligible directional light).
+- [ ] Establish measured shadow quality/performance budgets and extend beyond the first directional shadow path as required.
+- [x] Add a bounded particle system with pooled CPU emitters, instanced billboards and flipbooks.
+- [ ] Add a measured GPU particle path when workload evidence justifies it.
 - [ ] Establish the audio device, clip/stream, mixer-bus, and spatial source/listener boundaries without coupling audio identity to entities.
-- [ ] Publish asset formats and project folders for meshes, textures, terrain data, shaders, particles, and audio as each capability becomes available.
+- [ ] Publish asset formats and project folders for meshes, textures, terrain data, shaders, particles, and audio as each capability becomes available. *(Textures, materials, terrain, structures, particles, tweens and environment are authored; native GLB meshes, shaders and audio are not.)*
 
 Exit: a game project can assemble a small lit scene from procedural and asset-backed geometry, terrain, particles, and spatial sound through public engine APIs. Each shipped capability has explicit ownership, loading, performance, and platform validation evidence.
 
 ### Stage 3A — Visual project mode and game debugging
 
+- [x] Assess Selkies as a viewport transport: decline its current Linux-hosted stack for native Mac development; keep the persistent inspection session independent of transport. See `docs/research/selkies-macos-feasibility.md`.
+- [x] Provide IDE Run/Stop, Cargo build diagnostics, bounded logs, and process status for the linked local game.
+- [x] List project scenes in a selector and Load a real offscreen Rust/wgpu capture into the middle IDE canvas.
+- [x] Construct the registered reference scene at tick zero without advancing gameplay; retain the last valid frame when a reload fails.
+- [x] List authored scene instances and edit parent-relative position, rotation and scale with uniform scale, scene overrides, reset to asset defaults, guarded publication and Rust candidate validation.
+- [x] Make the authored scene graph the primary IDE tree, with project files in a collapsible section, drag/drop parenting and keyboard parent selection; inherit parent translation, rotation and scale.
+- [x] Edit Local/Global coordinates using Rust world math; retain local values on reparent and reject lossy shear conversions.
+- [x] Edit scene and shared entity TOML beside Overview/Connections/Source, validating staged project scenes and rejecting stale or invalid saves.
 - [ ] Provide build/launch/debug instructions and project, play, paused-play, and fixed-tick step controls with visible build/session status.
 - [ ] Implement construction hooks and explicit regeneration with seeds, progress/cancellation, and coherent replacement of generated content.
-- [ ] Add an inspection camera, picking, hierarchy/property inspection, behaviour-link inspection, and source-linked diagnostics.
+- [x] Retain a native inspection world/renderer at tick zero with bounded browser frames, acknowledged controls, session generations and owned-process cleanup.
+- [x] Navigate an orbit/pan/zoom inspection camera and apply saved instance transforms without restarting the worker; record initial transport measurements.
+- [x] Target 30 fps for the retained inspection viewport, with measured frame delivery and no simulation advance or frame backlog.
+- [x] Pick authored geometry and light/node markers in the viewport, synchronize scene selection, and edit with XYZ translate/rotate/scale gizmos in Local/Global space. Preview during drag, validate/save on release, and restore on cancellation or conflict.
+- [ ] Add live runtime hierarchy and behaviour-state/link inspection, and source-linked diagnostics; authored hierarchy, picking and first axis gizmos are delivered above.
 - [ ] Demonstrate procedural terrain construction while gameplay stays at tick zero, with a game-defined placement rule and a saved home-base placement.
 - [ ] Verify reload/regeneration preserves valid authored placement and reports invalid anchors, failed generation, and external-file conflicts.
 - [ ] Verify play/stop isolation, exact tick stepping, no accumulated pause-time catch-up, and undo/redo for supported authored edits.
@@ -377,8 +415,41 @@ Exit: a game project can assemble a small lit scene from procedural and asset-ba
 
 Exit: a developer can build a game, inspect its generated world without running gameplay, choose and persist a home-base location, debug a play session, and return to the authored preview while working alongside code builders.
 
+### Stage 3C — IDE authoring and AI workflows (added delivered scope)
+
+- [x] Create a pnpm/Next.js IDE under `src/emergent-ide`, linked to a game project outside the web application.
+- [x] Inspect real project files, inferred graph connections, asset details, and source through a minimal searchable tree and selected-file views.
+- [x] Provide full-width lower chat bound to the selected file, with server-local AI URL/key settings and a working Responses connection.
+- [x] Persist per-file Statements; check new Statements immediately and preserve them when AI checking fails.
+- [x] Report Statement implementation evidence/confidence and offer explicit reuse-first Implement: inspect project/engine capabilities, compile bounded proposed project changes in isolation, check conflicts, publish with rollback protection, and independently recheck.
+- [x] Demonstrate the workflow with a project-owned slow Z-axis cube rotation; record tests and manual corrections.
+- [x] Add named asset templates through a categorized modal, respecting declared asset roots and showing available/preview/planned capabilities.
+- [x] Optionally include new primitive/light/empty-node assets in the selected scene; asset edits drive real Rust captures and native Run, and invalid reloads preserve the last valid frame.
+- [x] Refine modal visibility/scroll containment, simplify the tree and inspector, bind chat scope to selection, and deduplicate chat context keys.
+- [x] Publish the HTML user guide (intro, getting started, Hello World, projects, capabilities, API) and machine-readable capability catalogue.
+- [x] Expose the project to MCP clients (Claude Code; Codex configured) through durable `asset:`/`scene:`/`instance:` refs, with read and view tools (MCP-1). Guarded edits (MCP-2) are next. See [design](docs/design/project-mcp-server.md).
+- [x] Let the IDE's AI use Claude or Codex, with per-provider model selection.
+- [x] Provide the installed `emergent` coding skill for idiomatic project and engine extension; this is local agent tooling, not a bundled runtime feature.
+
+### Stage 3D — Object Creator (added delivered scope)
+
+- [x] Add `/objects` with server-local fal credentials and hosted Microsoft TRELLIS image-to-3D generation.
+- [x] Persist project-scoped jobs, request IDs, settings, history, recoverable polling, cached artifacts, and explicit failure states without automatic duplicate paid submissions.
+- [x] Validate bounded image uploads and downloaded GLB output; preview cached and saved models with browser Model Viewer orbit/zoom/reset controls.
+- [x] Save complete model/reference/descriptor bundles with durable asset IDs and provider provenance, collision protection, and explicit project-graph edges.
+- [x] Observe a real hosted result saved as `assets/models/a-robot-arm/` in the reference project; retain the numeric texture-size provider fix and regression coverage in the working tree.
+- [x] Verify the real hosted robot-arm GLB in the running IDE, reload and reopen via its descriptor; retain automated viewer/save/restart coverage with a GLB fixture and mocked generation.
+- [ ] Add text-to-reference-image generation, native engine GLB loading/materials, and generated-model placement in scenes in later increments.
+
+The detailed OC-1 acceptance checklist is archived in [the epic log](docs/history/epic-log-2026-10.md). Browser model preview does not establish native engine model support.
+
+### Stage 3E — Additional delivered editors (added scope)
+
+Materials, Object Builder, Terrain Builder (heightfield and ray-marched), Texture and Image/Sprite/Video library, Particle Factory, Tween Editor, scene Lighting/skybox and Player settings pages are delivered. Each has a row with links in [implementation status](docs/implementation-status.md). Player settings are not yet consumed at runtime.
+
 ### Stage 4 — Performance baseline and extension readiness
 
+- [x] Record release baselines for transform propagation, ECS comparisons/integration, and behaviour graphs with workload and measurement limitations.
 - [ ] Profile optimized builds across increasing scene sizes, hierarchy shapes, behaviour-link density, and structural churn.
 - [ ] Record frame-time distributions, simulation/transform/render extraction costs, memory use, and steady-state allocations against agreed budgets.
 - [ ] Improve demonstrated bottlenecks with dense iteration, buffer reuse, dirty propagation, or batching, then compare against the baseline.
@@ -388,7 +459,7 @@ Exit: a small working foundation with recorded limits and a clear next-feature b
 
 ## Explicitly deferred
 
-The capability catalogue makes future systems first-class planning concepts without moving them into the current implementation milestone. Joystick/gamepad support and input mapping; rich 3D meshes and materials; rich media importing and streaming; production sound and spatial audio; physics; animation; a full visual editor and terrain sculpting suite; runtime scripting; networking; runtime save-game/world-state serialization; time-travel debugging; seamless Rust code hot-reload; and dynamic plugins remain deferred until their staged work begins.
+The capability catalogue makes future systems first-class planning concepts without moving them into the current implementation milestone. Joystick/gamepad support and input mapping; rich 3D meshes and materials; rich media importing and streaming; production sound and spatial audio; physics beyond static/dynamic boxes and heightfield colliders; animation beyond reusable scalar tweens; a full visual editor beyond the delivered terrain sculpt/paint tools; runtime scripting; networking; runtime save-game/world-state serialization; time-travel debugging; seamless Rust code hot-reload; and dynamic plugins remain deferred until their staged work begins.
 
 These inform module boundaries but are not tasks for the first foundation milestone. Basic platform event handling and minimal 3D debug geometry prove the runtime and renderer. Project folders, authored scene/composition files, asset reference resolution, custom Rust behaviours, and AI-facing graph contracts are included in the foundation. A bounded visual project mode, procedural terrain demonstration, placement authoring, and build/run/debug workflow are included in Stage 3A; advanced editor features remain deferred.
 
@@ -396,7 +467,7 @@ These inform module boundaries but are not tasks for the first foundation milest
 
 Work through the stages in order and keep this checklist honest. Complete the foundation decision spike before broad implementation. Keep proposed API sketches provisional until tested in the composition example. Update decisions with measured evidence, report missing validation explicitly, and preserve the SlotMap requirements in `AGENTS.md`.
 
-This document authorizes planning scope; its creation does not mean implementation has begun or that any acceptance gate has passed.
+Checked items record delivered slices, with evidence and limitations in the implementation status document. Unchecked items remain planned or partially implemented; completing individual slices does not automatically pass a stage's broader acceptance gate.
 
 ## Primary references
 
@@ -410,3 +481,19 @@ Checked while preparing this brief; select and record exact dependency versions 
 - [bevy_ecs APIs, systems, and scheduling](https://docs.rs/bevy_ecs/latest/bevy_ecs/)
 - [Bevy ECS standalone use](https://docs.rs/bevy/latest/bevy/ecs/)
 - [Bevy renderer and wgpu](https://docs.rs/bevy/latest/bevy/render/)
+
+## Architecture decisions recorded after the original brief
+
+- **Physics:** standalone `rapier3d` behind the optional `physics` feature. Emergent owns
+  scheduling and identity; backend handles stay private and are never authored.
+  Physics steps at the fixed timestep after gameplay commands and before final transform
+  propagation; inspection never advances it. See [physics design](docs/design/physics-foundation.md).
+- **Units:** one world unit is one metre. See [units audit](docs/design/world-units-and-scale-audit.md).
+- **Materials:** engine values on canonical entities; GPU resources are owned per renderer
+  `GeometryId`. See [material design](docs/design/material-editor.md).
+- **Terrain:** heightfield remains the production representation; ray marching is an
+  experimental variant pending collision and budgets. The first performance increment
+  adds bounded visibility, preview quality and diagnostics, followed by optional
+  GPU pass profiling and native camera-route evidence; see [terrain plan](docs/plans/terrain.md)
+  and [measured limits](docs/benchmarks/terrain-performance/README.md). Continuous-world
+  stage gates remain open.

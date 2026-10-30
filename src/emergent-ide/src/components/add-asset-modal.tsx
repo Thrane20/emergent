@@ -1,27 +1,34 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { createPortal } from "react-dom";
 import {
-  assetPath,
   assetTemplates,
+  sceneCompatible,
   type AssetTemplate,
 } from "@/lib/asset-catalog";
 
 type Props = {
   projectId: string;
-  onCreated: (path: string) => void;
+  scenePath?: string;
+  onBeforeOpen?: () => boolean;
+  onCreated: (path: string, sceneError?: string) => void;
 };
 
-export function AddAssetModal({ projectId, onCreated }: Props) {
+export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }: Props) {
   const nameRef = useRef<HTMLInputElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const [search,setSearch]=useState("");
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(assetTemplates[0].id);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [includeInScene, setIncludeInScene] = useState(true);
   const selected = assetTemplates.find((template) => template.id === selectedId) ?? assetTemplates[0];
-  const categories = useMemo(() => groupTemplates(assetTemplates), []);
+  const particleGenerator=selected.id==="effects.particle-emitter";
+  const categories = useMemo(() => groupTemplates(assetTemplates.filter(template=>search.trim().toLowerCase().split(/\s+/).every(token=>`${template.category} ${template.label} ${template.id} ${template.description}`.toLowerCase().includes(token)))), [search]);
 
   useEffect(() => {
     if (!open) return;
@@ -33,7 +40,7 @@ export function AddAssetModal({ projectId, onCreated }: Props) {
       if (event.key === "Escape") setOpen(false);
     };
     window.addEventListener("keydown", onKeyDown);
-    nameRef.current?.focus();
+    searchRef.current?.focus();
     return () => {
       window.removeEventListener("keydown", onKeyDown);
       document.body.style.overflow = previousBodyOverflow;
@@ -57,19 +64,20 @@ export function AddAssetModal({ projectId, onCreated }: Props) {
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
+    if(particleGenerator){setError("Open the Particle Generator to author this effect.");return;}
     setSaving(true);
     setError("");
     try {
       const response = await fetch("/api/assets", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ projectId, templateId: selected.id, name }),
+        body: JSON.stringify({ projectId, templateId: selected.id, name, scenePath: includeInScene && sceneCompatible(selected) ? scenePath : undefined }),
       });
-      const result = await response.json() as { path?: string; error?: string };
+      const result = await response.json() as { path?: string; error?: string; sceneError?: string };
       if (!response.ok || !result.path) throw new Error(result.error ?? "Asset creation failed.");
       setOpen(false);
       setName("");
-      onCreated(result.path);
+      onCreated(result.path, result.sceneError);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Asset creation failed.");
     } finally {
@@ -79,7 +87,7 @@ export function AddAssetModal({ projectId, onCreated }: Props) {
 
   return <>
     <div className="asset-tree-actions">
-      <button className="add-asset-button" onClick={() => { setOpen(true); setName(""); }}>
+      <button className="add-asset-button" onClick={() => { if(onBeforeOpen&&!onBeforeOpen())return;setSearch("");setOpen(true); setName(""); }}>
         <span>+</span> Add asset
       </button>
     </div>
@@ -90,9 +98,11 @@ export function AddAssetModal({ projectId, onCreated }: Props) {
             <div><span className="eyebrow">EMERGENT FOUNDATIONS</span><h2 id="asset-modal-title">Add a project asset</h2></div>
             <button aria-label="Close asset creator" onClick={close}>×</button>
           </header>
+          <div className="asset-modal-search"><input ref={searchRef} type="search" aria-label="Search asset foundations" placeholder="Search assets, shapes, lights, cameras…" value={search} onChange={event=>setSearch(event.target.value)}/>{search&&<button type="button" aria-label="Clear asset search" onClick={()=>{setSearch("");searchRef.current?.focus();}}>Clear</button>}</div>
           <div className="asset-modal-body">
             <nav className="foundation-tree" aria-label="Asset foundations">
-              {categories.map(([category, templates]) => <details open key={category}>
+              {!categories.length&&<p className="asset-search-empty" role="status">No matching assets.</p>}
+              {categories.map(([category, templates]) => <details key={`${search.trim().toLowerCase()}:${category}`} open={search.trim()?true:undefined}>
                 <summary>{category}<small>{templates.length}</small></summary>
                 <div>
                   {templates.map((template) => <button
@@ -107,7 +117,8 @@ export function AddAssetModal({ projectId, onCreated }: Props) {
               </details>)}
             </nav>
             <form className="asset-create-form" onSubmit={create}>
-              <div className="asset-template-title">
+              <div className="asset-create-fields">
+                <div className="asset-template-title">
                 <span className={`capability-badge ${selected.status}`}>{selected.status}</span>
                 <span>{selected.category}</span>
               </div>
@@ -117,8 +128,9 @@ export function AddAssetModal({ projectId, onCreated }: Props) {
                 <b>{selected.capability}</b>
                 <span>{supportNote(selected)}</span>
               </div>
+              <div hidden={particleGenerator}>
               <label className="asset-name-field">
-                <span>Name</span>
+                <span>Display name</span>
                 <input
                   ref={nameRef}
                   value={name}
@@ -128,14 +140,19 @@ export function AddAssetModal({ projectId, onCreated }: Props) {
                   autoComplete="off"
                 />
               </label>
+              {scenePath && sceneCompatible(selected) && <label>
+                <input type="checkbox" checked={includeInScene} onChange={(event) => setIncludeInScene(event.target.checked)} /> Include in selected scene
+              </label>}
               <div className="asset-path-preview">
                 <span>CREATES</span>
-                <code>{name.trim() ? assetPath(selected, name) : `${selected.directory}/…${selected.extension}`}</code>
+                <code>{`${selected.directory}/<unique-id>${selected.extension}`}</code><small>Names can repeat. Each asset gets a unique ID.</small>
               </div>
-              {error && <p className="asset-create-error" role="alert">{error}</p>}
+              </div>
+                {error && <p className="asset-create-error" role="alert">{error}</p>}
+              </div>
               <footer>
                 <button type="button" className="asset-cancel" onClick={close}>Cancel</button>
-                <button type="submit" className="asset-create" disabled={saving || !name.trim()}>{saving ? "Creating…" : "Create asset"}</button>
+                {particleGenerator?<Link className="asset-create" href={`/particles${scenePath?`?scene=${encodeURIComponent(scenePath)}`:""}`}>Open Particle Generator ↗</Link>:<button type="submit" className="asset-create" disabled={saving || !name.trim()}>{saving ? "Creating…" : "Create asset"}</button>}
               </footer>
             </form>
           </div>
@@ -157,8 +174,11 @@ function groupTemplates(templates: readonly AssetTemplate[]): [string, AssetTemp
 }
 
 function supportNote(template: AssetTemplate): string {
+  if(template.id==="effects.particle-emitter")return "The generator saves validated effect recipes and scene-ready entity assets together.";
+  if(template.extension===".noise.toml")return "Select this filter to edit inputs and seeds, generate a 2D field or 3D volume, and inspect its grayscale slices.";
+  if (sceneCompatible(template)) return "Included instances load from this file when you Load the scene or Run the game. Edit transforms and primitive/light values in the asset, then reload.";
   if (template.status === "available") {
-    return "The engine API is available. This file is authored now; generic project loading is a later integration step.";
+    return "The engine API is available; this asset type is not yet supported by the primitive/light scene loader.";
   }
   if (template.status === "preview") {
     return "The engine API is in preview and its authored loading contract may still evolve.";

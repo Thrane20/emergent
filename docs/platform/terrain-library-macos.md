@@ -1,0 +1,16 @@
+# Terrain library — macOS validation, 2026-10-30
+
+Terrain Builder now has a project-scoped top carousel with a visual swatch for every saved terrain entity, New terrain, Save current terrain, Refresh library, a destination scene selector and per-swatch Add to scene. Selecting a swatch loads its settings, frozen/generated heightfield, material paint and collider state. Unsaved drafts require Cancel / Discard changes before load or New. Saves update the shared asset, while Save as new terrain creates an independent copy. The existing direct Save terrain to scene action remains available for new drafts.
+
+Library-only saves do not alter scenes. Placement appends a fresh authored instance ID referencing the saved asset, so a terrain can be placed repeatedly and across scenes. Existing instance aliases, transforms, materials and physics are preserved by asset edits. Header library saving can detach a scene-opened terrain into shared-asset editing without renaming the asset to its instance alias. Scene-driven save guards retain their original scene context.
+
+Swatches are shaded isometric SVG geometry sampled from the actual saved heightfield with base material/paint albedos. They represent shape and colour rather than a full native texture/lighting capture. Recipe-only legacy terrains use the existing Rust generator. Generation and thumbnail requests are bounded/serialized; thumbnail cache entries are scoped to project/path/dependency revision and capped at64. No renderer, SlotMap or scene runtime identity was replaced. No real-time performance claim is made.
+
+## Validation
+
+- 117 IDE tests passed, including library-only saves, exact heights/paint, preserved identity/material/physics/transforms/comments, stale terrain/material revisions, repeated placement with shared assets/unique instance IDs, malformed/out-of-root inputs and shaded thumbnail geometry/paint normalization. Existing terrain/particle lifecycle tests passed after extracting the shared scene append helper.
+- TypeScript, targeted ESLint and Next production build passed.
+- `pnpm exec tsx scripts/terrain-library-smoke.ts` passed against an owned production server on IPv6 port3001, using a disposable project. Browser URL used localhost to match Next's reconstructed request origin; health checks used explicitIPv6 to avoid the user's separate IPv4 helper.
+- Browser exercised legacy recipe-only discovery/thumbnail/loading, real optimized Rust generation, material-painted library creation, swatch display, sculpt/save/reload, dirty Cancel/Discard, copying/new drafts, repeat placement into a second scene, scene-instance alias/placement preservation when saving through the library, actual WebGL model loading, and mobile layout. Save/place operations passed staged Cargo and native scene-loader validation. Neither original scene changed during library-only saves.
+- Screenshot visually reviewed: `/tmp/terrain-library-carousel.png`.
+- No user's project assets were written and no paid provider calls were made. Owned test service stopped; user port3000 left running. Native live-inspector interaction was not separately rerun; placement was validated through the native scene loader and browser authoring workflow.

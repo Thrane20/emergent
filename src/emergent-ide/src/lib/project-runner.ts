@@ -1,6 +1,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { access } from "node:fs/promises";
 import path from "node:path";
+import { projectScenes } from "./project-scenes";
+import { containedFile } from "./object-files";
 import type { ProjectSnapshot } from "@/lib/project";
 
 const MAX_OUTPUT_CHARACTERS = 24 * 1024;
@@ -17,6 +19,7 @@ export type ProjectRunState =
 export type ProjectRunSnapshot = {
   state: ProjectRunState;
   projectId: string | null;
+  scenePath: string | null;
   startedAt: string | null;
   finishedAt: string | null;
   exitCode: number | null;
@@ -38,10 +41,17 @@ class ProjectRunManager {
     return { ...this.snapshot };
   }
 
-  async start(project: ProjectSnapshot): Promise<ProjectRunSnapshot> {
+  async start(project: ProjectSnapshot, scenePath: unknown): Promise<ProjectRunSnapshot> {
     if (isActive(this.snapshot.state)) {
       throw new ProjectRunError("The linked project is already running.", 409);
     }
+
+    if (typeof scenePath !== "string" || !projectScenes(project).some(scene => scene.path === scenePath)
+        || !project.assetRoots.some(root => scenePath.startsWith(`${root}/`))) {
+      throw new ProjectRunError("Choose a scene from the linked project to run.");
+    }
+    try { await containedFile(project.root, scenePath, 256 * 1024); }
+    catch { throw new ProjectRunError("The selected scene is missing or outside the linked project."); }
 
     const manifest = path.join(project.root, "Cargo.toml");
     try {
@@ -50,17 +60,19 @@ class ProjectRunManager {
       throw new ProjectRunError("The linked project does not contain a Cargo.toml manifest.");
     }
 
+    if (isActive(this.snapshot.state)) throw new ProjectRunError("The linked project is already running.", 409);
     this.stopRequested = false;
     this.snapshot = {
       state: "building",
       projectId: project.id,
+      scenePath,
       startedAt: new Date().toISOString(),
       finishedAt: null,
       exitCode: null,
-      output: `$ cargo run --manifest-path ${manifest}\n`,
+      output: `$ cargo run --manifest-path ${manifest} -- --run-scene ${scenePath}\n`,
     };
 
-    const child = spawn("cargo", ["run", "--manifest-path", manifest], {
+    const child = spawn("cargo", ["run", "--manifest-path", manifest, "--", "--run-scene", scenePath], {
       cwd: project.root,
       env: process.env,
       shell: false,
@@ -130,11 +142,14 @@ const runnerGlobal = globalThis as typeof globalThis & {
 };
 
 export const projectRunManager = runnerGlobal.emergentProjectRunManager ??= new ProjectRunManager();
+// Refresh methods on dev hot reload while retaining the active process and its state.
+Object.setPrototypeOf(projectRunManager, ProjectRunManager.prototype);
 
 function idleSnapshot(): ProjectRunSnapshot {
   return {
     state: "idle",
     projectId: null,
+    scenePath: null,
     startedAt: null,
     finishedAt: null,
     exitCode: null,

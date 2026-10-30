@@ -1,0 +1,5 @@
+schema_version = 1
+id = "c4c10463-2bc3-481a-8bf9-f0191c18e43f"
+name = "Extruded"
+kind = "structure"
+structure = "assets/structures/c4c10463-2bc3-481a-8bf9-f0191c18e43f.structure.toml"

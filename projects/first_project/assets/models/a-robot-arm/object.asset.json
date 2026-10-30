@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "kind": "generated-model",
+  "id": "8c37663b-982e-4890-bc5e-fb27c1db7b60",
+  "jobId": "81353316-52ed-4b74-a842-41cae82f2676",
+  "name": "a robot arm",
+  "model": "assets/models/a-robot-arm/model.glb",
+  "reference": "assets/models/a-robot-arm/reference.jpg",
+  "provider": "fal",
+  "endpoint": "fal-ai/trellis",
+  "requestId": "01a168ac-3ac2-7cd0-b232-990d3a39e4c1",
+  "modelRevision": null,
+  "seed": 1677536427,
+  "settings": {
+    "texture_size": 1024,
+    "ss_guidance_strength": 7.5,
+    "ss_sampling_steps": 12,
+    "slat_guidance_strength": 3,
+    "slat_sampling_steps": 12,
+    "mesh_simplify": 0.95
+  },
+  "createdAt": "2026-10-23T12:11:15.330Z",
+  "savedAt": "2026-10-23T12:14:22.411Z"
+}

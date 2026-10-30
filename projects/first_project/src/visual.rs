@@ -3,8 +3,8 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use emergent::{
-    Color, Engine, EngineConfig, EntityId, Geometry, GeometryId, GeometryInstance,
-    GeometryRenderer, LightInstance, LightSource, Mat4, Primitive, RenderOutcome, ShadingMode,
+    Color, Engine, EngineConfig, EntityId, GeometryId, GeometryInstance, GeometryRenderer,
+    LightInstance, LightSource, Mat4, RenderOutcome, ShadingMode,
 };
 use winit::application::ApplicationHandler;
 use winit::dpi::{LogicalSize, PhysicalSize};
@@ -13,16 +13,283 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::game::FirstProjectGame;
-use crate::generated::main_scene::MainScene;
 
 const SMOKE_RESIZE: PhysicalSize<u32> = PhysicalSize::new(980, 640);
 
-#[derive(Clone, Copy)]
-struct ProjectGeometry {
-    ground: GeometryId,
-    cube: GeometryId,
-    pyramid: GeometryId,
-    authored_cube: GeometryId,
+pub(crate) struct ProjectGeometry {
+    raymarched: Vec<(EntityId, emergent::RaymarchedTerrainId)>,
+    handles: Vec<(EntityId, GeometryId)>,
+    particle_entities: Vec<(EntityId, Mat4)>,
+    preview_particles: emergent::ParticleStore,
+    pub(crate) instances: Vec<GeometryInstance>,
+    pub(crate) lights: Vec<LightInstance>,
+    ambient_light: LightSource,
+}
+
+impl ProjectGeometry {
+    pub(crate) fn upload(
+        renderer: &mut GeometryRenderer,
+        game: &FirstProjectGame,
+        world: &emergent::World,
+        authoring: bool,
+    ) -> Result<Self, Box<dyn Error>> {
+        renderer.set_environment(&game.loaded.environment);
+        let mut raymarched = Vec::new();
+        for &id in game.loaded.entities.values() {
+            if let Some(field) = world.component::<emergent::RaymarchedTerrain>(id)? {
+                let handle = renderer.insert_raymarched_terrain(*field)?;
+                renderer
+                    .transform_raymarched_terrain(handle, world.global_transform(id)?.matrix())?;
+                raymarched.push((id, handle));
+            }
+        }
+        let mut handles = Vec::with_capacity(game.loaded.renderables.len());
+        for (entity, geometry) in &game.loaded.renderables {
+            let handle = if let Some(material) = world.component::<emergent::Material>(*entity)? {
+                renderer.insert_with_material(geometry, material)?
+            } else {
+                renderer.insert_with_shading(geometry, ShadingMode::Flat)
+            };
+            handles.push((*entity, handle));
+        }
+        let mut particle_entities = Vec::new();
+        for &id in game.loaded.entities.values() {
+            if let Some(effect) = world.component::<emergent::ParticleEffect>(id)? {
+                renderer.prepare_particle_effect(effect);
+                if authoring {
+                    particle_entities.push((id, world.global_transform(id)?.matrix()));
+                }
+            }
+        }
+        let preview_particles = if authoring {
+            frozen_particles(world, &particle_entities)?
+        } else {
+            emergent::ParticleStore::default()
+        };
+        let mut min = emergent::Vec3::splat(f32::INFINITY);
+        let mut max = emergent::Vec3::splat(f32::NEG_INFINITY);
+        for &(id, _) in &raymarched {
+            let field = world
+                .component::<emergent::RaymarchedTerrain>(id)?
+                .ok_or("Missing implicit terrain")?;
+            let matrix = world.global_transform(id)?.matrix();
+            let (lower, upper) = field.bounds();
+            for x in [lower.x, upper.x] {
+                for y in [lower.y, upper.y] {
+                    for z in [lower.z, upper.z] {
+                        let point = matrix.transform_point3(emergent::Vec3::new(x, y, z));
+                        min = min.min(point);
+                        max = max.max(point);
+                    }
+                }
+            }
+        }
+        for (entity, geometry) in &game.loaded.renderables {
+            if let emergent::Geometry::Mesh(mesh) = geometry {
+                let matrix = world.global_transform(*entity)?.matrix();
+                for vertex in mesh.vertices() {
+                    let point = matrix.transform_point3(vertex.position());
+                    min = min.min(point);
+                    max = max.max(point);
+                }
+            }
+        }
+        preview_particles.visit(|e, _, model, particles| {
+            for p in particles {
+                let point = if e.local_space {
+                    model.transform_point3(p.position)
+                } else {
+                    p.position
+                };
+                let radius = emergent::Vec3::splat(e.size[0].max(e.size[1]) * 0.5 * p.scale);
+                min = min.min(point - radius);
+                max = max.max(point + radius);
+            }
+        });
+        if min.is_finite() && max.is_finite() {
+            let target = (min + max) * 0.5;
+            let distance = ((max - min).length() * 1.3).max(2.);
+            renderer.set_view(
+                target + emergent::Vec3::new(7., 5., 9.).normalize() * distance,
+                target,
+                emergent::Vec3::Y,
+            )?;
+        }
+        sync_camera(renderer, world, game.loaded.active_camera)?;
+        Ok(Self {
+            raymarched,
+            instances: Vec::with_capacity(handles.len()),
+            lights: Vec::with_capacity(9),
+            ambient_light: game.loaded.environment.settings.ambient_light()?,
+            handles,
+            particle_entities,
+            preview_particles,
+        })
+    }
+
+    /// Freeze VFX at two seconds in authoring, without ticking gameplay or physics.
+    pub(crate) fn extract_particles(
+        &mut self,
+        renderer: &mut GeometryRenderer,
+        world: &emergent::World,
+        authoring: bool,
+    ) -> Result<(), Box<dyn Error>> {
+        let mut index = 0;
+        while index < self.raymarched.len() {
+            let (entity, handle) = self.raymarched[index];
+            if world
+                .component::<emergent::RaymarchedTerrain>(entity)
+                .ok()
+                .flatten()
+                .is_none()
+            {
+                renderer.remove_raymarched_terrain(handle);
+                self.raymarched.swap_remove(index);
+            } else {
+                renderer.transform_raymarched_terrain(
+                    handle,
+                    world.global_transform(entity)?.matrix(),
+                )?;
+                index += 1;
+            }
+        }
+        if !authoring {
+            renderer.set_particles(world.particles());
+            return Ok(());
+        }
+        let mut changed = false;
+        for (entity, previous) in &mut self.particle_entities {
+            let current = world.global_transform(*entity)?.matrix();
+            changed |= current != *previous;
+            *previous = current;
+        }
+        if changed {
+            self.preview_particles = frozen_particles(world, &self.particle_entities)?;
+        }
+        renderer.set_particles(&self.preview_particles);
+        Ok(())
+    }
+
+    /// Retained authoring overlays; built once, never part of Run geometry.
+    pub(crate) fn add_collider_overlays(
+        &mut self,
+        renderer: &mut GeometryRenderer,
+        game: &FirstProjectGame,
+        world: &emergent::World,
+    ) -> Result<(), Box<dyn Error>> {
+        let overlay_material = emergent::MaterialDefinition {
+            shading: emergent::MaterialShading::Unlit,
+            cast_shadows: false,
+            receive_shadows: false,
+            ..Default::default()
+        }
+        .constant()?;
+        for &id in game.loaded.entities.values() {
+            let Some(body) = world.component::<emergent::PhysicsBody>(id)? else {
+                continue;
+            };
+            let Some(collider) = body.collider.as_box() else {
+                continue;
+            };
+            let center = emergent::Vec3::from_array(collider.center);
+            let half = emergent::Vec3::from_array(collider.half_extents);
+            for corner in 0..8u32 {
+                let point = |bits: u32| {
+                    center
+                        + half
+                            * emergent::Vec3::new(
+                                if bits & 1 == 0 { -1.0 } else { 1.0 },
+                                if bits & 2 == 0 { -1.0 } else { 1.0 },
+                                if bits & 4 == 0 { -1.0 } else { 1.0 },
+                            )
+                };
+                for axis in [1, 2, 4] {
+                    if corner & axis != 0 {
+                        continue;
+                    }
+                    let line = emergent::Line::new(
+                        point(corner),
+                        point(corner | axis),
+                        0.012,
+                        Color::YELLOW,
+                    )?;
+                    self.handles.push((
+                        id,
+                        renderer.insert_with_material(
+                            &emergent::Geometry::from(line),
+                            &overlay_material,
+                        )?,
+                    ));
+                }
+            }
+        }
+        self.instances
+            .reserve(self.handles.len().saturating_sub(self.instances.capacity()));
+        Ok(())
+    }
+
+    pub(crate) fn extract(
+        &mut self,
+        engine: &Engine,
+        game: &FirstProjectGame,
+    ) -> Result<(), Box<dyn Error>> {
+        self.instances.clear();
+        for &(entity, geometry) in &self.handles {
+            self.instances.push(GeometryInstance::new(
+                geometry,
+                engine.world().global_transform(entity)?.matrix(),
+            ));
+        }
+        self.lights.clear();
+        for &entity in &game.loaded.lights {
+            let source = *engine
+                .world()
+                .component::<LightSource>(entity)?
+                .ok_or("authored light component is missing")?;
+            self.lights.push(LightInstance::new(
+                source,
+                engine.world().global_transform(entity)?.matrix(),
+            ));
+        }
+        self.lights
+            .push(LightInstance::new(self.ambient_light, Mat4::IDENTITY));
+        Ok(())
+    }
+}
+
+fn frozen_particles(
+    world: &emergent::World,
+    entities: &[(EntityId, Mat4)],
+) -> Result<emergent::ParticleStore, Box<dyn Error>> {
+    let mut store = emergent::ParticleStore::default();
+    for &(id, model) in entities {
+        if let Some(effect) = world.component::<emergent::ParticleEffect>(id)? {
+            store.insert(effect.clone(), model)?;
+        }
+    }
+    // shortcut: fixed authoring sample; add an independent VFX timeline for short bursts and scrubbing.
+    for _ in 0..120 {
+        store.step(emergent::PARTICLE_STEP)?;
+    }
+    Ok(store)
+}
+
+fn sync_camera(
+    renderer: &mut GeometryRenderer,
+    world: &emergent::World,
+    active: Option<EntityId>,
+) -> Result<(), Box<dyn Error>> {
+    if let Some(entity) = active {
+        let camera = *world
+            .component::<emergent::Camera>(entity)?
+            .ok_or("active camera component is missing")?;
+        let matrix = world.global_transform(entity)?.matrix();
+        let eye = matrix.transform_point3(emergent::Vec3::ZERO);
+        let forward = matrix.transform_vector3(-emergent::Vec3::Z).normalize();
+        let up = matrix.transform_vector3(emergent::Vec3::Y).normalize();
+        renderer.set_camera(eye, eye + forward, up, camera.projection())?;
+    }
+    Ok(())
 }
 
 struct FirstProjectApp {
@@ -31,7 +298,6 @@ struct FirstProjectApp {
     window: Option<Arc<Window>>,
     renderer: Option<GeometryRenderer>,
     geometry: Option<ProjectGeometry>,
-    ambient_light: LightSource,
     previous_frame: Instant,
     running: bool,
     occluded: bool,
@@ -43,14 +309,26 @@ struct FirstProjectApp {
 }
 
 impl FirstProjectApp {
-    fn new(leader_speed: f32, exit_after_ticks: Option<u64>) -> Result<Self, Box<dyn Error>> {
+    fn new(
+        project: &emergent::Project,
+        leader_speed: f32,
+        exit_after_ticks: Option<u64>,
+        scene_path: &str,
+    ) -> Result<Self, Box<dyn Error>> {
+        let mut engine = Engine::new(EngineConfig::default())?;
+        let game = FirstProjectGame::new(
+            &mut engine,
+            project,
+            scene_path,
+            leader_speed,
+            exit_after_ticks,
+        )?;
         Ok(Self {
-            engine: Engine::new(EngineConfig::default())?,
-            game: FirstProjectGame::new(leader_speed, exit_after_ticks),
+            engine,
+            game,
             window: None,
             renderer: None,
             geometry: None,
-            ambient_light: LightSource::ambient(Color::WHITE, 0.18)?,
             previous_frame: Instant::now(),
             running: false,
             occluded: false,
@@ -89,33 +367,26 @@ impl FirstProjectApp {
     }
 
     fn render(&mut self, event_loop: &ActiveEventLoop) {
-        let scene = self
-            .game
-            .scene()
-            .expect("a running first-project game has constructed its generated scene");
-        let geometry = self
-            .geometry
-            .expect("a running visual host has uploaded its geometry");
-        let matrices = match scene_matrices(&self.engine, scene) {
-            Ok(matrices) => matrices,
-            Err(error) => return self.fail(event_loop, error),
+        let Some(geometry) = &mut self.geometry else {
+            return;
         };
-        let instances = [
-            GeometryInstance::new(geometry.ground, matrices[0]),
-            GeometryInstance::new(geometry.cube, matrices[1]),
-            GeometryInstance::new(geometry.cube, matrices[2]),
-            GeometryInstance::new(geometry.cube, matrices[3]),
-            GeometryInstance::new(geometry.pyramid, matrices[4]),
-            GeometryInstance::new(geometry.authored_cube, matrices[5]),
-        ];
-        let lights = match scene_lights(&self.engine, scene, self.ambient_light) {
-            Ok(lights) => lights,
-            Err(error) => return self.fail(event_loop, error),
-        };
+        if let Err(error) = geometry.extract(&self.engine, &self.game) {
+            return self.fail(event_loop, error);
+        }
         let Some(renderer) = &mut self.renderer else {
             return;
         };
-        match renderer.render_lit(&instances, &lights) {
+        if let Err(error) = sync_camera(
+            renderer,
+            self.engine.world(),
+            self.game.loaded.active_camera,
+        ) {
+            return self.fail(event_loop, error);
+        }
+        if let Err(error) = geometry.extract_particles(renderer, self.engine.world(), false) {
+            return self.fail(event_loop, error);
+        }
+        match renderer.render_lit(&geometry.instances, &geometry.lights) {
             Ok(RenderOutcome::Presented) => self.presented_frames += 1,
             Ok(RenderOutcome::Reconfigured | RenderOutcome::Skipped) => {}
             Err(error) => self.fail(event_loop, error),
@@ -142,22 +413,21 @@ impl ApplicationHandler for FirstProjectApp {
             Ok(renderer) => renderer,
             Err(error) => return self.fail(event_loop, error),
         };
-        let geometry = match project_geometry() {
-            Ok([ground, cube, pyramid, authored_cube]) => ProjectGeometry {
-                ground: renderer.insert_with_shading(&ground, ShadingMode::Flat),
-                cube: renderer.insert_with_shading(&cube, ShadingMode::Flat),
-                pyramid: renderer.insert_with_shading(&pyramid, ShadingMode::Flat),
-                authored_cube: renderer.insert_with_shading(&authored_cube, ShadingMode::Flat),
-            },
-            Err(error) => return self.fail(event_loop, error),
-        };
+        let geometry =
+            match ProjectGeometry::upload(&mut renderer, &self.game, self.engine.world(), false) {
+                Ok(geometry) => geometry,
+                Err(error) => return self.fail(event_loop, error),
+            };
         if let Err(error) = self.engine.start(&mut self.game) {
             return self.fail(event_loop, error);
         }
         let info = renderer.info();
         println!(
-            "First Project graphics: adapter='{}', backend={}, format={}, resources=4",
-            info.adapter_name, info.backend, info.surface_format
+            "First Project graphics: adapter='{}', backend={}, format={}, resources={}",
+            info.adapter_name,
+            info.backend,
+            info.surface_format,
+            geometry.handles.len()
         );
         self.running = true;
         self.previous_frame = Instant::now();
@@ -200,7 +470,7 @@ impl ApplicationHandler for FirstProjectApp {
                     window.request_redraw();
                 }
             }
-            WindowEvent::RedrawRequested if !self.occluded => {
+            WindowEvent::RedrawRequested if self.running && !self.occluded => {
                 let now = Instant::now();
                 let elapsed = now.duration_since(self.previous_frame);
                 self.previous_frame = now;
@@ -222,7 +492,7 @@ impl ApplicationHandler for FirstProjectApp {
     }
 
     fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
-        if !self.occluded {
+        if self.running && !self.occluded {
             if let Some(window) = &self.window {
                 if window.inner_size() != PhysicalSize::new(0, 0) {
                     window.request_redraw();
@@ -236,25 +506,37 @@ impl ApplicationHandler for FirstProjectApp {
     }
 }
 
-pub fn run(leader_speed: f32, exit_after_ticks: Option<u64>) -> Result<(), Box<dyn Error>> {
+pub fn run(
+    project: &emergent::Project,
+    leader_speed: f32,
+    exit_after_ticks: Option<u64>,
+) -> Result<(), Box<dyn Error>> {
+    run_scene(
+        project,
+        leader_speed,
+        exit_after_ticks,
+        project
+            .manifest()
+            .entry_scene
+            .to_str()
+            .ok_or("non-UTF8 scene path")?,
+    )
+}
+
+pub fn run_scene(
+    project: &emergent::Project,
+    leader_speed: f32,
+    exit_after_ticks: Option<u64>,
+    scene_path: &str,
+) -> Result<(), Box<dyn Error>> {
     let event_loop = EventLoop::new()?;
     event_loop.set_control_flow(ControlFlow::Poll);
-    let mut app = FirstProjectApp::new(leader_speed, exit_after_ticks)?;
+    let mut app = FirstProjectApp::new(project, leader_speed, exit_after_ticks, scene_path)?;
     event_loop.run_app(&mut app)?;
     if let Some(error) = app.failure {
         return Err(error.into());
     }
     Ok(())
-}
-
-fn project_geometry() -> Result<[Geometry; 4], Box<dyn Error>> {
-    let ground_color = Color::new(0.12, 0.22, 0.16, 1.0)?;
-    Ok([
-        Primitive::plane(6.0, 6.0, ground_color)?.into(),
-        Primitive::cube(0.45, Color::CYAN)?.into(),
-        Primitive::pyramid(0.8, 1.8, Color::YELLOW)?.into(),
-        Primitive::cube(0.5, Color::WHITE)?.into(),
-    ])
 }
 
 /// Constructs the project's registered scene at tick zero and captures its real
@@ -265,30 +547,17 @@ pub fn preview(
     scene_path: &str,
     output: &std::path::Path,
 ) -> Result<(), Box<dyn Error>> {
-    let definition: toml::Value = toml::from_str(&project.read_text_asset(scene_path)?)?;
-    validate_preview_builder(&definition)?;
-    let mut renderer = pollster::block_on(GeometryRenderer::new_offscreen(1280, 720))?;
-    let [ground, cube, pyramid, authored_cube] = project_geometry()?;
-    let ground = renderer.insert_with_shading(&ground, ShadingMode::Flat);
-    let cube = renderer.insert_with_shading(&cube, ShadingMode::Flat);
-    let pyramid = renderer.insert_with_shading(&pyramid, ShadingMode::Flat);
-    let authored_cube = renderer.insert_with_shading(&authored_cube, ShadingMode::Flat);
     let mut engine = Engine::new(EngineConfig::default())?;
-    let mut game = FirstProjectGame::new(speed, None);
+    let mut game = FirstProjectGame::new(&mut engine, project, scene_path, speed, None)?;
+    let mut renderer = pollster::block_on(GeometryRenderer::new_offscreen(1280, 720))?;
+    let mut geometry = ProjectGeometry::upload(&mut renderer, &game, engine.world(), true)?;
     engine.start(&mut game)?;
     let result = (|| -> Result<(), Box<dyn Error>> {
-        let scene = game.scene().ok_or("project scene was not constructed")?;
-        let matrices = scene_matrices(&engine, scene)?;
-        let instances = [
-            GeometryInstance::new(ground, matrices[0]),
-            GeometryInstance::new(cube, matrices[1]),
-            GeometryInstance::new(cube, matrices[2]),
-            GeometryInstance::new(cube, matrices[3]),
-            GeometryInstance::new(pyramid, matrices[4]),
-            GeometryInstance::new(authored_cube, matrices[5]),
-        ];
-        let lights = scene_lights(&engine, scene, LightSource::ambient(Color::WHITE, 0.18)?)?;
-        let frame = renderer.render_lit_rgba(&instances, &lights)?;
+        // Upload synced the camera before start propagated world transforms; resync from the committed pose.
+        sync_camera(&mut renderer, engine.world(), game.loaded.active_camera)?;
+        geometry.extract(&engine, &game)?;
+        geometry.extract_particles(&mut renderer, engine.world(), true)?;
+        let frame = renderer.render_lit_rgba(&geometry.instances, &geometry.lights)?;
         let file = std::fs::OpenOptions::new()
             .write(true)
             .create_new(true)
@@ -314,69 +583,116 @@ pub fn preview(
     result
 }
 
-fn validate_preview_builder(definition: &toml::Value) -> Result<(), Box<dyn Error>> {
-    if definition
-        .get("schema_version")
-        .and_then(toml::Value::as_integer)
-        != Some(1)
-    {
-        return Err("scene preview requires schema_version = 1".into());
-    }
-    if definition.get("builder").and_then(toml::Value::as_str)
-        != Some("emergent.first-project.generated.main_scene")
-    {
-        return Err("this scene has no registered Rust preview builder; first_project currently supports emergent.first-project.generated.main_scene".into());
-    }
-    Ok(())
-}
-
-fn scene_lights(
-    engine: &Engine,
-    scene: MainScene,
-    ambient: LightSource,
-) -> Result<[LightInstance; 2], Box<dyn Error>> {
-    let key_light = engine
-        .world()
-        .component::<LightSource>(scene.key_light)?
-        .copied()
-        .ok_or("key-light component is missing")?;
-    Ok([
-        LightInstance::new(ambient, Mat4::IDENTITY),
-        LightInstance::new(
-            key_light,
-            engine.world().global_transform(scene.key_light)?.matrix(),
-        ),
-    ])
-}
-
-fn scene_matrices(engine: &Engine, scene: MainScene) -> Result<[Mat4; 6], Box<dyn Error>> {
-    Ok([
-        world_matrix(engine, scene.ground)?,
-        world_matrix(engine, scene.leader)?,
-        world_matrix(engine, scene.follower)?,
-        world_matrix(engine, scene.tail)?,
-        world_matrix(engine, scene.pyramid)?,
-        world_matrix(engine, scene.cube)?,
-    ])
-}
-
-fn world_matrix(engine: &Engine, entity: EntityId) -> Result<Mat4, Box<dyn Error>> {
-    Ok(engine.world().global_transform(entity)?.matrix())
-}
-
 #[cfg(test)]
-mod preview_tests {
-    use super::validate_preview_builder;
+mod camera_tests {
+    use super::*;
+    use emergent::{Camera, CameraProjection, Quat, Transform, Vec3, World};
 
     #[test]
-    fn only_registered_rust_builders_are_rendered() {
-        let valid = toml::from_str(
-            "schema_version = 1\nbuilder = \"emergent.first-project.generated.main_scene\"\n",
-        )
-        .unwrap();
-        assert!(validate_preview_builder(&valid).is_ok());
-        let unsupported =
-            toml::from_str("schema_version = 1\nbuilder = \"another.scene\"\n").unwrap();
-        assert!(validate_preview_builder(&unsupported).is_err());
+    fn camera_dolly_and_orthographic_size_change_native_pixels() {
+        let mut renderer = pollster::block_on(GeometryRenderer::new_offscreen(96, 96)).unwrap();
+        let cube = emergent::Primitive::cube(1., Color::WHITE).unwrap();
+        let geometry = renderer.insert(&cube.into());
+        let instances = [GeometryInstance::new(geometry, Mat4::IDENTITY)];
+        let perspective = CameraProjection::perspective(45., 0.1, 100.).unwrap();
+        renderer
+            .set_camera(Vec3::new(0., 0., 10.), Vec3::ZERO, Vec3::Y, perspective)
+            .unwrap();
+        let distant = renderer.render_lit_rgba(&instances, &[]).unwrap().rgba;
+        renderer
+            .set_camera(Vec3::new(0., 0., 5.), Vec3::ZERO, Vec3::Y, perspective)
+            .unwrap();
+        assert_ne!(
+            distant,
+            renderer.render_lit_rgba(&instances, &[]).unwrap().rgba
+        );
+        renderer.set_projection(CameraProjection::isometric(12., 0.1, 100.).unwrap());
+        let wide = renderer.render_lit_rgba(&instances, &[]).unwrap().rgba;
+        renderer
+            .set_view(Vec3::new(0., 0., 10.), Vec3::ZERO, Vec3::Y)
+            .unwrap();
+        assert_eq!(
+            wide,
+            renderer.render_lit_rgba(&instances, &[]).unwrap().rgba
+        );
+        renderer.set_projection(CameraProjection::isometric(6., 0.1, 100.).unwrap());
+        assert_ne!(
+            wide,
+            renderer.render_lit_rgba(&instances, &[]).unwrap().rgba
+        );
+    }
+
+    #[test]
+    fn preview_renders_from_the_started_active_camera() {
+        // Regression: syncing before start read unpropagated transforms, leaving the camera inside geometry.
+        let project = emergent::Project::load(env!("CARGO_MANIFEST_DIR")).unwrap();
+        let directory =
+            std::env::temp_dir().join(format!("emergent-preview-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        let output = directory.join("frame.png");
+        let _ = std::fs::remove_file(&output);
+        preview(&project, 1., "assets/scenes/main.scene.toml", &output).unwrap();
+        let decoder = png::Decoder::new(std::io::BufReader::new(
+            std::fs::File::open(&output).unwrap(),
+        ));
+        let mut reader = decoder.read_info().unwrap();
+        let mut pixels = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut pixels).unwrap();
+        let colours: std::collections::HashSet<_> = pixels[..info.buffer_size()]
+            .chunks(4)
+            .map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+        std::fs::remove_dir_all(&directory).unwrap();
+        assert!(
+            colours.len() > 64,
+            "preview looks empty: {} distinct colours",
+            colours.len()
+        );
+    }
+
+    #[test]
+    fn active_camera_tracks_parent_motion_projection_changes_and_stale_handles() {
+        let mut renderer = pollster::block_on(GeometryRenderer::new_offscreen(64, 64)).unwrap();
+        let mut world = World::new();
+        let parent = world.spawn("camera rig");
+        let camera = world.spawn_child(parent, "camera").unwrap();
+        world
+            .insert_component(
+                camera,
+                Camera::new(CameraProjection::perspective(60., 0.1, 1000.).unwrap()),
+            )
+            .unwrap();
+        world.propagate_transforms();
+        sync_camera(&mut renderer, &world, Some(camera)).unwrap();
+        let initial = renderer.view_projection();
+        world
+            .set_local_transform(
+                parent,
+                Transform::new(Vec3::new(3., 2., 5.), Quat::from_rotation_y(0.5), Vec3::ONE),
+            )
+            .unwrap();
+        world.propagate_transforms();
+        sync_camera(&mut renderer, &world, Some(camera)).unwrap();
+        let moved = renderer.view_projection();
+        assert_ne!(initial, moved);
+        let matrix = world.global_transform(camera).unwrap().matrix();
+        let eye = matrix.transform_point3(Vec3::ZERO);
+        let forward = matrix.transform_vector3(-Vec3::Z).normalize();
+        let center = moved.project_point3(eye + forward * 5.);
+        assert!(center.x.abs() < 0.0001 && center.y.abs() < 0.0001);
+        world
+            .insert_component(
+                camera,
+                Camera::new(CameraProjection::isometric(20., 0.1, 1000.).unwrap()),
+            )
+            .unwrap();
+        sync_camera(&mut renderer, &world, Some(camera)).unwrap();
+        assert_ne!(moved, renderer.view_projection());
+        let orthographic = renderer.view_projection();
+        sync_camera(&mut renderer, &world, None).unwrap();
+        assert_eq!(orthographic, renderer.view_projection());
+        world.remove_subtree(parent).unwrap();
+        assert!(sync_camera(&mut renderer, &world, Some(camera)).is_err());
+        assert_eq!(orthographic, renderer.view_projection());
     }
 }

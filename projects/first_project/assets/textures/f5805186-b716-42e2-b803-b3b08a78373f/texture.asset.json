@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "kind": "generated-texture",
+  "id": "f5805186-b716-42e2-b803-b3b08a78373f",
+  "jobId": "781aca93-29a3-4c7b-aff8-d71319e67ca2",
+  "name": "Particle sprite",
+  "image": "assets/textures/f5805186-b716-42e2-b803-b3b08a78373f/Particle sprite.png",
+  "provider": "fal",
+  "endpoint": "fal-ai/flux/schnell",
+  "requestId": "01a186a7-00e8-7f83-a8e3-9ceb688e13be",
+  "prompt": "A ball of crackling blue electricty. Isolated game VFX sprite, fixed camera, entire effect in frame with padding.",
+  "inputPrompt": "A ball of crackling blue electricty. Isolated game VFX sprite, fixed camera, entire effect in frame with padding.",
+  "seed": 3,
+  "candidateIndex": 0,
+  "settings": {
+    "image_size": "square_hd",
+    "num_inference_steps": 4,
+    "output_format": "png",
+    "enable_safety_checker": true,
+    "sync_mode": false,
+    "num_images": 1
+  },
+  "modelRevision": null,
+  "createdAt": "2026-10-29T07:54:13.584Z",
+  "savedAt": "2026-10-29T07:56:05.963Z"
+}

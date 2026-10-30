@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "kind": "sprite",
+  "sprite": {
+    "columns": 8,
+    "rows": 4,
+    "frames": 32,
+    "fps": 8,
+    "ping_pong": true
+  },
+  "family": "1f6e8d6b-dbf0-4977-b435-92dd75e7108f"
+}

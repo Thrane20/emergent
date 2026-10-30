@@ -1,0 +1,3 @@
+import {objectProject} from "@/lib/object-http";
+import {particleThumbnail} from "@/lib/particle-thumbnails";
+export async function GET(request:Request){try{const q=new URL(request.url).searchParams,project=await objectProject(q.get("projectId")),asset=q.get("asset");if(!asset)throw new Error("Choose a saved effect.");return new Response(new Uint8Array(await particleThumbnail(project,asset)),{headers:{"Content-Type":"image/png","Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}});}catch(e){return Response.json({error:e instanceof Error?e.message:"Effect thumbnail unavailable."},{status:400});}}

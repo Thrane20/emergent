@@ -1,0 +1,4 @@
+adapter=Apple M3 Pro, backend=Metal, capture=640x640, profile=release
+after-low: sphere=24x12, triangles=528, upload_bake_cpu_ms=5.861, captured_frame_median_ms=0.897, file=/tmp/emergent-surface-quality/after-low.ppm
+after-standard: sphere=64x32, triangles=3968, upload_bake_cpu_ms=21.714, captured_frame_median_ms=0.867, file=/tmp/emergent-surface-quality/after-standard.ppm
+after-high: sphere=128x64, triangles=16128, upload_bake_cpu_ms=113.573, captured_frame_median_ms=0.919, file=/tmp/emergent-surface-quality/after-high.ppm

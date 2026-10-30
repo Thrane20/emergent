@@ -142,7 +142,6 @@ export class ObjectJobs {
       if (job.state !== "ready" || !job.requestId) throw new ObjectCreatorError("Generate a valid model before saving.", 409);
       if (job.savedPath) return job;
       const name = validateObjectName(requestedName);
-      const slug = name.toLowerCase().replace(/[ _]+/g, "-");
       const root = await realpath(project.root);
       const declaredRoot = project.assetRoots[0];
       if (!declaredRoot || path.isAbsolute(declaredRoot) || !within(root, path.resolve(root, declaredRoot))) throw new ObjectCreatorError("Project has no safe asset root.");
@@ -151,7 +150,7 @@ export class ObjectJobs {
       const models = path.join(assets, "models");
       await mkdir(models, { recursive: true });
       if (!within(assets, await realpath(models))) throw new ObjectCreatorError("Models folder escapes the asset root.", 403);
-      const target = path.join(models, slug);
+      const target = path.join(models, id);
       const lock = path.join(models, ".object-save-lock");
       try { await mkdir(lock); }
       catch { throw new ObjectCreatorError("Another object save is active. If the IDE crashed, remove assets/models/.object-save-lock before retrying.", 409); }
@@ -159,12 +158,12 @@ export class ObjectJobs {
       try {
         try {
           const existing = JSON.parse(await readFile(path.join(target, "object.asset.json"), "utf8")) as ObjectAsset;
-          if (existing.jobId !== id) throw new ObjectCreatorError("An object with this name already exists. Choose another name.", 409);
+          if (existing.jobId !== id) throw new ObjectCreatorError("An object with this ID already exists.", 409);
           job.savedPath = path.relative(root, path.join(target, "model.glb")).split(path.sep).join("/");
           return this.persist(project, job);
         } catch (error) { if (!missing(error)) throw error; }
         // Any existing directory, including one without a descriptor, is a collision.
-        try { await realpath(target); throw new ObjectCreatorError("An object with this name already exists. Choose another name.", 409); }
+        try { await realpath(target); throw new ObjectCreatorError("An object with this ID already exists.", 409); }
         catch (error) { if (!missing(error)) throw error; }
         const source = await this.artifact(project, id, "model");
         await readModel(source);
@@ -176,7 +175,7 @@ export class ObjectJobs {
         await mkdir(staging);
         const relative = (file: string) => path.relative(root, path.join(target, file)).split(path.sep).join("/");
         const descriptor: ObjectAsset = {
-          schema_version: 1, kind: "generated-model", id: randomUUID(), jobId: id, name,
+          schema_version: 1, kind: "generated-model", id, jobId: id, name,
           model: relative("model.glb"), reference: relative(job.reference), provider: "fal",
           endpoint: job.endpoint, requestId: job.requestId, modelRevision: null, seed: job.seed,
           settings: job.settings, createdAt: job.createdAt, savedAt: now(),

@@ -12,18 +12,33 @@ use winit::dpi::PhysicalSize;
 use winit::event_loop::OwnedDisplayHandle;
 use winit::window::Window;
 
-use crate::{Geometry, LightKind, LightSource, Line, Mesh, Point, Polygon, ShadowCasting};
+use crate::{
+    CameraProjection, Geometry, LightKind, LightSource, Line, Mesh, Point, Polygon, ShadowCasting,
+};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 const INITIAL_INSTANCE_CAPACITY: usize = 64;
-const MAX_LIGHTS: usize = 8;
+// Eight authored lights plus the scene ambient light.
+const MAX_LIGHTS: usize = 9;
 const SHADOW_MAP_SIZE: u32 = 2048;
+const POINT_SHADOW_SIZE: u32 = 512;
+const MAX_POINT_SHADOWS: usize = 2;
+// Keep the frame array length in shaders/geometry.wgsl in sync.
+pub(crate) const POINT_SHADOW_FACES: usize = MAX_POINT_SHADOWS * 6;
 const SHADOW_DISTANCE: f32 = 22.0;
 const SHADOW_EXTENT: f32 = 14.0;
 static NEXT_RENDERER_ID: AtomicU64 = AtomicU64::new(1);
 
 new_key_type! {
     struct GeometryKey;
+    struct RaymarchedTerrainKey;
+}
+
+/// Renderer-scoped generational identity for an implicit terrain resource.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct RaymarchedTerrainId {
+    renderer: u64,
+    key: RaymarchedTerrainKey,
 }
 
 /// Renderer-scoped runtime identity for uploaded geometry.
@@ -60,6 +75,22 @@ struct ObjectUniform {
     model: [[f32; 4]; 4],
     model_view_projection: [[f32; 4]; 4],
     normal_matrix: [[f32; 4]; 4],
+    material: MaterialUniform,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct MaterialUniform {
+    albedo: [f32; 4],
+    specular: [f32; 4],
+    emission: [f32; 4],
+    // Matches WGSL: bump strength, unlit, cast shadows, receive shadows.
+    params: [f32; 4],
+    map_strength: [f32; 4],
+    bounds_min: [f32; 4],
+    bounds_size: [f32; 4],
+    camera: [f32; 4],
+    diffuse: [f32; 4],
 }
 
 #[repr(C)]
@@ -68,6 +99,20 @@ struct FrameUniform {
     light_view_projection: [[f32; 4]; 4],
     shadow_enabled: u32,
     _padding: [u32; 7],
+    point_view_projections: [[[f32; 4]; 4]; POINT_SHADOW_FACES],
+}
+
+#[derive(Clone, Copy)]
+struct ShadowPasses {
+    directional: bool,
+    point_faces: usize,
+}
+
+struct PreparedLights {
+    uniform: LightUniform,
+    directional_matrix: Mat4,
+    point_matrices: [Mat4; POINT_SHADOW_FACES],
+    passes: ShadowPasses,
 }
 
 #[repr(C)]
@@ -91,6 +136,8 @@ struct GpuMesh {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_count: u32,
+    material: MaterialUniform,
+    material_bind_group: wgpu::BindGroup,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -166,11 +213,20 @@ pub enum GraphicsError {
     InvalidCaptureSize { width: u32, height: u32 },
     WrongRenderTarget,
     Readback(String),
+    InvalidView,
+    TooManyPointShadows,
+    InvalidPointShadow { light: usize },
+    Material(String),
 }
 
 impl fmt::Display for GraphicsError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::TooManyPointShadows => write!(formatter, "at most {MAX_POINT_SHADOWS} point lights can cast shadows"),
+            Self::InvalidPointShadow { light } => write!(formatter, "point shadow light {light} requires range 0.01..1000000 and finite world coordinates within +/-1000000"),
+            Self::Material(error) => write!(formatter, "material error: {error}"),
+            Self::InvalidView => formatter
+                .write_str("camera eye, target and up must define a finite, non-degenerate view"),
             Self::CreateSurface(error) => write!(formatter, "could not create surface: {error}"),
             Self::NoAdapter(error) => {
                 write!(formatter, "could not select graphics adapter: {error}")
@@ -236,6 +292,21 @@ pub struct RenderedFrame {
 
 /// Renderer-owned, depth-tested storage for uploaded geometry.
 pub struct GeometryRenderer {
+    gpu_profiler: Option<crate::gpu_profile::GpuProfiler>,
+    raymarched_options: crate::RaymarchedRenderOptions,
+    raymarched_regions: SlotMap<
+        RaymarchedTerrainKey,
+        (
+            crate::raymarched_terrain_graphics::RaymarchedTerrainPass,
+            Mat4,
+        ),
+    >,
+    raymarched_terrain: Option<crate::raymarched_terrain_graphics::RaymarchedTerrainPass>,
+    particles: crate::particle_graphics::ParticlePass,
+    skybox: Option<crate::skybox_graphics::SkyboxPass>,
+    background: [f32; 3],
+    view_matrix: Mat4,
+    projection: CameraProjection,
     instance: wgpu::Instance,
     window: Option<Arc<Window>>,
     surface: Option<wgpu::Surface<'static>>,
@@ -245,6 +316,7 @@ pub struct GeometryRenderer {
     pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
     uniform_layout: wgpu::BindGroupLayout,
+    material_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
     uniform_stride: u64,
@@ -254,6 +326,10 @@ pub struct GeometryRenderer {
     light_buffer: wgpu::Buffer,
     lighting_bind_group: wgpu::BindGroup,
     shadow_frame_bind_group: wgpu::BindGroup,
+    shadow_matrix_buffer: wgpu::Buffer,
+    shadow_matrix_stride: u64,
+    shadow_matrix_bytes: Vec<u8>,
+    point_shadow_views: [wgpu::TextureView; POINT_SHADOW_FACES],
     renderer_id: u64,
     geometry: SlotMap<GeometryKey, GpuMesh>,
     depth_view: wgpu::TextureView,
@@ -302,7 +378,7 @@ impl GeometryRenderer {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("Emergent device"),
-                required_features: wgpu::Features::empty(),
+                required_features: crate::gpu_profile::timestamp_features(adapter.features()),
                 required_limits: wgpu::Limits::default(),
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 memory_hints: wgpu::MemoryHints::Performance,
@@ -347,7 +423,7 @@ impl GeometryRenderer {
             label: Some("Emergent geometry uniform layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: true,
@@ -375,6 +451,7 @@ impl GeometryRenderer {
             mapped_at_creation: false,
         });
         let shadow_view = create_shadow_view(&device);
+        let (point_shadow_array, point_shadow_views) = create_point_shadow_views(&device);
         let shadow_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Emergent shadow comparison sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -428,6 +505,16 @@ impl GeometryRenderer {
                     ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Comparison),
                     count: None,
                 },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Depth,
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
             ],
         });
         let lighting_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -450,35 +537,112 @@ impl GeometryRenderer {
                     binding: 3,
                     resource: wgpu::BindingResource::Sampler(&shadow_sampler),
                 },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&point_shadow_array),
+                },
             ],
+        });
+        let shadow_matrix_stride = align_up(
+            64,
+            device.limits().min_uniform_buffer_offset_alignment as u64,
+        );
+        let shadow_matrix_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("Emergent shadow face matrices"),
+            size: shadow_matrix_stride * (1 + POINT_SHADOW_FACES) as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
         let shadow_frame_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("Emergent shadow frame layout"),
+                label: Some("Emergent shadow matrix layout"),
                 entries: &[wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::VERTEX,
                     ty: wgpu::BindingType::Buffer {
                         ty: wgpu::BufferBindingType::Uniform,
-                        has_dynamic_offset: false,
-                        min_binding_size: NonZeroU64::new(
-                            std::mem::size_of::<FrameUniform>() as u64
-                        ),
+                        has_dynamic_offset: true,
+                        min_binding_size: NonZeroU64::new(64),
                     },
                     count: None,
                 }],
             });
         let shadow_frame_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Emergent shadow frame bind group"),
+            label: Some("Emergent shadow matrices"),
             layout: &shadow_frame_layout,
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
-                resource: frame_buffer.as_entire_binding(),
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: &shadow_matrix_buffer,
+                    offset: 0,
+                    size: NonZeroU64::new(64),
+                }),
             }],
+        });
+        let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Emergent packed material noise layout"),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D3,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2Array,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 4,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 5,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Emergent geometry pipeline layout"),
-            bind_group_layouts: &[Some(&uniform_layout), Some(&lighting_layout)],
+            bind_group_layouts: &[
+                Some(&uniform_layout),
+                Some(&lighting_layout),
+                Some(&material_layout),
+            ],
             immediate_size: 0,
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -562,7 +726,19 @@ impl GeometryRenderer {
             surface_format: format!("{:?}", config.format),
         };
 
+        let particles =
+            crate::particle_graphics::ParticlePass::new(&device, config.format, &depth_view);
         Ok(Self {
+            gpu_profiler: None,
+            raymarched_regions: SlotMap::with_key(),
+            raymarched_terrain: None,
+            raymarched_options: crate::RaymarchedRenderOptions::default(),
+            particles,
+            skybox: None,
+            background: crate::EnvironmentDefinition::default().background_color,
+            projection: CameraProjection::perspective(45.0, 0.1, 100.0)
+                .expect("default camera projection is valid"),
+            view_matrix: look_at_rh(Vec3::new(7.0, 5.0, 9.0), Vec3::ZERO, Vec3::Y),
             instance,
             window,
             surface,
@@ -572,6 +748,7 @@ impl GeometryRenderer {
             pipeline,
             shadow_pipeline,
             uniform_layout,
+            material_layout,
             uniform_buffer,
             uniform_bind_group,
             uniform_stride,
@@ -581,6 +758,10 @@ impl GeometryRenderer {
             light_buffer,
             lighting_bind_group,
             shadow_frame_bind_group,
+            shadow_matrix_buffer,
+            shadow_matrix_stride,
+            shadow_matrix_bytes: vec![0; shadow_matrix_stride as usize * (1 + POINT_SHADOW_FACES)],
+            point_shadow_views,
             renderer_id: NEXT_RENDERER_ID.fetch_add(1, Ordering::Relaxed),
             geometry: SlotMap::with_key(),
             depth_view,
@@ -589,8 +770,187 @@ impl GeometryRenderer {
         })
     }
 
+    /// Upload shared sprites during scene preparation, outside the steady-state frame loop.
+    pub fn prepare_particle_effect(&mut self, effect: &crate::ParticleEffect) {
+        self.particles
+            .prepare_effect(&self.device, &self.queue, effect);
+    }
+    /// Extract and upload the current particle frame. Call after setting the camera.
+    pub fn set_particles(&mut self, store: &crate::ParticleStore) {
+        self.particles.prepare(
+            &self.device,
+            &self.queue,
+            store,
+            self.view_matrix,
+            self.view_projection(),
+        );
+    }
+    pub fn clear_particles(&mut self) {
+        self.particles.clear();
+    }
+
+    /// Uploads a resolved scene environment outside the frame loop.
+    pub fn set_environment(&mut self, environment: &crate::SceneEnvironment) {
+        self.background = environment.settings.background_color;
+        self.skybox = environment.skybox().map(|image| {
+            crate::skybox_graphics::SkyboxPass::new(
+                &self.device,
+                &self.queue,
+                self.config.format,
+                image,
+                environment.settings.skybox_rotation,
+                environment.settings.skybox_intensity,
+            )
+        });
+    }
+
+    /// Experimental single world-origin field. Prepare outside the frame loop.
+    /// This visual prototype has no physics collider or scene-asset contract yet.
+    pub fn set_raymarched_terrain(
+        &mut self,
+        field: Option<crate::RaymarchedTerrain>,
+    ) -> Result<(), &'static str> {
+        if let Some(field) = field {
+            field.validate()?;
+        }
+        self.raymarched_terrain = field.map(|field| {
+            crate::raymarched_terrain_graphics::RaymarchedTerrainPass::new(
+                &self.device,
+                self.config.format,
+                field,
+            )
+        });
+        Ok(())
+    }
+
+    /// Prepare a scene field outside the frame loop. At most eight regions are supported.
+    pub fn insert_raymarched_terrain(
+        &mut self,
+        field: crate::RaymarchedTerrain,
+    ) -> Result<RaymarchedTerrainId, &'static str> {
+        field.validate()?;
+        if self.raymarched_regions.len() >= 8 {
+            return Err("Scene supports at most eight ray-marched terrain regions.");
+        }
+        let pass = crate::raymarched_terrain_graphics::RaymarchedTerrainPass::new(
+            &self.device,
+            self.config.format,
+            field,
+        );
+        Ok(RaymarchedTerrainId {
+            renderer: self.renderer_id,
+            key: self.raymarched_regions.insert((pass, Mat4::IDENTITY)),
+        })
+    }
+    pub fn transform_raymarched_terrain(
+        &mut self,
+        id: RaymarchedTerrainId,
+        model: Mat4,
+    ) -> Result<(), &'static str> {
+        if id.renderer != self.renderer_id {
+            return Err("Ray-marched terrain belongs to another renderer.");
+        }
+        if !model.is_finite() || !model.inverse().is_finite() || model.row(3) != Vec4::W {
+            return Err("Ray-marched terrain requires an invertible finite transform.");
+        }
+        let entry = self
+            .raymarched_regions
+            .get_mut(id.key)
+            .ok_or("Ray-marched terrain handle is stale.")?;
+        entry.1 = model;
+        Ok(())
+    }
+    pub fn remove_raymarched_terrain(&mut self, id: RaymarchedTerrainId) -> bool {
+        id.renderer == self.renderer_id && self.raymarched_regions.remove(id.key).is_some()
+    }
+
+    /// Sets terrain-only diagnostics without mutating stored field recipes.
+    pub fn set_raymarched_render_options(&mut self, options: crate::RaymarchedRenderOptions) {
+        self.raymarched_options = options;
+    }
+
+    /// Returns last-prepared terrain submission counts, not GPU fragment counts.
+    pub fn raymarched_frame_stats(&self) -> crate::RaymarchedFrameStats {
+        let mut stats = crate::RaymarchedFrameStats::default();
+        for field in self
+            .raymarched_terrain
+            .iter()
+            .chain(self.raymarched_regions.values().map(|(field, _)| field))
+        {
+            stats.regions += 1;
+            if let Some([_, _, width, height]) = field.scissor() {
+                stats.submitted += 1;
+                stats.scissor_pixels += u64::from(width) * u64::from(height);
+            }
+        }
+        stats
+    }
+
     pub fn info(&self) -> &RendererInfo {
         &self.info
+    }
+
+    /// Current camera pose in world space.
+    pub fn view_transform(&self) -> Mat4 {
+        self.view_matrix.inverse()
+    }
+
+    pub fn projection(&self) -> CameraProjection {
+        self.projection
+    }
+
+    /// The exact WebGPU projection used by rendering, for inspection tools.
+    pub fn view_projection(&self) -> Mat4 {
+        let aspect = self.config.width as f32 / self.config.height as f32;
+        let projection = match self.projection {
+            CameraProjection::Perspective {
+                vertical_fov_radians,
+                near,
+                far,
+            } => perspective_rh(vertical_fov_radians, aspect, near, far),
+            CameraProjection::Isometric {
+                vertical_size,
+                near,
+                far,
+            } => {
+                let half_height = vertical_size * 0.5;
+                let half_width = half_height * aspect;
+                orthographic_rh(
+                    -half_width,
+                    half_width,
+                    -half_height,
+                    half_height,
+                    near,
+                    far,
+                )
+            }
+        };
+        projection * self.view_matrix
+    }
+
+    /// Changes the view transform without rebuilding geometry or world state.
+    pub fn set_view(&mut self, eye: Vec3, target: Vec3, up: Vec3) -> Result<(), GraphicsError> {
+        self.view_matrix = validated_view(eye, target, up)?;
+        self.projection = self
+            .projection
+            .with_far_at_least(((eye - target).length() * 8.).clamp(100., 1_000_000.));
+        Ok(())
+    }
+
+    pub fn set_projection(&mut self, projection: CameraProjection) {
+        self.projection = projection;
+    }
+
+    pub fn set_camera(
+        &mut self,
+        eye: Vec3,
+        target: Vec3,
+        up: Vec3,
+        projection: CameraProjection,
+    ) -> Result<(), GraphicsError> {
+        self.view_matrix = validated_view(eye, target, up)?;
+        self.projection = projection;
+        Ok(())
     }
 
     pub fn insert(&mut self, geometry: &Geometry) -> GeometryId {
@@ -600,6 +960,63 @@ impl GeometryRenderer {
     /// Uploads geometry with a normal-generation policy fixed for the handle's
     /// lifetime. Reinsert geometry to change its shading mode.
     pub fn insert_with_shading(&mut self, geometry: &Geometry, shading: ShadingMode) -> GeometryId {
+        self.upload_material(geometry, shading, &crate::Material::default())
+            .expect("constant default material is valid")
+    }
+
+    /// Uploads a resolved material and its bounded noise maps once.
+    pub fn insert_with_material(
+        &mut self,
+        geometry: &Geometry,
+        material: &crate::Material,
+    ) -> Result<GeometryId, GraphicsError> {
+        let shading = if material.terrain.is_none()
+            && material.definition().shading == crate::MaterialShading::Flat
+        {
+            ShadingMode::Flat
+        } else {
+            ShadingMode::Smooth
+        };
+        self.upload_material(geometry, shading, material)
+    }
+
+    fn upload_material(
+        &mut self,
+        geometry: &Geometry,
+        shading: ShadingMode,
+        material: &crate::Material,
+    ) -> Result<GeometryId, GraphicsError> {
+        let layers: Vec<_> = material
+            .terrain
+            .as_ref()
+            .map_or_else(|| vec![material], |t| t.layers.iter().collect());
+        let volumes = layers
+            .iter()
+            .map(|layer| layer.bake())
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|e| GraphicsError::Material(e.to_string()))?;
+        let side = volumes.iter().map(|v| v.0).max().unwrap_or(1);
+        let mut pixels = Vec::with_capacity((side as usize).pow(3) * 8 * layers.len());
+        for (source_side, source) in &volumes {
+            for z in 0..side {
+                for y in 0..side {
+                    for x in 0..side {
+                        let coordinate = |n: u32| {
+                            if side == 1 {
+                                0
+                            } else {
+                                n * (source_side - 1) / (side - 1)
+                            }
+                        };
+                        let index = ((coordinate(z) * source_side * source_side
+                            + coordinate(y) * source_side
+                            + coordinate(x))
+                            * 8) as usize;
+                        pixels.extend_from_slice(&source[index..index + 8]);
+                    }
+                }
+            }
+        }
         let (mut vertices, mut indices) = tessellate(geometry);
         if shading == ShadingMode::Flat {
             (vertices, indices) = flatten_triangles(&vertices, &indices);
@@ -618,14 +1035,301 @@ impl GeometryRenderer {
                 contents: bytemuck::cast_slice(&indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
+        let (material_uniform, material_bind_group) =
+            self.upload_noise(material, &layers, side, &pixels, &vertices);
         let key = self.geometry.insert(GpuMesh {
             vertex_buffer,
             index_buffer,
             index_count: indices.len() as u32,
+            material: material_uniform,
+            material_bind_group,
         });
-        GeometryId {
+        Ok(GeometryId {
             renderer: self.renderer_id,
             key,
+        })
+    }
+
+    fn upload_noise(
+        &self,
+        material: &crate::Material,
+        layers: &[&crate::Material],
+        side: u32,
+        pixels: &[u8],
+        vertices: &[Vertex],
+    ) -> (MaterialUniform, wgpu::BindGroup) {
+        let count = layers.len() as u32;
+        let size = wgpu::Extent3d {
+            width: side,
+            height: side,
+            depth_or_array_layers: side * count,
+        };
+        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Material noise atlas"),
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D3,
+            format: wgpu::TextureFormat::Rgba16Float,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(side * 8),
+                rows_per_image: Some(side),
+            },
+            size,
+        );
+        let view = texture.create_view(&Default::default());
+        let sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Material linear clamp"),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let terrain = material.terrain.as_ref();
+        let image = material.diffuse_image();
+        // shortcut: terrain images share a 1024-pixel array budget; add streaming textures when larger terrain workloads require it.
+        let (width, height) = if terrain.is_some() {
+            let side = layers
+                .iter()
+                .filter_map(|layer| layer.diffuse_image())
+                .map(|image| image.width().max(image.height()))
+                .max()
+                .unwrap_or(1)
+                .min(1024);
+            (side, side)
+        } else {
+            image.map_or((1, 1), |image| (image.width(), image.height()))
+        };
+        let mips = width.max(height).ilog2() + 1;
+        let diffuse = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Material diffuse array"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: count,
+            },
+            mip_level_count: mips,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        for (layer, material) in layers.iter().enumerate() {
+            if let Some(image) = material.diffuse_image() {
+                let image = if image.width() == width && image.height() == height {
+                    image.clone()
+                } else {
+                    image.resized(width, height)
+                };
+                for (level, image) in image.mip_levels().iter().enumerate() {
+                    self.queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &diffuse,
+                            mip_level: level as u32,
+                            origin: wgpu::Origin3d {
+                                x: 0,
+                                y: 0,
+                                z: layer as u32,
+                            },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        image.rgba(),
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(image.width() * 4),
+                            rows_per_image: Some(image.height()),
+                        },
+                        wgpu::Extent3d {
+                            width: image.width(),
+                            height: image.height(),
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+            } else {
+                for level in 0..mips {
+                    let w = (width >> level).max(1);
+                    let h = (height >> level).max(1);
+                    self.queue.write_texture(
+                        wgpu::TexelCopyTextureInfo {
+                            texture: &diffuse,
+                            mip_level: level,
+                            origin: wgpu::Origin3d {
+                                x: 0,
+                                y: 0,
+                                z: layer as u32,
+                            },
+                            aspect: wgpu::TextureAspect::All,
+                        },
+                        &vec![255; (w * h * 4) as usize],
+                        wgpu::TexelCopyBufferLayout {
+                            offset: 0,
+                            bytes_per_row: Some(w * 4),
+                            rows_per_image: Some(h),
+                        },
+                        wgpu::Extent3d {
+                            width: w,
+                            height: h,
+                            depth_or_array_layers: 1,
+                        },
+                    );
+                }
+            }
+        }
+        let diffuse_view = diffuse.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2Array),
+            ..Default::default()
+        });
+        let diffuse_sampler = self.device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("Diffuse trilinear repeat"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            address_mode_v: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        let resolution = terrain.map_or(1, |t| t.paint.resolution);
+        let weights = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("Terrain material weights"),
+            size: wgpu::Extent3d {
+                width: resolution,
+                height: resolution,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &weights,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            terrain.map_or(&[255, 0, 0, 0][..], |t| t.paint.weights.as_slice()),
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(resolution * 4),
+                rows_per_image: Some(resolution),
+            },
+            wgpu::Extent3d {
+                width: resolution,
+                height: resolution,
+                depth_or_array_layers: 1,
+            },
+        );
+        let weights_view = weights.create_view(&Default::default());
+        let mut uniforms = [MaterialUniform::zeroed(); 4];
+        for (index, layer) in layers.iter().enumerate() {
+            uniforms[index] = Self::material_uniform(layer, vertices);
+            uniforms[index].bounds_min[3] = f32::from(
+                terrain.is_some() && layer.definition().shading == crate::MaterialShading::Flat,
+            );
+        }
+        let buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Terrain material settings"),
+                contents: bytemuck::cast_slice(&uniforms),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("Surface material"),
+            layout: &self.material_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&diffuse_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&diffuse_sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: wgpu::BindingResource::TextureView(&weights_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 5,
+                    resource: buffer.as_entire_binding(),
+                },
+            ],
+        });
+        let mut uniform = Self::material_uniform(material, vertices);
+        uniform.diffuse[2] = count as f32;
+        uniform.diffuse[3] = side as f32;
+        if terrain.is_some() {
+            uniform.params[2] = f32::from(layers.iter().any(|m| m.definition().cast_shadows));
+            uniform.params[3] = 1.;
+        }
+        (uniform, bind_group)
+    }
+
+    fn material_uniform(material: &crate::Material, vertices: &[Vertex]) -> MaterialUniform {
+        let mut min = Vec3::splat(f32::INFINITY);
+        let mut max = Vec3::splat(f32::NEG_INFINITY);
+        for vertex in vertices {
+            let p = Vec3::from_array(vertex.position);
+            min = min.min(p);
+            max = max.max(p);
+        }
+        let d = material.definition();
+        let albedo = d.albedo.unwrap_or([1.0; 3]);
+        MaterialUniform {
+            albedo: [
+                albedo[0],
+                albedo[1],
+                albedo[2],
+                f32::from(d.albedo.is_some()),
+            ],
+            specular: [d.specular[0], d.specular[1], d.specular[2], d.shininess],
+            emission: [
+                d.emission[0],
+                d.emission[1],
+                d.emission[2],
+                d.emission_intensity,
+            ],
+            params: [
+                d.bump_strength,
+                f32::from(d.shading == crate::MaterialShading::Unlit),
+                f32::from(d.cast_shadows),
+                f32::from(d.receive_shadows),
+            ],
+            map_strength: d.maps().map(|m| m.map_or(0.0, |m| m.strength)),
+            bounds_min: min.extend(0.0).to_array(),
+            bounds_size: (max - min).max(Vec3::splat(0.0001)).extend(0.0).to_array(),
+            camera: [0.0; 4],
+            diffuse: [
+                f32::from(material.diffuse_image().is_some()),
+                d.active_diffuse_map().map_or(1., |map| map.scale),
+                0.,
+                0.,
+            ],
         }
     }
 
@@ -636,16 +1340,29 @@ impl GeometryRenderer {
         geometry.renderer == self.renderer_id && self.geometry.contains_key(geometry.key)
     }
 
+    /// Uploaded vertex/index bytes for a live, renderer-scoped handle. Excludes
+    /// material textures, uniforms, transient staging and driver allocation overhead.
+    pub fn geometry_buffer_bytes(&self, geometry: GeometryId) -> Option<u64> {
+        if geometry.renderer != self.renderer_id {
+            return None;
+        }
+        self.geometry
+            .get(geometry.key)
+            .map(|mesh| mesh.vertex_buffer.size() + mesh.index_buffer.size())
+    }
+
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
         if size.width == 0 || size.height == 0 {
             return;
         }
+        self.gpu_profiler = None;
         self.config.width = size.width;
         self.config.height = size.height;
         if let Some(surface) = &self.surface {
             surface.configure(&self.device, &self.config);
         }
         self.depth_view = create_depth_view(&self.device, size);
+        self.particles.resize_depth(&self.device, &self.depth_view);
     }
 
     pub fn render(
@@ -656,7 +1373,7 @@ impl GeometryRenderer {
     }
 
     /// Renders geometry with bounded Lambert lighting and an optional first
-    /// shadow-casting directional light.
+    /// shadow-casting directional light plus up to two shadow-casting point lights.
     pub fn render_lit(
         &mut self,
         instances: &[GeometryInstance],
@@ -669,19 +1386,47 @@ impl GeometryRenderer {
         &mut self,
         instances: &[GeometryInstance],
         lights: &[LightInstance],
-    ) -> Result<bool, GraphicsError> {
+    ) -> Result<ShadowPasses, GraphicsError> {
         self.validate_instances(instances)?;
-        let (light_uniform, light_view_projection, shadow_enabled) = self.prepare_lights(lights)?;
+        let prepared = self.prepare_lights(lights)?;
         self.ensure_uniform_capacity(instances.len())?;
-        let aspect = self.config.width as f32 / self.config.height as f32;
-        let view_matrix = look_at_rh(Vec3::new(7.0, 5.0, 9.0), Vec3::ZERO, Vec3::Y);
-        let projection = perspective_rh(45.0_f32.to_radians(), aspect, 0.1, 100.0);
+        let view_projection = self.view_projection();
+        let viewport = [self.config.width, self.config.height];
+        if let Some(field) = &mut self.raymarched_terrain {
+            field.prepare(
+                &self.queue,
+                view_projection,
+                Mat4::IDENTITY,
+                viewport,
+                self.raymarched_options,
+            );
+        }
+        for (field, model) in self.raymarched_regions.values_mut() {
+            field.prepare(
+                &self.queue,
+                view_projection,
+                *model,
+                viewport,
+                self.raymarched_options,
+            );
+        }
+        if let Some(skybox) = &self.skybox {
+            skybox.prepare(&self.queue, view_projection);
+        }
+        let camera = self
+            .view_matrix
+            .inverse()
+            .transform_point3(Vec3::ZERO)
+            .extend(1.0)
+            .to_array();
         for (index, instance) in instances.iter().enumerate() {
+            let mut material = self.geometry[instance.geometry.key].material;
+            material.camera = camera;
             let uniform = ObjectUniform {
                 model: instance.model.to_cols_array_2d(),
-                model_view_projection: (projection * view_matrix * instance.model)
-                    .to_cols_array_2d(),
+                model_view_projection: (view_projection * instance.model).to_cols_array_2d(),
                 normal_matrix: normal_matrix(instance.model).to_cols_array_2d(),
+                material,
             };
             let offset = index * self.uniform_stride as usize;
             let bytes = bytemuck::bytes_of(&uniform);
@@ -696,50 +1441,76 @@ impl GeometryRenderer {
             &self.frame_buffer,
             0,
             bytemuck::bytes_of(&FrameUniform {
-                light_view_projection: light_view_projection.to_cols_array_2d(),
-                shadow_enabled: u32::from(shadow_enabled),
+                light_view_projection: prepared.directional_matrix.to_cols_array_2d(),
+                shadow_enabled: u32::from(prepared.passes.directional),
                 _padding: [0; 7],
+                point_view_projections: prepared.point_matrices.map(|m| m.to_cols_array_2d()),
             }),
         );
         self.queue
-            .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(&light_uniform));
-
-        Ok(shadow_enabled)
+            .write_buffer(&self.light_buffer, 0, bytemuck::bytes_of(&prepared.uniform));
+        for (index, matrix) in std::iter::once(prepared.directional_matrix)
+            .chain(prepared.point_matrices)
+            .enumerate()
+        {
+            let offset = index * self.shadow_matrix_stride as usize;
+            self.shadow_matrix_bytes[offset..offset + 64]
+                .copy_from_slice(bytemuck::bytes_of(&matrix.to_cols_array_2d()));
+        }
+        self.queue
+            .write_buffer(&self.shadow_matrix_buffer, 0, &self.shadow_matrix_bytes);
+        Ok(prepared.passes)
     }
 
     fn encode_frame(
         &self,
         instances: &[GeometryInstance],
         surface_view: &wgpu::TextureView,
-        shadow_enabled: bool,
+        passes: ShadowPasses,
+        queries: Option<&wgpu::QuerySet>,
     ) -> Result<wgpu::CommandEncoder, GraphicsError> {
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Emergent geometry frame encoder"),
             });
-        if shadow_enabled {
+        for face in 0..=passes.point_faces {
+            if face == 0 && !passes.directional {
+                continue;
+            }
+            let target = if face == 0 {
+                &self.shadow_view
+            } else {
+                &self.point_shadow_views[face - 1]
+            };
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Emergent directional shadow pass"),
+                label: Some("Emergent shadow depth pass"),
                 color_attachments: &[],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &self.shadow_view,
+                    view: target,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: queries.map(|q| crate::gpu_profile::GpuProfiler::writes(q, face)),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.shadow_pipeline);
-            pass.set_bind_group(1, &self.shadow_frame_bind_group, &[]);
+            pass.set_bind_group(
+                1,
+                &self.shadow_frame_bind_group,
+                &[(face as u64 * self.shadow_matrix_stride) as u32],
+            );
             for (index, instance) in instances.iter().enumerate() {
                 let offset = u32::try_from(index as u64 * self.uniform_stride)
                     .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
                 let mesh = &self.geometry[instance.geometry.key];
+                if mesh.material.params[2] < 0.5 {
+                    continue;
+                }
                 pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
@@ -755,9 +1526,9 @@ impl GeometryRenderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.025,
-                            g: 0.035,
-                            b: 0.060,
+                            r: self.background[0] as f64,
+                            g: self.background[1] as f64,
+                            b: self.background[2] as f64,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,
@@ -771,10 +1542,22 @@ impl GeometryRenderer {
                     }),
                     stencil_ops: None,
                 }),
-                timestamp_writes: None,
+                timestamp_writes: queries.map(|q| {
+                    crate::gpu_profile::GpuProfiler::writes(q, crate::gpu_profile::SHADOW_SLOTS)
+                }),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
+            if let Some(skybox) = &self.skybox {
+                skybox.draw(&mut pass);
+            }
+            if let Some(field) = &self.raymarched_terrain {
+                field.draw(&mut pass);
+            }
+            for (field, _) in self.raymarched_regions.values() {
+                field.draw(&mut pass);
+            }
+            pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(1, &self.lighting_bind_group, &[]);
             for (index, instance) in instances.iter().enumerate() {
@@ -782,11 +1565,14 @@ impl GeometryRenderer {
                     .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
                 let mesh = &self.geometry[instance.geometry.key];
                 pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
+                pass.set_bind_group(2, &mesh.material_bind_group, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..mesh.index_count, 0, 0..1);
             }
         }
+        self.particles
+            .encode(&mut encoder, surface_view, &self.depth_view);
         Ok(encoder)
     }
 
@@ -795,7 +1581,7 @@ impl GeometryRenderer {
         instances: &[GeometryInstance],
         lights: &[LightInstance],
     ) -> Result<RenderOutcome, GraphicsError> {
-        let shadow_enabled = self.prepare_frame(instances, lights)?;
+        let passes = self.prepare_frame(instances, lights)?;
         let surface = self
             .surface
             .as_ref()
@@ -833,11 +1619,92 @@ impl GeometryRenderer {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        let encoder = self.encode_frame(instances, &view, shadow_enabled)?;
+        let encoder = self.encode_frame(instances, &view, passes, None)?;
         self.queue.submit(Some(encoder.finish()));
         window.pre_present_notify();
         self.queue.present(frame);
         Ok(RenderOutcome::Presented)
+    }
+
+    /// Whether this device supports optional render-pass timestamp queries.
+    pub fn gpu_timestamps_supported(&self) -> bool {
+        self.device
+            .features()
+            .contains(wgpu::Features::TIMESTAMP_QUERY)
+    }
+
+    /// Profiles a serial offscreen frame without reading colour pixels. Returns
+    /// None on devices without timestamps. Blocks for completion; use for diagnostics,
+    /// not the game's presentation loop. Profiling resources are retained until resize.
+    pub fn profile_lit_frame(
+        &mut self,
+        instances: &[GeometryInstance],
+        lights: &[LightInstance],
+    ) -> Result<Option<crate::GpuFrameProfile>, GraphicsError> {
+        if self.surface.is_some() {
+            return Err(GraphicsError::WrongRenderTarget);
+        }
+        if !self.gpu_timestamps_supported() {
+            return Ok(None);
+        }
+        let dimensions = (self.config.width, self.config.height);
+        if self
+            .gpu_profiler
+            .as_ref()
+            .is_none_or(|p| p.dimensions != dimensions)
+        {
+            self.gpu_profiler = Some(crate::gpu_profile::GpuProfiler::new(
+                &self.device,
+                self.config.format,
+                dimensions.0,
+                dimensions.1,
+            ));
+        }
+        let start = std::time::Instant::now();
+        let passes = self.prepare_frame(instances, lights)?;
+        let prepare_cpu_us = start.elapsed().as_secs_f64() * 1e6;
+        let encode = std::time::Instant::now();
+        let profiler = self.gpu_profiler.as_ref().expect("profiler created above");
+        let mut active = [false; crate::gpu_profile::SLOTS];
+        active[0] = passes.directional;
+        for used in &mut active[1..1 + passes.point_faces] {
+            *used = true;
+        }
+        active[crate::gpu_profile::SHADOW_SLOTS] = true;
+        let encoder =
+            self.encode_frame(instances, &profiler.target, passes, Some(&profiler.queries))?;
+        let commands = encoder.finish();
+        let encode_cpu_us = encode.elapsed().as_secs_f64() * 1e6;
+        let completion = std::time::Instant::now();
+        let submission = self.queue.submit(Some(commands));
+        // Metal counter resolves need host-observed sampling completion (wgpu #9414).
+        self.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: Some(submission),
+                timeout: Some(std::time::Duration::from_secs(10)),
+            })
+            .map_err(|e| GraphicsError::Readback(e.to_string()))?;
+        let mut resolve = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("Completed pass timestamp resolve"),
+            });
+        profiler.resolve(&mut resolve, active);
+        let submission = self.queue.submit(Some(resolve.finish()));
+        let times = profiler.read(&self.device, &self.queue, submission, active)?;
+        Ok(Some(crate::GpuFrameProfile {
+            main_gpu_us: times[crate::gpu_profile::SHADOW_SLOTS],
+            shadows_gpu_us: times[..crate::gpu_profile::SHADOW_SLOTS].iter().sum(),
+            shadow_passes: active[..crate::gpu_profile::SHADOW_SLOTS]
+                .iter()
+                .filter(|used| **used)
+                .count() as u32,
+            prepare_cpu_us,
+            encode_cpu_us,
+            completion_cpu_us: completion.elapsed().as_secs_f64() * 1e6,
+            total_cpu_us: start.elapsed().as_secs_f64() * 1e6,
+            diagnostic_bytes: profiler.bytes(),
+        }))
     }
 
     /// Captures one offscreen frame. This blocks for bounded GPU readback and
@@ -853,7 +1720,7 @@ impl GeometryRenderer {
         let width = self.config.width;
         let height = self.config.height;
         let (row_bytes, padded_row_bytes) = capture_layout(width, height)?;
-        let shadow_enabled = self.prepare_frame(instances, lights)?;
+        let passes = self.prepare_frame(instances, lights)?;
         let size = wgpu::Extent3d {
             width,
             height,
@@ -876,7 +1743,7 @@ impl GeometryRenderer {
             usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
             mapped_at_creation: false,
         });
-        let mut encoder = self.encode_frame(instances, &view, shadow_enabled)?;
+        let mut encoder = self.encode_frame(instances, &view, passes, None)?;
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &texture,
@@ -926,16 +1793,15 @@ impl GeometryRenderer {
         })
     }
 
-    fn prepare_lights(
-        &self,
-        lights: &[LightInstance],
-    ) -> Result<(LightUniform, Mat4, bool), GraphicsError> {
+    fn prepare_lights(&self, lights: &[LightInstance]) -> Result<PreparedLights, GraphicsError> {
         if lights.len() > MAX_LIGHTS {
             return Err(GraphicsError::TooManyLights(lights.len()));
         }
         let mut result = LightUniform::zeroed();
         let mut shadow_view_projection = Mat4::IDENTITY;
         let mut shadow_selected = false;
+        let mut point_matrices = [Mat4::IDENTITY; POINT_SHADOW_FACES];
+        let mut point_count = 0;
         for (index, light) in lights.iter().copied().enumerate() {
             if !light.model.is_finite() {
                 return Err(GraphicsError::NonFiniteLightMatrix { light: index });
@@ -969,6 +1835,19 @@ impl GeometryRenderer {
             }
             let color = source.color().components();
             let position = light.model.transform_point3(Vec3::ZERO);
+            let point_shadow = source.kind() == LightKind::Point
+                && source.shadow_casting() == ShadowCasting::Enabled;
+            let mut point_slot = 0;
+            if point_shadow {
+                if point_count == MAX_POINT_SHADOWS {
+                    return Err(GraphicsError::TooManyPointShadows);
+                }
+                let matrices = point_shadow_matrices(position, source.range().unwrap_or(0.0))
+                    .ok_or(GraphicsError::InvalidPointShadow { light: index })?;
+                point_slot = point_count;
+                point_matrices[point_count * 6..point_count * 6 + 6].copy_from_slice(&matrices);
+                point_count += 1;
+            }
             result.lights[index] = GpuLight {
                 position_kind: [position.x, position.y, position.z, kind],
                 color_intensity: [color[0], color[1], color[2], source.intensity()],
@@ -981,13 +1860,25 @@ impl GeometryRenderer {
                 spot_and_shadow: [
                     inner.cos(),
                     outer.cos(),
-                    0.0,
-                    if casts_shadow { 1.0 } else { 0.0 },
+                    point_slot as f32,
+                    if casts_shadow || point_shadow {
+                        1.0
+                    } else {
+                        0.0
+                    },
                 ],
             };
         }
         result.count = lights.len() as u32;
-        Ok((result, shadow_view_projection, shadow_selected))
+        Ok(PreparedLights {
+            uniform: result,
+            directional_matrix: shadow_view_projection,
+            point_matrices,
+            passes: ShadowPasses {
+                directional: shadow_selected,
+                point_faces: point_count * 6,
+            },
+        })
     }
 
     fn validate_instances(&self, instances: &[GeometryInstance]) -> Result<(), GraphicsError> {
@@ -1267,6 +2158,26 @@ fn non_zero_size(size: PhysicalSize<u32>) -> PhysicalSize<u32> {
     PhysicalSize::new(size.width.max(1), size.height.max(1))
 }
 
+fn validated_view(eye: Vec3, target: Vec3, up: Vec3) -> Result<Mat4, GraphicsError> {
+    let forward = target - eye;
+    let cross = forward.cross(up);
+    if !eye.is_finite()
+        || !target.is_finite()
+        || !up.is_finite()
+        || !forward.length_squared().is_finite()
+        || !cross.length_squared().is_finite()
+        || forward.length_squared() < 1e-8
+        || cross.length_squared() < 1e-8
+    {
+        return Err(GraphicsError::InvalidView);
+    }
+    let view = look_at_rh(eye, target, up);
+    if !view.is_finite() {
+        return Err(GraphicsError::InvalidView);
+    }
+    Ok(view)
+}
+
 fn look_at_rh(eye: Vec3, target: Vec3, up: Vec3) -> Mat4 {
     let forward = (target - eye).normalize();
     let right = forward.cross(up).normalize();
@@ -1279,7 +2190,7 @@ fn look_at_rh(eye: Vec3, target: Vec3, up: Vec3) -> Mat4 {
     )
 }
 
-fn perspective_rh(vertical_fov: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
+pub(crate) fn perspective_rh(vertical_fov: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     let focal_length = 1.0 / (vertical_fov * 0.5).tan();
     let depth = far / (near - far);
     Mat4::from_cols(
@@ -1290,7 +2201,14 @@ fn perspective_rh(vertical_fov: f32, aspect: f32, near: f32, far: f32) -> Mat4 {
     )
 }
 
-fn orthographic_rh(left: f32, right: f32, bottom: f32, top: f32, near: f32, far: f32) -> Mat4 {
+pub(crate) fn orthographic_rh(
+    left: f32,
+    right: f32,
+    bottom: f32,
+    top: f32,
+    near: f32,
+    far: f32,
+) -> Mat4 {
     Mat4::from_cols(
         Vec4::new(2.0 / (right - left), 0.0, 0.0, 0.0),
         Vec4::new(0.0, 2.0 / (top - bottom), 0.0, 0.0),
@@ -1343,10 +2261,64 @@ fn create_depth_view(device: &wgpu::Device, size: PhysicalSize<u32>) -> wgpu::Te
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
             view_formats: &[],
         })
         .create_view(&wgpu::TextureViewDescriptor::default())
+}
+
+fn point_shadow_matrices(position: Vec3, range: f32) -> Option<[Mat4; 6]> {
+    if !position.is_finite()
+        || position.abs().max_element() > 1_000_000.0
+        || !range.is_finite()
+        || !(0.01..=1_000_000.0).contains(&range)
+    {
+        return None;
+    }
+    let projection = perspective_rh(std::f32::consts::FRAC_PI_2, 1.0, range * 0.001, range);
+    let axes = [
+        (Vec3::X, Vec3::NEG_Y),
+        (Vec3::NEG_X, Vec3::NEG_Y),
+        (Vec3::Y, Vec3::Z),
+        (Vec3::NEG_Y, Vec3::NEG_Z),
+        (Vec3::Z, Vec3::NEG_Y),
+        (Vec3::NEG_Z, Vec3::NEG_Y),
+    ];
+    let matrices =
+        axes.map(|(direction, up)| projection * look_at_rh(position, position + direction, up));
+    matrices.iter().all(Mat4::is_finite).then_some(matrices)
+}
+
+fn create_point_shadow_views(
+    device: &wgpu::Device,
+) -> (wgpu::TextureView, [wgpu::TextureView; POINT_SHADOW_FACES]) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("Emergent point shadow faces"),
+        size: wgpu::Extent3d {
+            width: POINT_SHADOW_SIZE,
+            height: POINT_SHADOW_SIZE,
+            depth_or_array_layers: POINT_SHADOW_FACES as u32,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: DEPTH_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let array = texture.create_view(&wgpu::TextureViewDescriptor {
+        dimension: Some(wgpu::TextureViewDimension::D2Array),
+        ..Default::default()
+    });
+    let faces = std::array::from_fn(|i| {
+        texture.create_view(&wgpu::TextureViewDescriptor {
+            dimension: Some(wgpu::TextureViewDimension::D2),
+            base_array_layer: i as u32,
+            array_layer_count: Some(1),
+            ..Default::default()
+        })
+    });
+    (array, faces)
 }
 
 fn create_shadow_view(device: &wgpu::Device) -> wgpu::TextureView {
@@ -1368,8 +2340,68 @@ fn create_shadow_view(device: &wgpu::Device) -> wgpu::TextureView {
         .create_view(&wgpu::TextureViewDescriptor::default())
 }
 
+impl crate::PickingMesh {
+    /// Builds an optional inspection cache from the renderer's own tessellation.
+    pub fn from_geometry(geometry: &Geometry) -> Self {
+        let (vertices, indices) = tessellate(geometry);
+        Self::new(
+            vertices
+                .into_iter()
+                .map(|v| Vec3::from_array(v.position))
+                .collect(),
+            indices,
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn point_shadow_faces_project_axes_and_depth_consistently() {
+        let position = Vec3::new(3.0, 2.0, 1.0);
+        let range = 20.0;
+        let matrices = point_shadow_matrices(position, range).unwrap();
+        for (matrix, axis) in matrices.iter().zip([
+            Vec3::X,
+            Vec3::NEG_X,
+            Vec3::Y,
+            Vec3::NEG_Y,
+            Vec3::Z,
+            Vec3::NEG_Z,
+        ]) {
+            let center = matrix.project_point3(position + axis * 2.0);
+            assert!(center.x.abs() < 0.0001 && center.y.abs() < 0.0001);
+            assert!((0.0..1.0).contains(&center.z));
+            let near = matrix.project_point3(position + axis * (range * 0.001));
+            let far = matrix.project_point3(position + axis * range);
+            assert!(near.z.abs() < 0.0001, "{near:?}");
+            assert!((far.z - 1.0).abs() < 0.0001);
+        }
+        for range in [0.0, 0.001, 1_000_001.0, f32::NAN] {
+            assert!(point_shadow_matrices(position, range).is_none());
+        }
+        assert!(point_shadow_matrices(Vec3::splat(f32::INFINITY), 20.0).is_none());
+        assert!(point_shadow_matrices(Vec3::X * 1_000_001.0, 20.0).is_none());
+        assert_eq!(
+            std::mem::offset_of!(FrameUniform, point_view_projections),
+            96
+        );
+        assert_eq!(
+            std::mem::size_of::<FrameUniform>(),
+            96 + POINT_SHADOW_FACES * 64
+        );
+    }
+
+    #[test]
+    fn inspection_view_rejects_degenerate_camera_inputs() {
+        use super::*;
+        assert!(validated_view(Vec3::new(7., 5., 9.), Vec3::ZERO, Vec3::Y)
+            .unwrap()
+            .is_finite());
+        assert!(validated_view(Vec3::ZERO, Vec3::ZERO, Vec3::Y).is_err());
+        assert!(validated_view(Vec3::Y, Vec3::ZERO, Vec3::Y).is_err());
+        assert!(validated_view(Vec3::splat(f32::NAN), Vec3::ZERO, Vec3::Y).is_err());
+    }
     #[test]
     fn capture_layout_is_bounded_and_gpu_aligned() {
         assert_eq!(super::capture_layout(1, 1).unwrap(), (4, 256));
@@ -1444,6 +2476,21 @@ mod tests {
                 let normal = Vec3::from_array(vertex.normal);
                 normal.is_finite() && (normal.length() - 1.0).abs() < 1.0e-4
             }));
+        }
+    }
+
+    #[test]
+    fn sphere_normals_face_outward_for_smooth_and_flat_shading() {
+        for (sectors, stacks) in [(3, 2), (12, 6), (24, 12)] {
+            let sphere =
+                Geometry::from(Primitive::sphere(1.0, sectors, stacks, Color::WHITE).unwrap());
+            let (vertices, indices) = tessellate(&sphere);
+            let (flat, _) = flatten_triangles(&vertices, &indices);
+            for vertex in vertices.iter().chain(&flat) {
+                let normal = Vec3::from_array(vertex.normal);
+                assert!(normal.dot(Vec3::from_array(vertex.position)) > 0.0);
+                assert!((normal.length() - 1.0).abs() < 1e-5);
+            }
         }
     }
 

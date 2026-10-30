@@ -1,0 +1,35 @@
+terrain_heights = "assets/terrains/7ed428b5-a92d-45a2-a70a-1286a11557d8.efad8229-18ed-40ca-b43e-cf6420fda8e6.heights.toml"
+schema_version = 1
+id = "7ed428b5-a92d-45a2-a70a-1286a11557d8"
+name = "LowMountain"
+kind = "terrain"
+
+terrain_paint = "assets/terrains/7ed428b5-a92d-45a2-a70a-1286a11557d8.17ca32e6-17e9-479d-907d-6c32a8b55aa5.paint.toml"
+[terrain]
+algorithmVersion = 2
+generator = "noise"
+domainWarp = 0.25
+ridgeStrength = 0.5
+erosionIterations = 16
+preset = "island"
+seed = 190
+resolution = 1024
+size = 270
+height = 56
+frequency = 0.8
+octaves = 5
+roughness = 0.5
+mountainCount = 3
+
+[material]
+shading = "smooth"
+albedo = [ 0.65, 0.65, 0.65 ]
+
+[physics]
+enabled = true
+body = "static"
+friction = 0.5
+restitution = 0
+
+[physics.collider]
+shape = "terrain"

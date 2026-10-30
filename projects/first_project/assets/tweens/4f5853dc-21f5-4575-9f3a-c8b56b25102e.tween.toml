@@ -1,0 +1,11 @@
+schema_version = 1
+id = "4f5853dc-21f5-4575-9f3a-c8b56b25102e"
+name = "TweenSineLoop"
+kind = "tween"
+
+[tween]
+easing = "sine-in-out"
+duration_seconds = 4
+from = -1
+to = 1
+playback = "ping-pong"

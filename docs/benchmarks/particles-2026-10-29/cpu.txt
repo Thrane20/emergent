@@ -1,0 +1,2 @@
+1000 live / 3 emitters / 600 steps: CPU p50 0.0032 ms, p95 0.0035 ms, max 0.0040 ms
+10000 live / 3 emitters / 600 steps: CPU p50 0.0344 ms, p95 0.0433 ms, max 0.0737 ms

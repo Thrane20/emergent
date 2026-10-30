@@ -1,0 +1,538 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><meta content="web_dashboard" name="shell-type"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;family=Plus+Jakarta+Sans:wght@600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">tailwind.config = { darkMode: "class", theme: { extend: { "colors": { "error": "#ffb4ab", "error-container": "#93000a", "surface-container-lowest": "#0b0f11", "surface-container-high": "#272b2d", "on-surface-variant": "#c2c8c1", "on-secondary-container": "#9dbda5", "outline": "#8c928c", "surface-variant": "#313537", "outline-variant": "#424843", "secondary-fixed-dim": "#aeceb6", "inverse-on-surface": "#2d3133", "on-primary-container": "#2f4939", "on-tertiary-container": "#2f4939", "on-error-container": "#ffdad6", "primary": "#b5d3be", "on-secondary-fixed": "#042011", "inverse-surface": "#e0e3e5", "primary-fixed-dim": "#b0ceb9", "surface-container-low": "#181c1e", "on-primary-fixed": "#062013", "on-secondary": "#1a3625", "secondary-container": "#314d3a", "secondary": "#aeceb6", "surface-container": "#1c2022", "surface-dim": "#101416", "primary-container": "#9ab7a3", "surface": "#101416", "on-primary": "#1c3627", "on-secondary-fixed-variant": "#314d3a", "tertiary": "#b5d3be", "tertiary-container": "#9ab7a3", "on-tertiary-fixed": "#062013", "secondary-fixed": "#caebd1", "on-tertiary-fixed-variant": "#334c3d", "tertiary-fixed-dim": "#b0ceb9", "primary-fixed": "#ccead4", "inverse-primary": "#4a6453", "background": "#101416", "on-tertiary": "#1c3627", "on-primary-fixed-variant": "#324c3d", "on-background": "#e0e3e5", "on-surface": "#e0e3e5", "surface-container-highest": "#313537", "on-error": "#690005", "tertiary-fixed": "#ccead4", "surface-tint": "#b0ceb9", "surface-bright": "#363a3c" }, "borderRadius": { "DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem" }, "spacing": { "gutter-mobile": "0.25rem", "margin": "0.75rem", "space-xs": "0.25rem", "space-xl": "1.5rem", "space-lg": "1rem", "space-sm": "0.375rem", "gutter": "0.5rem", "margin-mobile": "0.5rem", "space-md": "0.75rem" }, "fontFamily": { "label-sm": [ "JetBrains Mono" ], "body-lg": [ "Inter" ], "body-sm": [ "Inter" ], "headline-xl": [ "Plus Jakarta Sans" ], "headline-lg": [ "Plus Jakarta Sans" ], "body-md": [ "Inter" ], "headline-md": [ "Plus Jakarta Sans" ], "label-md": [ "JetBrains Mono" ], "headline-sm": [ "Plus Jakarta Sans" ], "label-lg": [ "JetBrains Mono" ] }, "fontSize": { "label-sm": [ "0.6875rem", { "lineHeight": "0.875rem", "fontWeight": "400" } ], "body-lg": [ "1rem", { "lineHeight": "1.5rem", "fontWeight": "400" } ], "body-sm": [ "0.75rem", { "lineHeight": "1.125rem", "fontWeight": "400" } ], "headline-xl": [ "2rem", { "lineHeight": "2.5rem", "fontWeight": "600" } ], "headline-lg": [ "1.5rem", { "lineHeight": "2rem", "fontWeight": "600" } ], "body-md": [ "0.875rem", { "lineHeight": "1.375rem", "fontWeight": "400" } ], "headline-md": [ "1.25rem", { "lineHeight": "1.75rem", "fontWeight": "600" } ], "label-md": [ "0.75rem", { "lineHeight": "1rem", "fontWeight": "500" } ], "headline-sm": [ "1rem", { "lineHeight": "1.5rem", "fontWeight": "600" } ], "label-lg": [ "0.875rem", { "lineHeight": "1.25rem", "fontWeight": "500" } ] } } } };</script></head><body class="bg-surface font-body-md text-body-md text-on-surface antialiased select-none"><header class="fixed top-0 left-0 right-0 h-16 z-50 bg-surface-container-low shadow-[0_1px_8px_rgba(0,0,0,0.6)]"><div class="h-16 w-full px-gutter flex items-center justify-between gap-gutter"><div class="flex items-center gap-space-md"><div class="flex items-center gap-space-xs"><div class="w-7 h-7 rounded bg-surface-container-high shadow-[-2px_-2px_5px_rgba(42,50,53,0.35),3px_3px_6px_rgba(8,10,11,0.7)] flex items-center justify-center"><span class="material-symbols-outlined text-primary text-[18px]">deployed_code</span></div><span class="font-headline-sm text-headline-sm text-primary tracking-tight">ForgeAI</span><span class="font-label-sm text-label-sm px-space-xs py-0.5 rounded bg-surface-container-highest text-secondary">STUDIO</span></div><div class="h-4 w-px bg-surface-variant"></div><div class="flex items-center gap-space-xs bg-surface-container-lowest px-space-sm py-1 rounded shadow-[inset_2px_2px_4px_rgba(8,10,11,0.8)]"><span class="material-symbols-outlined text-secondary text-[14px]">folder_open</span><span class="font-label-sm text-label-sm text-on-surface">Biome_Procedural_Overworld</span><span class="material-symbols-outlined text-on-surface-variant text-[14px]">unfold_more</span></div></div><div class="hidden xl:flex items-center gap-space-md bg-surface-container-lowest px-space-md py-1 rounded shadow-[inset_2px_2px_5px_rgba(8,10,11,0.75)]"><div class="flex items-center gap-space-xs"><span class="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(181,211,190,0.6)]"></span><span class="font-label-sm text-label-sm text-primary">Rust Engine</span></div><span class="font-label-sm text-label-sm text-on-surface-variant">•</span><span class="font-label-sm text-label-sm text-on-surface">60 FPS</span><span class="font-label-sm text-label-sm text-on-surface-variant">•</span><span class="font-label-sm text-label-sm text-on-surface-variant">Vulkan 1080p</span><span class="font-label-sm text-label-sm text-on-surface-variant">•</span><span class="font-label-sm text-label-sm text-secondary">rustc 1.78-nightly</span><span class="font-label-sm text-label-sm text-on-surface-variant">•</span><span class="font-label-sm text-label-sm text-primary">hot-reload active</span></div><div class="flex items-center gap-space-sm"><div class="flex items-center gap-space-xs bg-surface-container-high p-0.5 rounded shadow-[-2px_-2px_4px_rgba(42,50,53,0.3),2px_2px_5px_rgba(8,10,11,0.6)]"><button class="w-7 h-7 flex items-center justify-center rounded bg-surface-container-high text-primary hover:bg-surface-container-highest hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[16px]">play_arrow</span></button><button class="w-7 h-7 flex items-center justify-center rounded bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[16px]">pause</span></button><button class="w-7 h-7 flex items-center justify-center rounded bg-surface-container-high text-on-surface-variant hover:bg-surface-container-highest hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[16px]">step_over</span></button></div><div class="h-4 w-px bg-surface-variant"></div><nav class="flex items-center gap-space-xs" data-active-classes="bg-primary-container text-on-primary-container"><a aria-current="page" class="font-label-md px-space-sm py-1 rounded bg-primary-container text-on-primary-container" data-path="scene-composer" href="#">Scene</a><a class="font-label-md text-label-md px-space-sm py-1 rounded bg-surface-container text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" data-path="shader-matrix" href="#">Shader</a><a class="font-label-md text-label-md px-space-sm py-1 rounded bg-surface-container text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" data-path="neural-rigging" href="#">Neural</a><a class="font-label-md text-label-md px-space-sm py-1 rounded bg-surface-container text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" data-path="rust-telemetry" href="#">Telemetry</a></nav><div class="h-4 w-px bg-surface-variant"></div><div class="w-8 h-8 rounded-full bg-primary flex items-center justify-center shadow-[-2px_-2px_4px_rgba(42,50,53,0.3),2px_2px_6px_rgba(8,10,11,0.7)]"><span class="material-symbols-outlined text-on-primary text-[18px]">person</span></div></div></div></header><aside class="fixed left-0 top-16 bottom-0 w-14 bg-surface-container-lowest z-40 flex flex-col justify-between items-center py-space-sm shadow-[1px_0_6px_rgba(0,0,0,0.5)]"><div class="flex flex-col gap-space-xs items-center w-full"><button class="w-10 h-10 flex items-center justify-center rounded bg-surface-container text-primary hover:bg-surface-container-high hover:text-on-surface shadow-[-2px_-2px_4px_rgba(42,50,53,0.25),2px_2px_4px_rgba(8,10,11,0.6)]" type="button"><span class="material-symbols-outlined text-[18px]">layers</span></button><button class="w-10 h-10 flex items-center justify-center rounded bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[18px]">account_tree</span></button><button class="w-10 h-10 flex items-center justify-center rounded bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[18px]">terminal</span></button><button class="w-10 h-10 flex items-center justify-center rounded bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[18px]">precision_manufacturing</span></button><button class="w-10 h-10 flex items-center justify-center rounded bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[18px]">psychology</span></button></div><div class="flex flex-col gap-space-xs items-center w-full"><button class="w-10 h-10 flex items-center justify-center rounded bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[18px]">settings</span></button><button class="w-10 h-10 flex items-center justify-center rounded bg-surface-container-low text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface" type="button"><span class="material-symbols-outlined text-[18px]">help_outline</span></button></div></aside><div class="pl-14"><main class="relative pt-16 bg-surface min-h-screen"><div class="flex flex-col w-full h-[calc(100vh-4rem)] overflow-hidden bg-surface text-on-surface select-none">
+<!-- IDE Master Grid: 3-Column Top Split, Recessed Bottom Console -->
+<div class="flex-1 grid grid-cols-12 min-h-0 gap-gutter p-gutter">
+<!-- ========================================== -->
+<!-- 1. LEFT SIDEBAR PANEL (Scene & Asset Tree) -->
+<!-- ========================================== -->
+<aside class="col-span-12 lg:col-span-3 xl:col-span-3 2xl:col-span-2 flex flex-col bg-surface-container rounded-lg shadow-[-2px_-2px_6px_rgba(42,50,53,0.3),3px_3px_8px_rgba(8,10,11,0.7)] overflow-hidden">
+<!-- Panel Header & Tabs -->
+<div class="p-space-sm bg-surface-container-high flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1 bg-surface-container-lowest p-0.5 rounded shadow-[inset_2px_2px_4px_rgba(8,10,11,0.8)]">
+<button class="px-space-sm py-1 rounded bg-surface-container text-primary font-label-md text-label-md shadow-[-1px_-1px_3px_rgba(42,50,53,0.3),2px_2px_4px_rgba(8,10,11,0.6)] flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px]">account_tree</span>
+<span>Hierarchy</span>
+</button>
+<button class="px-space-sm py-1 rounded text-on-surface-variant hover:text-on-surface font-label-md text-label-md flex items-center gap-1 transition-colors">
+<span class="material-symbols-outlined text-[14px]">inventory_2</span>
+<span>Assets</span>
+</button>
+</div>
+<button class="w-7 h-7 flex items-center justify-center rounded bg-surface-container text-secondary hover:text-primary shadow-[-2px_-2px_4px_rgba(42,50,53,0.35),2px_2px_5px_rgba(8,10,11,0.7)] active:shadow-[inset_2px_2px_3px_rgba(8,10,11,0.8)]" title="Create Entity">
+<span class="material-symbols-outlined text-[16px]">add</span>
+</button>
+</div>
+<!-- Filter Search Bar -->
+<div class="relative flex items-center">
+<span class="material-symbols-outlined absolute left-2 text-on-surface-variant text-[15px]">search</span>
+<input class="w-full bg-surface-container-lowest text-primary font-label-sm text-label-sm pl-7 pr-7 py-1.5 rounded shadow-[inset_2px_2px_4px_rgba(8,10,11,0.85)] placeholder:text-outline focus:outline-none focus:ring-1 focus:ring-secondary/40" placeholder="Filter entities, shaders, ECS..." type="text"/>
+<span class="material-symbols-outlined absolute right-2 text-on-surface-variant text-[14px]">tune</span>
+</div>
+</div>
+<!-- Expandable Tree View (Recessed slate well) -->
+<div class="flex-1 overflow-y-auto p-space-xs flex flex-col gap-0.5 font-label-sm text-label-sm">
+<!-- Root Scene Node -->
+<div class="group flex items-center justify-between px-space-xs py-1 rounded bg-surface-container-high shadow-[-1px_-1px_3px_rgba(42,50,53,0.3),2px_2px_4px_rgba(8,10,11,0.5)]">
+<div class="flex items-center gap-1.5 truncate">
+<span class="material-symbols-outlined text-[15px] text-primary">expand_more</span>
+<span class="material-symbols-outlined text-[15px] text-secondary">public</span>
+<span class="font-headline-sm text-[12px] text-on-surface font-semibold truncate">Overworld_Chunk_04</span>
+</div>
+<span class="font-label-sm text-[10px] px-1 py-0.5 rounded bg-surface-container-lowest text-primary shadow-[inset_1px_1px_2px_rgba(8,10,11,0.7)] font-medium">ACTIVE</span>
+</div>
+<!-- Level 1 Items -->
+<div class="pl-4 border-l border-surface-variant/40 flex flex-col gap-0.5 mt-0.5">
+<!-- Monolith Mesh Item -->
+<div class="flex items-center justify-between px-space-xs py-1 rounded hover:bg-surface-container-high/60 cursor-pointer group">
+<div class="flex items-center gap-1.5 truncate">
+<span class="material-symbols-outlined text-[14px] text-primary">token</span>
+<span class="text-on-surface truncate">Monolith_Tower.glb</span>
+</div>
+<div class="flex items-center gap-1 opacity-80 group-hover:opacity-100 text-[10px] text-on-surface-variant font-label-sm">
+<span class="px-1 rounded bg-surface-container-lowest">LOD0</span>
+<span class="text-secondary">4.2MB</span>
+</div>
+</div>
+<!-- Arcane Rune WGSL -->
+<div class="flex items-center justify-between px-space-xs py-1 rounded bg-secondary-container/20 text-primary cursor-pointer shadow-[inset_1px_1px_2px_rgba(8,10,11,0.5)]">
+<div class="flex items-center gap-1.5 truncate">
+<span class="material-symbols-outlined text-[14px] text-primary animate-pulse">auto_awesome</span>
+<span class="font-medium truncate text-primary">ArcaneRune_Emit.wgsl</span>
+</div>
+<span class="text-[9px] px-1 py-0.2 rounded bg-surface-container-lowest text-primary">WGPU</span>
+</div>
+<!-- Volumetric Fog -->
+<div class="flex items-center justify-between px-space-xs py-1 rounded hover:bg-surface-container-high/60 cursor-pointer group">
+<div class="flex items-center gap-1.5 truncate">
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant">cloud</span>
+<span class="text-on-surface-variant group-hover:text-on-surface truncate">Sage_Volumetric_Fog</span>
+</div>
+<span class="text-[10px] text-on-surface-variant">AtmoPass</span>
+</div>
+<!-- Directional Light -->
+<div class="flex items-center justify-between px-space-xs py-1 rounded hover:bg-surface-container-high/60 cursor-pointer group">
+<div class="flex items-center gap-1.5 truncate">
+<span class="material-symbols-outlined text-[14px] text-secondary">wb_sunny</span>
+<span class="text-on-surface-variant group-hover:text-on-surface truncate">Sun_Directional_Light</span>
+</div>
+<span class="text-[10px] text-secondary">4K_Cascades</span>
+</div>
+<!-- Orbital Rig -->
+<div class="flex items-center justify-between px-space-xs py-1 rounded hover:bg-surface-container-high/60 cursor-pointer group">
+<div class="flex items-center gap-1.5 truncate">
+<span class="material-symbols-outlined text-[14px] text-on-surface-variant">videocam</span>
+<span class="text-on-surface-variant group-hover:text-on-surface truncate">Camera_Rig_Orbital</span>
+</div>
+<span class="material-symbols-outlined text-[13px] text-primary">gps_fixed</span>
+</div>
+</div>
+<!-- Materials Section Header -->
+<div class="flex items-center justify-between px-space-xs py-1 mt-2 text-on-surface-variant cursor-pointer hover:text-on-surface">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">chevron_right</span>
+<span class="font-medium text-secondary">Materials / PBR Shaders</span>
+</div>
+<span class="text-[10px] px-1.5 py-0.2 rounded bg-surface-container-lowest text-on-surface-variant">8</span>
+</div>
+<!-- Rust ECS Systems Section (Hot-reloading) -->
+<div class="flex items-center justify-between px-space-xs py-1 mt-1 text-on-surface-variant cursor-pointer">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-primary">expand_more</span>
+<span class="font-medium text-primary">Rust ECS Systems</span>
+</div>
+<span class="w-1.5 h-1.5 rounded-full bg-primary animate-ping"></span>
+</div>
+<div class="pl-4 border-l border-primary/20 flex flex-col gap-0.5 mt-0.5">
+<div class="flex items-center justify-between px-space-xs py-1 rounded hover:bg-surface-container-high/60 cursor-pointer">
+<div class="flex items-center gap-1.5 truncate">
+<span class="text-[11px] font-bold text-secondary">rs</span>
+<span class="text-on-surface truncate">motion_controller.rs</span>
+</div>
+<span class="text-[10px] text-secondary">60Hz Tick</span>
+</div>
+<div class="flex items-center justify-between px-space-xs py-1 rounded hover:bg-surface-container-high/60 cursor-pointer">
+<div class="flex items-center gap-1.5 truncate">
+<span class="text-[11px] font-bold text-secondary">rs</span>
+<span class="text-on-surface truncate">procedural_biome_gen.rs</span>
+</div>
+<span class="text-[10px] text-on-surface-variant">Rayon ||</span>
+</div>
+<div class="flex items-center justify-between px-space-xs py-1 rounded bg-surface-container-high/40 text-primary cursor-pointer">
+<div class="flex items-center gap-1.5 truncate">
+<span class="text-[11px] font-bold text-primary">rs</span>
+<span class="truncate">particle_emitter_kernel.rs</span>
+</div>
+<span class="text-[10px] text-primary">Dispatch</span>
+</div>
+</div>
+</div>
+<!-- Bottom System Telemetry Widget -->
+<div class="p-space-sm bg-surface-container-lowest border-t-0 shadow-[inset_2px_2px_5px_rgba(8,10,11,0.9)] flex flex-col gap-1.5">
+<div class="flex items-center justify-between font-label-sm text-[11px]">
+<span class="text-on-surface-variant flex items-center gap-1">
+<span class="w-2 h-2 rounded-full bg-primary inline-block"></span>
+            Vulkan VRAM
+          </span>
+<span class="text-primary font-medium">1.8GB / 8.0GB</span>
+</div>
+<div class="w-full h-1.5 bg-surface-container-high rounded-full overflow-hidden">
+<div class="h-full bg-primary rounded-full" style="width: 22.5%"></div>
+</div>
+<div class="grid grid-cols-2 gap-2 mt-1 font-label-sm text-[10px]">
+<div class="flex justify-between bg-surface-container px-2 py-1 rounded shadow-[-1px_-1px_2px_rgba(42,50,53,0.2),1px_1px_3px_rgba(8,10,11,0.6)]">
+<span class="text-on-surface-variant">Sys RAM:</span>
+<span class="text-on-surface font-medium">1.2 GB</span>
+</div>
+<div class="flex justify-between bg-surface-container px-2 py-1 rounded shadow-[-1px_-1px_2px_rgba(42,50,53,0.2),1px_1px_3px_rgba(8,10,11,0.6)]">
+<span class="text-on-surface-variant">Draws:</span>
+<span class="text-secondary font-medium">142 calls</span>
+</div>
+</div>
+</div>
+</aside>
+<!-- ========================================== -->
+<!-- 2. CENTRAL VIEWPORT (3D Widescreen Render) -->
+<!-- ========================================== -->
+<main class="col-span-12 lg:col-span-9 xl:col-span-6 2xl:col-span-7 flex flex-col relative rounded-lg bg-surface-container-lowest shadow-[inset_3px_3px_8px_rgba(8,10,11,0.95),inset_-2px_-2px_6px_rgba(34,40,42,0.35)] overflow-hidden">
+<!-- 3D Render Canvas Canvas Background -->
+<div class="absolute inset-0 z-0 bg-cover bg-center" data-alt="Breathtaking cinematic widescreen game engine 3D viewport rendering a majestic ancient monolith carved with glowing sage green neon runes standing in a mist-shrouded mossy forest clearing. God rays pierce through volumetric fog with luminescent particles floating in slate obsidian lighting." style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCHDqEmzc6_ajb08Eq9aN-fJ3T5BZSoIJPNjtO3K9RU7eRfYevd6By074mQF4CYag-9KYF0kQWq3W3bk6LzEIKSQ81YWvr0IFr6tryJi_JbbdbTzX9GBbHAgcxykwgGxXgseV8R7P5ZEIilO5NXel6vmrhCqWbFg3ouroitqb_jGGFmf7bOZ-wZzUlJWetbFm0aBui_-cNhjAh3Gt0VJSSWt4ZQp1m2nzDAPO3P80qv_TdZ4BMJHfrOyQ')">
+<!-- Render Overlay Vignette & Lighting Matrix -->
+<div class="w-full h-full bg-gradient-to-t from-surface via-transparent to-surface/80 opacity-90 pointer-events-none"></div>
+</div>
+<!-- Top Floating Viewport HUD -->
+<div class="relative z-10 p-space-sm flex flex-wrap items-center justify-between gap-space-sm bg-gradient-to-b from-surface-container-lowest/90 via-surface-container-lowest/50 to-transparent">
+<!-- Breadcrumb & Engine Telemetry -->
+<div class="flex items-center gap-space-xs bg-surface-container-low/85 backdrop-blur-md px-space-sm py-1 rounded shadow-[-2px_-2px_4px_rgba(42,50,53,0.3),2px_2px_5px_rgba(8,10,11,0.7)]">
+<span class="material-symbols-outlined text-primary text-[15px]">videogame_asset</span>
+<span class="font-label-sm text-label-sm text-on-surface font-semibold">Overworld_Chunk_04</span>
+<span class="text-on-surface-variant font-label-sm">›</span>
+<span class="font-label-sm text-label-sm text-secondary">Biome_MossyPillars.mesh</span>
+<div class="h-3 w-px bg-surface-variant mx-1"></div>
+<span class="font-label-sm text-[11px] text-primary">Vulkan 1080p</span>
+<span class="font-label-sm text-[11px] text-on-surface">• 60 FPS (16.6ms)</span>
+</div>
+<!-- Shading Mode Selector Pills -->
+<div class="flex items-center gap-1 bg-surface-container-lowest/80 p-0.5 rounded shadow-[inset_2px_2px_4px_rgba(8,10,11,0.85)] font-label-sm text-label-sm">
+<button class="px-2 py-0.5 rounded bg-surface-container-high text-primary shadow-[-1px_-1px_3px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] font-medium">Persp</button>
+<button class="px-2 py-0.5 rounded text-on-surface-variant hover:text-on-surface">Ortho</button>
+<button class="px-2 py-0.5 rounded text-on-surface-variant hover:text-on-surface">Wireframe</button>
+<button class="px-2 py-0.5 rounded text-on-surface-variant hover:text-on-surface">Normal</button>
+<button class="px-2 py-0.5 rounded text-on-surface-variant hover:text-on-surface">Lit</button>
+</div>
+<!-- Transform Gizmo Controls -->
+<div class="flex items-center gap-1 bg-surface-container-high/80 backdrop-blur-md p-1 rounded shadow-[-2px_-2px_4px_rgba(42,50,53,0.3),2px_2px_5px_rgba(8,10,11,0.6)]">
+<button class="w-6 h-6 flex items-center justify-center rounded bg-primary text-on-primary shadow-[inset_1px_1px_2px_rgba(255,255,255,0.4)]" title="Translate Gizmo (W)">
+<span class="material-symbols-outlined text-[15px]">drag_pan</span>
+</button>
+<button class="w-6 h-6 flex items-center justify-center rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface" title="Rotate Gizmo (E)">
+<span class="material-symbols-outlined text-[15px]">rotate_90_degrees_cw</span>
+</button>
+<button class="w-6 h-6 flex items-center justify-center rounded text-on-surface-variant hover:bg-surface-container hover:text-on-surface" title="Scale Gizmo (R)">
+<span class="material-symbols-outlined text-[15px]">open_in_full</span>
+</button>
+<div class="h-3 w-px bg-surface-variant mx-0.5"></div>
+<button class="w-6 h-6 flex items-center justify-center rounded text-secondary hover:text-primary" title="Snapping Active">
+<span class="material-symbols-outlined text-[15px]">grid_4x4</span>
+</button>
+</div>
+</div>
+<!-- Floating 3D Cursor Coordinate Badge & Focal Point Indicator -->
+<div class="relative z-10 flex-1 flex items-center justify-center pointer-events-none">
+<div class="w-24 h-24 rounded-full border border-primary/20 flex items-center justify-center relative">
+<div class="w-1.5 h-1.5 rounded-full bg-primary shadow-[0_0_8px_rgba(181,211,190,0.9)] animate-ping"></div>
+<div class="w-2 h-2 rounded-full bg-primary absolute"></div>
+<span class="absolute top-2 right-2 font-label-sm text-[9px] text-primary/80 bg-surface-container-lowest/80 px-1 rounded">Target: Monolith</span>
+</div>
+</div>
+<!-- Bottom Viewport HUD Controls Overlay -->
+<div class="relative z-10 p-space-sm flex flex-wrap items-center justify-between gap-space-sm bg-gradient-to-t from-surface-container-lowest via-surface-container-lowest/70 to-transparent">
+<!-- Camera Vector Coordinates (Recessed XYZ Triad) -->
+<div class="flex items-center gap-1 bg-surface-container-lowest/90 px-space-sm py-1 rounded shadow-[inset_2px_2px_5px_rgba(8,10,11,0.9)] font-label-sm text-label-sm">
+<span class="text-on-surface-variant text-[11px] mr-1">Cam Pos</span>
+<div class="flex items-center gap-0.5">
+<span class="text-error font-semibold">X</span>
+<span class="text-on-surface font-mono">142.50</span>
+</div>
+<div class="flex items-center gap-0.5 ml-1.5">
+<span class="text-secondary font-semibold">Y</span>
+<span class="text-on-surface font-mono">18.24</span>
+</div>
+<div class="flex items-center gap-0.5 ml-1.5">
+<span class="text-[#6888a1] font-semibold">Z</span>
+<span class="text-on-surface font-mono">-89.40</span>
+</div>
+</div>
+<!-- Simulation Player Controls (Raised Tactile Neumorphic Console) -->
+<div class="flex items-center gap-space-xs bg-surface-container-high/90 backdrop-blur-md px-space-sm py-1 rounded shadow-[-2px_-2px_5px_rgba(42,50,53,0.35),3px_3px_7px_rgba(8,10,11,0.7)]">
+<button class="w-7 h-7 flex items-center justify-center rounded bg-surface-container text-on-surface-variant hover:text-on-surface shadow-[-1px_-1px_3px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] active:shadow-[inset_2px_2px_3px_rgba(8,10,11,0.8)]" title="Reset Simulation (Shift+R)">
+<span class="material-symbols-outlined text-[16px]">replay</span>
+</button>
+<button class="w-7 h-7 flex items-center justify-center rounded bg-surface-container text-on-surface-variant hover:text-on-surface shadow-[-1px_-1px_3px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] active:shadow-[inset_2px_2px_3px_rgba(8,10,11,0.8)]" title="Step 1 Frame">
+<span class="material-symbols-outlined text-[16px]">skip_next</span>
+</button>
+<button class="px-space-md py-1 flex items-center gap-1.5 rounded bg-primary text-on-primary font-label-md text-label-md font-semibold shadow-[-2px_-2px_4px_rgba(42,50,53,0.4),2px_2px_6px_rgba(8,10,11,0.8)] active:shadow-[inset_2px_2px_4px_rgba(8,10,11,0.9)] transition-all" title="Simulate Physics &amp; Shaders">
+<span class="material-symbols-outlined text-[16px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+<span>SIMULATE</span>
+</button>
+</div>
+<!-- Shading Compilation Status Tag -->
+<div class="flex items-center gap-1.5 bg-surface-container-lowest/80 px-space-sm py-1 rounded shadow-[inset_1px_1px_3px_rgba(8,10,11,0.7)] font-label-sm text-[11px] text-primary">
+<span class="w-2 h-2 rounded-full bg-primary shadow-[0_0_6px_rgba(181,211,190,0.8)]"></span>
+<span>Rust WGPU Shaders Cached • 0 errors</span>
+</div>
+</div>
+</main>
+<!-- ========================================== -->
+<!-- 3. RIGHT PANEL (Tactile Asset Library)     -->
+<!-- ========================================== -->
+<aside class="col-span-12 xl:col-span-3 2xl:col-span-3 flex flex-col bg-surface-container rounded-lg shadow-[-2px_-2px_6px_rgba(42,50,53,0.3),3px_3px_8px_rgba(8,10,11,0.7)] overflow-hidden">
+<!-- Asset Library Header -->
+<div class="p-space-sm bg-surface-container-high flex flex-col gap-space-xs">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-secondary text-[18px]">auto_stories</span>
+<span class="font-headline-sm text-headline-sm text-on-surface">Asset Library</span>
+</div>
+<div class="flex items-center gap-1 font-label-sm text-[10px] text-secondary bg-surface-container-lowest px-1.5 py-0.5 rounded shadow-[inset_1px_1px_2px_rgba(8,10,11,0.7)]">
+<span class="w-1.5 h-1.5 rounded-full bg-secondary animate-pulse"></span>
+<span>4 Synced • 1 Gen</span>
+</div>
+</div>
+<!-- Search & Filter Controls -->
+<div class="flex items-center gap-space-xs">
+<div class="relative flex-1">
+<span class="material-symbols-outlined absolute left-2 top-1.5 text-on-surface-variant text-[14px]">search</span>
+<input class="w-full bg-surface-container-lowest text-primary font-label-sm text-label-sm pl-7 pr-2 py-1.5 rounded shadow-[inset_2px_2px_4px_rgba(8,10,11,0.85)] placeholder:text-outline focus:outline-none" placeholder="Search meshes, WGSL, rust..." type="text"/>
+</div>
+<button class="px-2 py-1 rounded bg-surface-container text-on-surface-variant hover:text-on-surface font-label-sm text-label-sm shadow-[-1px_-1px_3px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] flex items-center gap-0.5">
+<span class="material-symbols-outlined text-[13px]">swap_vert</span>
+<span>Type</span>
+</button>
+</div>
+</div>
+<!-- Asset Tile Mosaic Grid -->
+<div class="flex-1 overflow-y-auto p-space-sm flex flex-col gap-space-sm">
+<!-- Tile 1: Ancient Pillar Mesh -->
+<div class="p-space-sm rounded-lg bg-surface-container-high shadow-[-2px_-2px_5px_rgba(42,50,53,0.35),3px_3px_7px_rgba(8,10,11,0.7)] flex flex-col gap-2 transition-transform hover:-translate-y-0.5">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded bg-surface-container-lowest flex items-center justify-center shadow-[inset_2px_2px_4px_rgba(8,10,11,0.8)] text-primary">
+<span class="material-symbols-outlined text-[20px]">view_in_ar</span>
+</div>
+<div>
+<div class="font-headline-sm text-headline-sm text-on-surface leading-tight">Ancient_Pillar</div>
+<div class="font-label-sm text-[11px] text-on-surface-variant flex items-center gap-1.5 mt-0.5">
+<span class="px-1 py-0.2 rounded bg-surface-container-lowest text-secondary">LOD0</span>
+<span>4.2 MB</span>
+<span>• Mesh</span>
+</div>
+</div>
+</div>
+<button class="px-2 py-1 rounded bg-secondary-container text-on-secondary-container hover:bg-primary hover:text-on-primary font-label-sm text-[11px] font-semibold shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.7)] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">psychology</span>
+<span>AI Tweak</span>
+</button>
+</div>
+<div class="h-10 rounded bg-surface-container-lowest/80 overflow-hidden relative shadow-[inset_1px_1px_3px_rgba(8,10,11,0.8)] flex items-center px-2">
+<span class="font-label-sm text-[10px] text-outline">WGPU Cached • Vertices: 48,192 • Triangles: 24,096</span>
+</div>
+</div>
+<!-- Tile 2: Sage Fog WGSL Shader -->
+<div class="p-space-sm rounded-lg bg-surface-container-high shadow-[-2px_-2px_5px_rgba(42,50,53,0.35),3px_3px_7px_rgba(8,10,11,0.7)] flex flex-col gap-2 border-l-2 border-primary">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded bg-surface-container-lowest flex items-center justify-center shadow-[inset_2px_2px_4px_rgba(8,10,11,0.8)] text-primary">
+<span class="material-symbols-outlined text-[20px] text-primary">filter_drama</span>
+</div>
+<div>
+<div class="flex items-center gap-1">
+<span class="font-headline-sm text-headline-sm text-on-surface leading-tight">Sage_Fog.wgsl</span>
+<span class="font-label-sm text-[9px] px-1 rounded bg-primary text-on-primary font-semibold">AI GEN</span>
+</div>
+<div class="font-label-sm text-[11px] text-secondary mt-0.5">Volumetric Raymarch Pass</div>
+</div>
+</div>
+<button class="px-2 py-1 rounded bg-secondary-container text-on-secondary-container hover:bg-primary hover:text-on-primary font-label-sm text-[11px] font-semibold shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.7)] flex items-center gap-1">
+<span class="material-symbols-outlined text-[12px]">tune</span>
+<span>AI Tweak</span>
+</button>
+</div>
+<!-- Sparkline representation of raymarching steps -->
+<div class="h-8 rounded bg-surface-container-lowest p-1 shadow-[inset_1px_1px_3px_rgba(8,10,11,0.8)] flex items-center justify-between">
+<svg class="w-36 h-6 text-primary" fill="none" stroke="currentColor" stroke-width="1.5" viewbox="0 0 100 24">
+<path d="M0 18 Q 20 4, 40 14 T 80 8 T 100 12" stroke-linecap="round"></path>
+</svg>
+<span class="font-label-sm text-[10px] text-primary font-mono">32 steps/ray</span>
+</div>
+</div>
+<!-- Tile 3: Spatial Audio FX -->
+<div class="p-space-sm rounded-lg bg-surface-container-high shadow-[-2px_-2px_5px_rgba(42,50,53,0.35),3px_3px_7px_rgba(8,10,11,0.7)] flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded bg-surface-container-lowest flex items-center justify-center shadow-[inset_2px_2px_4px_rgba(8,10,11,0.8)] text-secondary">
+<span class="material-symbols-outlined text-[20px]">graphic_eq</span>
+</div>
+<div>
+<div class="font-headline-sm text-headline-sm text-on-surface leading-tight">Crystal_Core_Sfx</div>
+<div class="font-label-sm text-[11px] text-on-surface-variant flex items-center gap-1.5 mt-0.5">
+<span class="px-1 py-0.2 rounded bg-surface-container-lowest text-secondary">48kHz</span>
+<span>Spatial 3D</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-1">
+<button class="w-6 h-6 rounded bg-surface-container text-on-surface-variant hover:text-primary flex items-center justify-center shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)]">
+<span class="material-symbols-outlined text-[14px]">play_arrow</span>
+</button>
+<button class="px-2 py-1 rounded bg-secondary-container text-on-secondary-container hover:bg-primary hover:text-on-primary font-label-sm text-[11px] font-semibold shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.7)]">
+                Modulate
+              </button>
+</div>
+</div>
+</div>
+<!-- Tile 4: ECS Rust Logic -->
+<div class="p-space-sm rounded-lg bg-surface-container-high shadow-[-2px_-2px_5px_rgba(42,50,53,0.35),3px_3px_7px_rgba(8,10,11,0.7)] flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded bg-surface-container-lowest flex items-center justify-center shadow-[inset_2px_2px_4px_rgba(8,10,11,0.8)] text-primary">
+<span class="material-symbols-outlined text-[20px]">terminal</span>
+</div>
+<div>
+<div class="font-headline-sm text-headline-sm text-on-surface leading-tight">Enemy_Patrol_AI</div>
+<div class="font-label-sm text-[11px] text-on-surface-variant mt-0.5">ECS Rust System</div>
+</div>
+</div>
+<button class="px-2 py-1 rounded bg-secondary-container text-on-secondary-container hover:bg-primary hover:text-on-primary font-label-sm text-[11px] font-semibold shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.7)]">
+              AI Tweak
+            </button>
+</div>
+<div class="font-label-sm text-[10px] text-primary/80 bg-surface-container-lowest px-2 py-1 rounded shadow-[inset_1px_1px_3px_rgba(8,10,11,0.8)] font-mono">
+            fn query_patrol_path(q: Query&lt;&amp;Transform&gt;) -&gt; PathResult
+          </div>
+</div>
+<!-- Tile 5: Rune Glow PBR Material -->
+<div class="p-space-sm rounded-lg bg-surface-container-high shadow-[-2px_-2px_5px_rgba(42,50,53,0.35),3px_3px_7px_rgba(8,10,11,0.7)] flex flex-col gap-2">
+<div class="flex items-start justify-between">
+<div class="flex items-center gap-2">
+<div class="w-10 h-10 rounded bg-surface-container-lowest flex items-center justify-center shadow-[inset_2px_2px_4px_rgba(8,10,11,0.8)] text-primary">
+<span class="material-symbols-outlined text-[20px]">palette</span>
+</div>
+<div>
+<div class="font-headline-sm text-headline-sm text-on-surface leading-tight">Rune_Glow_PBR</div>
+<div class="font-label-sm text-[11px] text-on-surface-variant mt-0.5">Albedo / Emissive / Roughness</div>
+</div>
+</div>
+<button class="px-2 py-1 rounded bg-surface-container text-on-surface-variant hover:text-on-surface font-label-sm text-[11px] shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)]">
+              Inspect
+            </button>
+</div>
+<!-- Swatch Quad -->
+<div class="flex items-center gap-1.5 pt-1">
+<div class="w-6 h-6 rounded bg-surface-container-lowest shadow-[inset_1px_1px_2px_rgba(8,10,11,0.8)]" title="Albedo"></div>
+<div class="w-6 h-6 rounded bg-[#4a6453] shadow-[inset_1px_1px_2px_rgba(8,10,11,0.8)]" title="Emissive"></div>
+<div class="w-6 h-6 rounded bg-[#272b2d] shadow-[inset_1px_1px_2px_rgba(8,10,11,0.8)]" title="Roughness"></div>
+<div class="w-6 h-6 rounded bg-[#334c3d] shadow-[inset_1px_1px_2px_rgba(8,10,11,0.8)]" title="Normal"></div>
+<span class="font-label-sm text-[10px] text-on-surface-variant ml-auto">4K PBR Set</span>
+</div>
+</div>
+</div>
+<!-- Quick AI Asset Forge Action Bar -->
+<div class="p-space-sm bg-surface-container-high border-t-0 shadow-[-1px_-1px_4px_rgba(42,50,53,0.25)] flex flex-col gap-1.5">
+<button class="w-full py-2 rounded bg-surface-container text-primary font-label-md text-label-md font-semibold flex items-center justify-center gap-2 shadow-[-2px_-2px_4px_rgba(42,50,53,0.35),2px_2px_5px_rgba(8,10,11,0.7)] hover:bg-surface-container-highest active:shadow-[inset_2px_2px_4px_rgba(8,10,11,0.8)] transition-all">
+<span class="material-symbols-outlined text-[17px] text-secondary">auto_fix_high</span>
+<span>+ AI Asset Forge</span>
+</button>
+<div class="text-center font-label-sm text-[10px] text-on-surface-variant">
+          Drag assets into 3D Viewport to instantiate
+        </div>
+</div>
+</aside>
+</div>
+<!-- ============================================================== -->
+<!-- 4. BOTTOM DOCKED PANEL: Conversational AI Copilot & Console   -->
+<!-- ============================================================== -->
+<footer class="h-60 bg-surface-container-low shadow-[0_-2px_8px_rgba(0,0,0,0.6)] flex flex-col mx-gutter mb-gutter rounded-lg overflow-hidden">
+<!-- Bottom Panel Header Tabs -->
+<div class="flex items-center justify-between px-space-md py-1.5 bg-surface-container-high">
+<div class="flex items-center gap-1">
+<button class="px-space-md py-1 rounded bg-surface-container text-primary font-label-md text-label-md font-semibold shadow-[-1px_-1px_3px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] flex items-center gap-2">
+<span class="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_rgba(181,211,190,0.8)]"></span>
+<span>Forge Copilot (Rust Engine LLM)</span>
+<span class="font-label-sm text-[10px] text-secondary font-normal px-1 py-0.2 rounded bg-surface-container-lowest">18ms/tok streaming</span>
+</button>
+<button class="px-space-md py-1 rounded text-on-surface-variant hover:text-on-surface font-label-md text-label-md flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">terminal</span>
+<span>Rust Compiler Output</span>
+</button>
+<button class="px-space-md py-1 rounded text-on-surface-variant hover:text-on-surface font-label-md text-label-md flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">speed</span>
+<span>Vulkan Frame Debugger</span>
+</button>
+<button class="px-space-md py-1 rounded text-on-surface-variant hover:text-on-surface font-label-md text-label-md flex items-center gap-1.5 transition-colors">
+<span class="material-symbols-outlined text-[14px]">dns</span>
+<span>ECS Event Log</span>
+</button>
+</div>
+<div class="flex items-center gap-2">
+<button class="w-6 h-6 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface" title="Clear Console">
+<span class="material-symbols-outlined text-[15px]">block</span>
+</button>
+<button class="w-6 h-6 flex items-center justify-center rounded text-on-surface-variant hover:text-on-surface" title="Dock Settings">
+<span class="material-symbols-outlined text-[15px]">more_vert</span>
+</button>
+</div>
+</div>
+<!-- Conversational Stream (Scrollable Terminal View) -->
+<div class="flex-1 overflow-y-auto p-space-md bg-surface-container-lowest shadow-[inset_2px_2px_6px_rgba(8,10,11,0.9)] flex flex-col gap-space-sm font-label-sm text-label-sm">
+<!-- User Input Turn -->
+<div class="flex items-start gap-space-sm max-w-4xl">
+<div class="w-6 h-6 rounded bg-surface-container flex-shrink-0 flex items-center justify-center text-secondary shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_2px_rgba(8,10,11,0.6)]">
+<span class="material-symbols-outlined text-[14px]">person</span>
+</div>
+<div class="flex flex-col gap-0.5">
+<div class="flex items-center gap-2">
+<span class="font-headline-sm text-[12px] text-on-surface font-semibold">Engine Architect</span>
+<span class="text-[10px] text-on-surface-variant">14:32:08</span>
+</div>
+<div class="text-on-surface bg-surface-container/40 p-2 rounded shadow-[-1px_-1px_2px_rgba(42,50,53,0.1),1px_1px_3px_rgba(8,10,11,0.4)]">
+            Add dynamic sage particle collision to the Monolith runes and bind it to motion_controller.rs.
+          </div>
+</div>
+</div>
+<!-- Forge Copilot AI Response Turn -->
+<div class="flex items-start gap-space-sm max-w-5xl">
+<div class="w-6 h-6 rounded bg-primary-container flex-shrink-0 flex items-center justify-center text-on-primary-container shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_2px_rgba(8,10,11,0.6)]">
+<span class="material-symbols-outlined text-[14px]">smart_toy</span>
+</div>
+<div class="flex flex-col gap-1 w-full">
+<div class="flex items-center gap-2">
+<span class="font-headline-sm text-[12px] text-primary font-semibold">Forge Copilot</span>
+<span class="text-[10px] text-secondary font-mono">rust-wgpu-v4</span>
+<span class="text-[10px] text-on-surface-variant">14:32:09</span>
+</div>
+<div class="text-on-surface bg-surface-container/70 p-2.5 rounded shadow-[-1px_-1px_3px_rgba(42,50,53,0.2),2px_2px_4px_rgba(8,10,11,0.6)] flex flex-col gap-2">
+<p class="leading-relaxed">
+              Generated WGPU compute dispatch in <code class="text-primary font-mono bg-surface-container-lowest px-1 py-0.5 rounded">ArcaneRune_Emit.wgsl</code> and synthesized Rust ECS system <code class="text-primary font-mono bg-surface-container-lowest px-1 py-0.5 rounded">particle_emitter_kernel.rs</code>. Frame times remain stable at <strong>16.4ms (60 FPS)</strong>. Hot-reload successfully dispatched in 140ms.
+            </p>
+<!-- Action Chips for Copilot Output -->
+<div class="flex flex-wrap items-center gap-space-xs mt-1">
+<button class="px-space-sm py-1 rounded bg-secondary-container text-on-secondary-container hover:bg-primary hover:text-on-primary font-label-sm text-[11px] font-medium shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] active:shadow-[inset_1px_1px_2px_rgba(8,10,11,0.8)] flex items-center gap-1 transition-all">
+<span class="material-symbols-outlined text-[13px]">check_circle</span>
+<span>Apply Particle Collision</span>
+</button>
+<button class="px-space-sm py-1 rounded bg-surface-container-high text-on-surface hover:text-primary font-label-sm text-[11px] shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] flex items-center gap-1 transition-all">
+<span class="material-symbols-outlined text-[13px]">monitoring</span>
+<span>Benchmark GPU Dispatch</span>
+</button>
+<button class="px-space-sm py-1 rounded bg-surface-container-high text-on-surface hover:text-primary font-label-sm text-[11px] shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] flex items-center gap-1 transition-all">
+<span class="material-symbols-outlined text-[13px]">code</span>
+<span>Expose Shader Uniforms</span>
+</button>
+<button class="px-space-sm py-1 rounded bg-surface-container-high text-error hover:text-on-error-container font-label-sm text-[11px] shadow-[-1px_-1px_2px_rgba(42,50,53,0.3),1px_1px_3px_rgba(8,10,11,0.6)] flex items-center gap-1 transition-all">
+<span class="material-symbols-outlined text-[13px]">undo</span>
+<span>Revert Commit</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Tactile Prompt Composer Bar & Quick Action Chips -->
+<div class="p-space-sm bg-surface-container-high flex flex-col gap-1.5 shadow-[0_-1px_4px_rgba(0,0,0,0.5)]">
+<!-- Quick Action Shortcuts -->
+<div class="flex items-center gap-1.5 overflow-x-auto pb-0.5">
+<span class="font-label-sm text-[10px] text-on-surface-variant uppercase tracking-wider">Quick Prompts:</span>
+<button class="px-2 py-0.5 rounded bg-surface-container text-primary font-label-sm text-[11px] hover:bg-surface-container-highest whitespace-nowrap shadow-[-1px_-1px_2px_rgba(42,50,53,0.25),1px_1px_2px_rgba(8,10,11,0.6)]">
+          + Add Foliage Shader
+        </button>
+<button class="px-2 py-0.5 rounded bg-surface-container text-secondary font-label-sm text-[11px] hover:bg-surface-container-highest whitespace-nowrap shadow-[-1px_-1px_2px_rgba(42,50,53,0.25),1px_1px_2px_rgba(8,10,11,0.6)]">
+          Compile Rust (Fast)
+        </button>
+<button class="px-2 py-0.5 rounded bg-surface-container text-on-surface-variant hover:text-on-surface font-label-sm text-[11px] whitespace-nowrap shadow-[-1px_-1px_2px_rgba(42,50,53,0.25),1px_1px_2px_rgba(8,10,11,0.6)]">
+          Optimize Mesh LODs
+        </button>
+<button class="px-2 py-0.5 rounded bg-surface-container text-on-surface-variant hover:text-on-surface font-label-sm text-[11px] whitespace-nowrap shadow-[-1px_-1px_2px_rgba(42,50,53,0.25),1px_1px_2px_rgba(8,10,11,0.6)]">
+          Toggle SSAO Pass
+        </button>
+</div>
+<!-- Main Input Bar -->
+<div class="flex items-center gap-space-sm bg-surface-container-lowest p-1 rounded-lg shadow-[inset_2px_2px_5px_rgba(8,10,11,0.9)]">
+<button class="w-8 h-8 rounded flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" title="Attach Mesh or Shader Source">
+<span class="material-symbols-outlined text-[18px]">attachment</span>
+</button>
+<input class="flex-1 bg-transparent text-primary font-label-md text-label-md placeholder:text-outline focus:outline-none px-1" placeholder="Instruct Rust Engine LLM, synthesize WGSL shaders, or modify scene graph..." type="text"/>
+<button class="w-8 h-8 rounded flex items-center justify-center text-on-surface-variant hover:text-on-surface hover:bg-surface-container transition-colors" title="Voice Dictation">
+<span class="material-symbols-outlined text-[18px]">mic</span>
+</button>
+<!-- Raised Tactile Send Button -->
+<button class="px-space-md py-1.5 rounded bg-primary text-on-primary font-label-md text-label-md font-semibold flex items-center gap-1 shadow-[-2px_-2px_4px_rgba(42,50,53,0.35),2px_2px_5px_rgba(8,10,11,0.7)] active:shadow-[inset_2px_2px_4px_rgba(8,10,11,0.9)] hover:opacity-95 transition-all">
+<span>Dispatch</span>
+<span class="material-symbols-outlined text-[16px]">arrow_forward</span>
+</button>
+</div>
+</div>
+</footer>
+</div></main></div></body></html>

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "kind": "skybox",
+  "sprite": {
+    "columns": 1,
+    "rows": 1,
+    "frames": 1,
+    "fps": 12
+  }
+}

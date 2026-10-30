@@ -1,0 +1,34 @@
+schema_version = 1
+terrain_heights = "assets/terrains/207ae579-3ba2-45da-850b-fc7e3b71e902.heights.toml"
+id = "207ae579-3ba2-45da-850b-fc7e3b71e902"
+name = "ClosedTerrain"
+kind = "terrain"
+
+[terrain]
+algorithmVersion = 2
+generator = "noise"
+domainWarp = 0.25
+ridgeStrength = 0.5
+erosionIterations = 16
+preset = "hilly"
+seed = 42
+resolution = 128
+size = 100
+height = 18
+frequency = 0.65
+octaves = 4
+roughness = 0.45
+mountainCount = 3
+
+[material]
+shading = "smooth"
+albedo = [ 0.65, 0.65, 0.65 ]
+
+[physics]
+enabled = true
+body = "static"
+friction = 0.5
+restitution = 0
+
+[physics.collider]
+shape = "terrain"

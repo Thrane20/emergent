@@ -1,0 +1,118 @@
+schema_version = 1
+id = "bda577fe-67ad-439b-a556-8a2ef548f2e9"
+name = "TestScene"
+kind = "scene"
+template = "scene.blank"
+runtime_status = "preview"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+
+active_camera = "ff68ee21-3173-4767-84da-91b51a3f1c6e"
+[[entities]]
+id = "a5be312c-a7b9-4d9b-9eff-5be691a320b2"
+asset = "assets/entities/a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml"
+
+[entities.material]
+shading = "flat"
+cast_shadows = true
+receive_shadows = true
+specular = [ 0, 0, 0 ]
+shininess = 32
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0.1
+noise_resolution = 32
+albedo = [ 0.386429433787049, 0.05780543019106723, 0.05780543019106723 ]
+
+[entities.physics]
+enabled = true
+body = "dynamic"
+gravity_scale = 1
+mass = 1
+friction = 0.5
+restitution = 0
+
+[entities.physics.collider]
+shape = "box"
+
+[entities.transform]
+translation = [2.4856656,29.572933,0]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+[[entities]]
+id = "0d8bc844-cd37-405b-8a8b-b98a245c92b0"
+asset = "assets/entities/0d8bc844-cd37-405b-8a8b-b98a245c92b0.entity.toml"
+
+[entities.transform]
+translation = [3.6775815,0,0]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+
+[[entities]]
+name = "OffenderBox"
+id = "c1836e8d-78b5-4d90-9d59-f22cec9ac856"
+asset = "assets/entities/c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml"
+
+[entities.material]
+shading = "flat"
+cast_shadows = true
+receive_shadows = true
+specular = [ 0, 0, 0 ]
+shininess = 32
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0.1
+noise_resolution = 32
+albedo = [ 0.01520851442291271, 0.12213877222960187, 0.22696587351009836 ]
+
+[entities.physics]
+enabled = true
+body = "dynamic"
+gravity_scale = 1
+mass = 1
+friction = 0.5
+restitution = 0.6
+
+[entities.physics.collider]
+shape = "box"
+
+[entities.transform]
+translation = [36.74388,35.41542,0]
+rotation_degrees = [0,0,0]
+scale = [4,4,4]
+
+[[entities]]
+id = "ff68ee21-3173-4767-84da-91b51a3f1c6e"
+asset = "assets/entities/ff68ee21-3173-4767-84da-91b51a3f1c6e.entity.toml"
+
+[entities.camera]
+projection = "perspective"
+field_of_view_degrees = 60
+near = 0.1
+far = 1000
+
+[entities.transform]
+translation = [47.381966,37.420216,67.0655]
+rotation_degrees = [-20.52228,21.585205,7.8408523]
+scale = [1,1,1]
+
+
+
+[[entities]]
+id = "5cb4b6a6-6b14-4ad1-a8ea-48e984e0c696"
+asset = "assets/terrains/7ed428b5-a92d-45a2-a70a-1286a11557d8.entity.toml"
+
+[entities.transform]
+translation = [0,-8.924546,0]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+[environment]
+ambient_color = [ 1, 1, 1 ]
+ambient_intensity = 1.73
+background_color = [ 0.14126329114027164, 0.2788942634768104, 0.6514056374198242 ]
+skybox_rotation = 181
+skybox_intensity = 1
+

@@ -1,0 +1,14 @@
+schema_version = 1
+id = "bfefae2c-8e27-409e-9ed9-6ffc018752d0"
+name = "Biome landscape"
+kind = "raymarched-terrain"
+
+[raymarched_terrain]
+version = 2
+seed = 42
+size = 1024
+biome_scale = 180
+relief = 100
+overhang = 3
+cave_radius = 0
+biome = "island"

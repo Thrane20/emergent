@@ -41,6 +41,8 @@ Emergent is a game engine built from scratch in Rust. Gaming-grade speed, predic
 - Test hierarchy invariants, stale-handle behavior, and mutation edge cases. Add regression tests for substantive bugs and use property-based tests when they provide meaningful coverage of graph mutations.
 - Run formatting, relevant tests, and Clippy for Rust changes when the project supports them. Run targeted benchmarks for changes to hot paths or storage layout. Report commands run, results, and any checks that could not run.
 - Do not trade correctness for performance without an explicit, documented contract. Performance regressions need evidence and a clear reason, not accidental acceptance.
+- The user runs their app on port 3000. If you want to run and inspect, fire up your own engine on port 3001. When you're done, close down the test service.
+
 
 ## Working in this repository
 
@@ -48,3 +50,9 @@ Emergent is a game engine built from scratch in Rust. Gaming-grade speed, predic
 - For substantial new systems, first write a concise design brief covering ownership, SlotMap integration, data flow, hot paths, expected scale, and validation. Avoid broad implementation before the boundaries are clear.
 - Preserve unrelated work. Do not introduce competing object identity or hierarchy systems as shortcuts.
 - Explain what changed, why it fits the engine architecture, and how it was validated. Distinguish measured results from intended improvements and unresolved risks.
+
+## Documentation
+
+- Follow `docs/README.md`: `GOALS.MD` holds goals and stage gates, `plan.md` holds the live queue, and `docs/implementation-status.md` is the delivered ledger.
+- Keep docs current with the code. A change that finishes work updates `plan.md`, the status row, and any GOALS.MD checkbox or capability status in the same change.
+- Do not add root-level planning or iteration files. Put area plans in `docs/plans/` and leave `docs/history/` frozen.

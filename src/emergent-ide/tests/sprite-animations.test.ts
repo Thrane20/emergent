@@ -1,0 +1,27 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import {randomUUID} from "node:crypto";
+import {execFileSync} from "node:child_process";
+import {mkdir,mkdtemp,readFile,readdir,rm,writeFile} from "node:fs/promises";
+import path from "node:path";
+import os from "node:os";
+import {ParticleMediaJobs} from "../src/lib/particle-media";
+import {configureLibraryImage,deleteLibraryImage} from "../src/lib/image-library-assets";
+import {projectImages} from "../src/lib/image-library";
+import type {ProjectSnapshot} from "../src/lib/project";
+
+test("sprite generations retain a static source, share a family, prepare independent atlases and retry locally",async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),"sprite-animation-test-"));t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(path.join(root,"assets"));
+ const png=path.join(root,"assets/static.png"),clip=path.join(root,"clip.mp4");execFileSync("ffmpeg",["-v","error","-f","lavfi","-i","color=red:s=4x4","-frames:v","1","-y",png]);execFileSync("ffmpeg",["-v","error","-f","lavfi","-i","color=red:s=16x16:r=8:d=1","-c:v","libx264","-pix_fmt","yuv420p","-y",clip]);const original=await readFile(png),video=await readFile(clip);
+ const project={id:"sprite-test",name:"Sprite",root,assetRoots:["assets"],files:[{path:"assets/static.png",name:"static.png",modifiedAt:"2026-10-30",kind:"texture",bytes:original.length,content:null,authored:true,generated:false}],connections:[],entities:[],outputs:[],entryScene:"assets/main.scene.toml"} as ProjectSnapshot;
+ await configureLibraryImage(project,"assets/static.png",{kind:"sprite",sprite:{columns:1,rows:1,frames:1,fps:8}});project.files.push({path:"assets/static.png.library.json",name:"static.png.library.json",content:await readFile(`${png}.library.json`,"utf8"),modifiedAt:"2026-10-30"} as ProjectSnapshot["files"][number]);
+ let paid=0,bakes=0,fail=true;const jobs=new ParticleMediaJobs(path.join(root,"private"),async()=>({upload:async bytes=>{assert.deepEqual(bytes,original);return "https://fal.media/image.png";},submit:async()=>{paid++;return "request";},status:async()=>"ready",result:async()=>video}),async(_input,output)=>{bakes++;if(fail)throw new Error("test bake failure");await writeFile(output,original);return {columns:2,rows:2,frames:4,fps:8,alpha:false};},async(p,bytes,_name,id)=>{const relative=`assets/${id}/atlas.png`;await mkdir(path.dirname(path.join(p.root,relative)),{recursive:true});await writeFile(path.join(p.root,relative),bytes);return {path:relative,name:"Animation"};});
+ const request={stage:"animate",source:"assets/static.png",prompt:"gentle motion",seed:1,output:"sprite"},a=randomUUID(),b=randomUUID();const [first,second]=await Promise.all([jobs.create(project,a,request),jobs.create(project,b,request)]);assert.equal(first.spriteFamily,second.spriteFamily);assert.equal(paid,2);await jobs.create(project,a,request);assert.equal(paid,2);
+ assert.equal((await jobs.refresh(project,a)).state,"failed");assert.equal(paid,2);fail=false;const ready=await jobs.refresh(project,a);assert.equal(ready.state,"ready");assert.equal(ready.atlas?.frames,4);assert.equal(paid,2);const other=await jobs.refresh(project,b);assert.notEqual(ready.atlas?.path,other.atlas?.path);assert.deepEqual(await readFile(png),original);assert.equal(bakes,3);
+ const metadata=JSON.parse(await readFile(`${path.join(root,ready.atlas!.path)}.library.json`,"utf8"));assert.equal(metadata.family,first.spriteFamily);assert.equal(metadata.kind,"sprite");assert.equal(metadata.sprite.frames,4);
+ const journal=path.join(path.dirname(await jobs.artifact(project,a)),"job.json");await writeFile(journal,JSON.stringify({...ready,state:"failed",error:"interrupted metadata save"}));await rm(`${path.join(root,ready.atlas!.path)}.library.json`);assert.equal((await jobs.refresh(project,a)).state,"ready");assert.equal(JSON.parse(await readFile(`${path.join(root,ready.atlas!.path)}.library.json`,"utf8")).family,first.spriteFamily);assert.equal(paid,2);assert.equal(bakes,3);
+ await jobs.forgetAtlas(project,ready.atlas!.path);await assert.rejects(jobs.refresh(project,a),/deleted/);assert.equal((await jobs.list(project)).length,1);assert.equal((await jobs.get(project,b)).state,"ready");assert.deepEqual(await readFile(png),original);
+ // Provenance is historical; an actual effect reference must still block image deletion.
+ const folders=await readdir(path.join(root,"assets"));for(const folder of folders.filter(f=>f!=="static.png"&&f!=="static.png.library.json")){try{const json=await readFile(path.join(root,"assets",folder,"particle-media.asset.json"),"utf8");project.files.push({path:`assets/${folder}/particle-media.asset.json`,name:"particle-media.asset.json",content:json,modifiedAt:"2026-10-30"} as ProjectSnapshot["files"][number]);project.connections.push({source:`assets/${folder}/particle-media.asset.json`,target:"assets/static.png"} as ProjectSnapshot["connections"][number]);}catch{}}
+ project.connections.push({source:"assets/effect.particle.toml",target:"assets/static.png"} as ProjectSnapshot["connections"][number]);await assert.rejects(deleteLibraryImage(project,"assets/static.png"),/referenced/);project.connections=project.connections.filter(c=>c.source!=="assets/effect.particle.toml");await deleteLibraryImage(project,"assets/static.png");await assert.rejects(readFile(png),{code:"ENOENT"});assert.ok(await readFile(path.join(root,other.atlas!.path)));assert.equal(projectImages(project)[0].kind,"sprite");
+});

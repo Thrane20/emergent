@@ -1,0 +1,20 @@
+schema_version = 1
+id = "noise-function"
+name = "Noise function"
+kind = "noise-function"
+template = "procedural.noise"
+runtime_status = "preview"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[noise]
+algorithm_version = 1
+algorithm = "perlin"
+seed = 18877
+dimensions = 2
+size = 128
+frequency = 1
+octaves = 4
+lacunarity = 2
+persistence = 0.5
+extent = 8
+offset = [1,0,0]

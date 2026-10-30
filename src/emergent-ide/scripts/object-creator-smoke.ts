@@ -115,8 +115,9 @@ async function main() {
     await page.getByRole("button", { name: "Save to project" }).click();
     await expect(page.getByRole("button", { name: "Saved ✓" })).toBeVisible();
     assert.equal(submissions, 1);
-    const saved = JSON.parse(await readFile(path.join(root, "assets/models/smoke-rover/object.asset.json"), "utf8"));
-    assert.equal(saved.model, "assets/models/smoke-rover/model.glb");
+    const savedJob = (await jobs.list(project))[0];
+    const saved = JSON.parse(await readFile(path.join(root, path.dirname(savedJob.savedPath!), "object.asset.json"), "utf8"));
+    assert.equal(saved.model, `assets/models/${saved.jobId}/model.glb`);
     const screenshot = path.join(os.tmpdir(), "emergent-object-creator-smoke.png");
     await page.screenshot({ path: screenshot, fullPage: true });
     await stop(); server = start(); watch(); await ready();
@@ -124,9 +125,10 @@ async function main() {
     await page.waitForFunction(() => (document.querySelector("model-viewer") as HTMLElement & { loaded?: boolean })?.loaded);
     await expect(page.getByRole("button", { name: "Saved ✓" })).toBeVisible();
     await page.goto(base);
+    await page.locator(".project-files > summary").click();
     await page.getByRole("button", { name: "model.glb", exact: true }).click();
     await page.waitForFunction(() => (document.querySelector("model-viewer") as HTMLElement & { loaded?: boolean })?.loaded);
-    await page.getByRole("button", { name: "object.asset.json", exact: true }).click();
+    await page.getByRole("button", { name: "Smoke Rover", exact: true }).click();
     await page.waitForFunction(() => (document.querySelector("model-viewer") as HTMLElement & { loaded?: boolean })?.loaded);
     assert.deepEqual(errors, []);
     console.log("IDE UI smoke passed: automatic statement checking/failure persistence, Implement action, settings, mocked generation, real GLB preview/save, server restart, project selection. Screenshot: " + screenshot);

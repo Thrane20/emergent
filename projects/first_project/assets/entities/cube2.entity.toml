@@ -1,0 +1,17 @@
+schema_version = 1
+id = "cube2"
+name = "Cube2"
+kind = "primitive"
+template = "object.cube"
+runtime_status = "available"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [0.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[geometry]
+primitive = "cube"
+half_extent = 0.5
+color = [1.0, 1.0, 1.0, 1.0]

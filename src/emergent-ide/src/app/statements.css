@@ -1,5 +1,5 @@
 .statement-actions{flex-wrap:wrap;justify-content:flex-end;max-width:94px}
-.statement-implementation{margin-top:8px;padding:7px;border:1px solid #344b3a;border-radius:5px;background:#142019;overflow-wrap:anywhere}
-.statement-implementation summary{cursor:pointer;font-size:9px;color:#abd2b5}.statement-implementation p{margin-top:6px}.statement-implementation small{white-space:normal;color:#91b79d}
-.statement-progress{margin:0;padding:9px 10px;color:#badbc4;background:#1b3022;font-size:10px;line-height:1.5}
+.statement-implementation{margin-top:8px;padding:5px;border:1px solid var(--theme-line-strong, #344b3a);border-radius:5px;background:var(--theme-surface, #142019);overflow-wrap:anywhere}
+.statement-implementation summary{cursor:pointer;font-size:9px;color:var(--theme-foreground, #abd2b5)}.statement-implementation p{margin-top:6px}.statement-implementation small{white-space:normal;color:var(--theme-muted, #91b79d)}
+.statement-progress{margin:0;padding:7px 8px;color:var(--theme-foreground, #badbc4);background:var(--theme-surface-high, #1b3022);font-size:10px;line-height:1.5}
 .statement-error{max-height:150px;overflow:auto;white-space:pre-wrap}

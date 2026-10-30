@@ -1,0 +1,11 @@
+schema_version = 1
+id = "surface-quality-light"
+name = "Surface comparison light"
+kind = "directional-light"
+[transform]
+rotation_degrees = [-34.377, 28.648, 0.0]
+[light]
+type = "directional"
+color = [1.0, 1.0, 1.0]
+intensity = 0.85
+casts_shadows = false

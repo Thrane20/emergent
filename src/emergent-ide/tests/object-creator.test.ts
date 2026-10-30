@@ -38,9 +38,9 @@ test("generation survives restart, duplicate requests submit once, saved bundles
   assert.equal((await restarted.list(f.project))[0].requestId, "provider-request-1");
   assert.equal((await restarted.refresh(f.project, id)).state, "ready");
   const saved = await restarted.save(f.project, id, "Moon Rover");
-  assert.equal(saved.savedPath, "assets/models/moon-rover/model.glb");
+  assert.equal(saved.savedPath, `assets/models/${id}/model.glb`);
   assert.equal((await restarted.save(f.project, id, "Ignored duplicate name")).savedPath, saved.savedPath);
-  const descriptor = JSON.parse(await readFile(path.join(f.project.root, "assets/models/moon-rover/object.asset.json"), "utf8")) as ObjectAsset;
+  const descriptor = JSON.parse(await readFile(path.join(f.project.root, `assets/models/${id}/object.asset.json`), "utf8")) as ObjectAsset;
   assert.equal(descriptor.jobId, id); assert.equal(descriptor.modelRevision, null); assert.equal(descriptor.settings.texture_size, 1024);
   validateGlb(await readFile(path.join(f.project.root, saved.savedPath!)));
   await writeFile(path.join(f.project.root, "emergent.toml"), 'id = "test-project"\nname = "Test"\nasset_roots = ["assets"]\n');
@@ -100,18 +100,25 @@ test("malformed provider output cannot be saved", async (t) => {
   await assert.rejects(f.jobs.artifact(f.project, job.id, "model"), /not ready/);
 });
 
-test("save collisions preserve existing bundles and invalid assets never publish", async (t) => {
+test("duplicate display names save independently and invalid assets never publish", async (t) => {
   const f = await fixture(t);
   const first = await f.jobs.create(f.project, randomUUID(), "Rover", reference);
   await f.jobs.refresh(f.project, first.id);
-  await f.jobs.save(f.project, first.id, "Rover");
+  const savedFirst = await f.jobs.save(f.project, first.id, "Rover");
   const second = await f.jobs.create(f.project, randomUUID(), "Rover", reference);
   await f.jobs.refresh(f.project, second.id);
-  await assert.rejects(f.jobs.save(f.project, second.id, "Rover"), /already exists/);
-  const model = await f.jobs.artifact(f.project, second.id, "model");
+  const savedSecond = await f.jobs.save(f.project, second.id, "Rover");
+  assert.notEqual(savedFirst.savedPath,savedSecond.savedPath);
+  for(const job of [first,second]) {
+    const descriptor=JSON.parse(await readFile(path.join(f.project.root,`assets/models/${job.id}/object.asset.json`),"utf8")) as ObjectAsset;
+    assert.equal(descriptor.id,job.id); assert.equal(descriptor.name,"Rover");
+  }
+  const third=await f.jobs.create(f.project,randomUUID(),"Rover",reference);
+  await f.jobs.refresh(f.project,third.id);
+  const model = await f.jobs.artifact(f.project, third.id, "model");
   await writeFile(model, "broken");
-  await assert.rejects(f.jobs.save(f.project, second.id, "Different"), /valid GLB/);
-  assert.deepEqual(await readdir(path.join(f.project.root, "assets/models")), ["rover"]);
+  await assert.rejects(f.jobs.save(f.project, third.id, "Rover"), /valid GLB/);
+  assert.deepEqual((await readdir(path.join(f.project.root, "assets/models"))).sort(), [first.id,second.id].sort());
 });
 
 test("paths, symlinks, image size and signatures are checked", async (t) => {
@@ -151,15 +158,22 @@ test("SDK transport guard prevents a second paid POST", async () => {
 
 test("provider adapter maps the documented queue/result contract and downloads local GLB bytes", async () => {
   let postCount = 0;
+  let submission: Record<string, unknown> | undefined;
   const transport: typeof fetch = async (input, init) => {
     const url = String(input);
     if (url === "https://fal.media/result.glb") return new Response(new Uint8Array(triangleGlb()));
     if (url.includes("/status")) return Response.json({ status: "COMPLETED" });
-    if (init?.method?.toUpperCase() === "POST") { postCount++; return Response.json({ request_id: "request-test", status: "IN_QUEUE" }); }
+    if (init?.method?.toUpperCase() === "POST") {
+      postCount++;
+      submission = JSON.parse(String(init.body)) as Record<string, unknown>;
+      return Response.json({ request_id: "request-test", status: "IN_QUEUE" });
+    }
     return Response.json({ model_mesh: { url: "https://fal.media/result.glb" } });
   };
   const provider = createTrellisProvider("test-key", transport);
   assert.equal(await provider.submit("https://fal.media/input.png", 12), "request-test");
+  assert.equal(submission?.texture_size, 1024);
+  assert.equal(typeof submission?.texture_size, "number");
   assert.equal(await provider.status("request-test"), "completed");
   validateGlb(await provider.result("request-test")); assert.equal(postCount, 1);
 });
