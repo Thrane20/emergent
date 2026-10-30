@@ -24,7 +24,7 @@ export async function projectCodeContext(project: ProjectSnapshot, statement: Pi
     if (!file.content || !/\.(rs|toml|txt|json)$/.test(file.path) || budget < file.content.length) continue;
     files.set(file.path, file.content); budget -= file.content.length;
   }
-  for (const relative of ["AGENTS.md", "src/lib.rs", "src/behavior.rs", "src/engine.rs", "src/world.rs", "src/geometry.rs", "src/primitives.rs", "src/light.rs", "docs/capabilities/engine-capabilities.toml"]) {
+  for (const relative of ["AGENTS.md", "src/lib.rs", "src/behavior.rs", "src/component.rs", "src/motion.rs", "src/brain.rs", "src/engine.rs", "src/world.rs", "src/geometry.rs", "src/primitives.rs", "src/light.rs", "docs/capabilities/engine-capabilities.toml"]) {
     const source = await readFile(/* turbopackIgnore: true */ path.join(/* turbopackIgnore: true */ root, relative), "utf8");
     files.set(`foundation/${relative}`, source.split("#[cfg(test)]")[0].slice(0,40_000));
   }

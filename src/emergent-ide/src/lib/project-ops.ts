@@ -5,6 +5,7 @@ import path from "node:path";
 import { parse } from "smol-toml";
 import { settingsDirectory } from "./ai-settings";
 import { cameraSettings } from "./camera-settings";
+import type { ComponentPatch } from "./components";
 import { projectImages } from "./image-library";
 import { inspectionSessions } from "./inspection-session";
 import { lightingSettings } from "./lighting-settings";
@@ -13,7 +14,7 @@ import type { ProjectSnapshot } from "./project";
 import { publishProjectEvent } from "./project-events";
 import { projectIndex, RefError, resolveRef, type InstanceEntry, type ProjectIndex, type SceneEntry } from "./project-index";
 import { replaceSceneLighting } from "./scene-lighting";
-import {
+import { addedComponentType, replaceInstanceComponent,
   commitSceneEdit, materialEdit, physicsSettings, replaceInstanceCamera, replaceInstanceName, replaceInstanceParent,
   replaceInstancePhysics, replaceInstanceTransform, replaceSceneSubtree, scenePlacement, transformEdit, type TransformValues,
 } from "./scene-placement";
@@ -53,7 +54,7 @@ async function currentInstance(project: ProjectSnapshot, scene: SceneEntry, id: 
 }
 
 /** Runs one scene edit; on success journals it, pushes `live` controls to the running inspection world and notifies pages. */
-async function sceneEdit(project: ProjectSnapshot, scene: SceneEntry, revision: string, tool: string, summary: string, edit: (source: string) => string | Promise<string>, options: { dryRun?: boolean; check?: () => Promise<void>; live?: (sessionId: string) => Promise<void>; ref?: string } = {}): Promise<OpResult> {
+async function sceneEdit(project: ProjectSnapshot, scene: SceneEntry, revision: string, tool: string, summary: string, edit: (source: string) => string | Promise<string>, options: { dryRun?: boolean; check?: () => Promise<void>; live?: (sessionId: string) => Promise<void>; ref?: string; source?: "mcp" | "ide" } = {}): Promise<OpResult> {
   if (typeof revision !== "string" || !/^[0-9a-f]{64}$/.test(revision)) throw new RefError("Pass the sceneRevision/revision from describe; edits are refused against an unknown revision.");
   const { before, content, changed } = await commitSceneEdit(project, scene.path, revision, edit, { check: options.check, dryRun: options.dryRun });
   if (!changed) return { applied: false, dryRun: options.dryRun === true, changeId: null, summary: `${summary}: no change.`, diff: "", revision, ref: options.ref, live: false };
@@ -61,7 +62,7 @@ async function sceneEdit(project: ProjectSnapshot, scene: SceneEntry, revision: 
   if (options.dryRun) return { applied: false, dryRun: true, changeId: null, summary: `Would ${summary}. Validated; nothing written.`, diff, revision, ref: options.ref, live: false };
   const changeId = await journal(project, tool, summary, [{ path: scene.path, before, content }]);
   const live = await pushLive(project, scene.path, options.live);
-  publishProjectEvent({ type: "changed", projectId: project.id, changeId, source: "mcp", summary, paths: [scene.path], scenes: [scene.path], live });
+  publishProjectEvent({ type: "changed", projectId: project.id, changeId, source: options.source ?? "mcp", summary, paths: [scene.path], scenes: [scene.path], live });
   const fresh = await scenePlacement(project, scene.path);
   return { applied: true, dryRun: false, changeId, summary: `${summary}.`, diff, revision: fresh.revision, ref: options.ref, live };
 }
@@ -115,7 +116,7 @@ export async function deleteInstance(project: ProjectSnapshot, input: { ref: str
   return sceneEdit(project, scene, input.revision, "delete", label, source => replaceSceneSubtree(source, entry.id), { dryRun: input.dryRun });
 }
 
-export type PlaceInput = { asset: string; scene: string; revision: string; parent?: string | null; name?: string; translation?: unknown; rotation_degrees?: unknown; scale?: unknown; dryRun?: boolean };
+export type PlaceInput = { asset: string; scene: string; revision: string; parent?: string | null; name?: string; translation?: unknown; rotation_degrees?: unknown; scale?: unknown; dryRun?: boolean; source?: "mcp" | "ide" };
 export async function placeAsset(project: ProjectSnapshot, input: PlaceInput) {
   const index = await projectIndex(project), scene = sceneTarget(index, input.scene), asset = resolveRef(index, input.asset);
   if (asset.type !== "asset" || !asset.path.endsWith(".entity.toml")) throw new RefError(`${input.asset} is not a placeable entity asset. Use list with type "assets" to find entity assets.`);
@@ -132,7 +133,7 @@ export async function placeAsset(project: ProjectSnapshot, input: PlaceInput) {
     if (parent) content = replaceInstanceParent(content, id, parent.id);
     if (patch.translation || patch.rotation_degrees || patch.scale) content = replaceInstanceTransform(content, id, { translation: patch.translation ?? defaults.translation, rotation_degrees: patch.rotation_degrees ?? defaults.rotation_degrees, scale: patch.scale ?? defaults.scale });
     return content;
-  }, { dryRun: input.dryRun, ref });
+  }, { dryRun: input.dryRun, ref, source: input.source });
 }
 
 function assetDefaults(project: ProjectSnapshot, assetPath: string): TransformValues {
@@ -171,6 +172,16 @@ export async function setComponent(project: ProjectSnapshot, input: { ref: strin
   if (!instance.camera) throw new RefError(`${entry.ref} is not a camera.`);
   const next = patch === null ? null : cameraSettings(merge(instance.camera as Settings, patch));
   return sceneEdit(project, scene, input.revision, "set_camera", label, source => replaceInstanceCamera(source, entry.id, next), options);
+}
+
+/** Add, change, disable or remove one registry component (e.g. emergent.light) on an instance; the Rust loader validates fields. */
+export async function setObjectComponent(project: ProjectSnapshot, input: { ref: string; revision: string; type: string; fields: Record<string, unknown> | null; enabled?: boolean; dryRun?: boolean }) {
+  const index = await projectIndex(project), { entry, scene } = instanceTarget(index, input.ref);
+  if (input.fields !== null && (!input.fields || typeof input.fields !== "object" || Array.isArray(input.fields))) throw new RefError("fields must be an object of field values, or null to remove the component override.");
+  const patch = input.fields === null ? null : { ...input.fields, ...(input.enabled === undefined ? {} : { enabled: input.enabled }) } as ComponentPatch;
+  const label = patch === null ? `remove ${input.type} override from ${entry.name} (${entry.ref})` : `set ${input.type} ${Object.keys(patch).join(", ") || "defaults"} on ${entry.name} (${entry.ref})`;
+  const keepEmpty = await addedComponentType(project, input.type);
+  return sceneEdit(project, scene, input.revision, "set_component", label, source => replaceInstanceComponent(source, entry.id, input.type, patch, keepEmpty), { dryRun: input.dryRun, ref: entry.ref });
 }
 
 export async function setEnvironment(project: ProjectSnapshot, input: { scene: string; revision: string; settings: unknown; dryRun?: boolean }) {

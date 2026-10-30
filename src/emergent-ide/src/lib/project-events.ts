@@ -5,7 +5,7 @@ export type ProjectEvent = {
   type: "changed";
   projectId: string;
   changeId: string;
-  source: "mcp";
+  source: "mcp" | "ide";
   summary: string;
   paths: string[];
   scenes: string[];

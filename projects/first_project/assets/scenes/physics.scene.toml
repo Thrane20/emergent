@@ -29,6 +29,9 @@ restitution = 0.45
 
 [entities.physics.collider]
 shape = "box"
+
+[[entities.components]]
+type = "project.jumping_bean"
 [entities.material]
 shading = "flat"
 specular = [ 0, 0, 0 ]

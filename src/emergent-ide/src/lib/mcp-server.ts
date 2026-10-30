@@ -6,9 +6,9 @@ import { z } from "zod";
 import { readProjectSnapshot, type ProjectSnapshot } from "./project";
 import { findEntries, projectIndex, RefError, resolveRef, type IndexEntry, type InstanceEntry, type ProjectIndex } from "./project-index";
 import { foundationRoot } from "./project-code-context";
-import { renderProjectScene } from "./scene-preview";
+import { componentRegistry, renderProjectScene } from "./scene-preview";
 import { scenePlacement } from "./scene-placement";
-import { assignIds, changeHistory, deleteInstance, placeAsset, renameInstance, reparentInstance, setComponent, setEnvironment, setTransform, undoChange, type PlaceInput, type TransformInput } from "./project-ops";
+import { assignIds, changeHistory, deleteInstance, placeAsset, renameInstance, reparentInstance, setComponent, setObjectComponent, setEnvironment, setTransform, undoChange, type PlaceInput, type TransformInput } from "./project-ops";
 
 const INSTRUCTIONS = `Emergent project server. It exposes the linked game project's scenes, scene instances and assets.
 
@@ -25,6 +25,7 @@ Editing:
 - Edits change authored scene files (never a running game). They are validated by the Rust engine, journalled with a changeId, and appear live in the open IDE.
 - Pass dryRun: true to preview the diff and validation without writing.
 - Component edits (set_material, set_physics, set_camera, set_environment) take only the fields to change; null resets the instance to its asset defaults. Colours are linear RGB in 0..1.
+- Registry components (list_component_types; e.g. emergent.light for a light's colour, intensity, range, cone and shadows) are set with set_component: pass only the fields to change, a field value of null to reset it, enabled to switch the component off or on, or fields null to remove the override. A light's direction is its rotation (set_transform).
 - undo reverts the most recent MCP change (or a given changeId) and refuses if the files changed since. history lists recent changes.
 - Units are metres and degrees; +Y is up.`;
 
@@ -122,6 +123,11 @@ export function createMcpServer() {
       ref: refSchema, revision: revisionSchema, settings: z.record(z.string(), z.unknown()).nullable(), dryRun: dryRunSchema,
     }, (project, args) => setComponent(project, { ...(args as { ref: string; revision: string; settings: unknown; dryRun?: boolean }), component }));
   }
+  server.registerTool("list_component_types", { title: "List component types", description: "Component types that can be set on scene instances, with each field's kind, range, unit and which object variants accept it.", inputSchema: {}, annotations: { readOnlyHint: true } },
+    async () => run(async ({ project }) => json({ types: await componentRegistry(project) })));
+  edit("set_component", "Set a component", "Add or change a registry component (see list_component_types) on one scene instance. fields: only the fields to change (null resets one to the asset value), or null to remove the component override. enabled false switches the component off (an off light emits nothing).", {
+    ref: refSchema, revision: revisionSchema, type: z.string().min(3).max(96), fields: z.record(z.string(), z.unknown()).nullable(), enabled: z.boolean().optional(), dryRun: dryRunSchema,
+  }, (project, args) => setObjectComponent(project, args as { ref: string; revision: string; type: string; fields: Record<string, unknown> | null; enabled?: boolean; dryRun?: boolean }));
   edit("set_environment", "Set scene environment", "Change a scene's ambient light, background or skybox. Fields: ambient_color [r,g,b], ambient_intensity, background_color [r,g,b], skybox (an image-library skybox path or null), skybox_rotation (degrees), skybox_intensity.", {
     scene: refSchema, revision: revisionSchema, settings: z.record(z.string(), z.unknown()), dryRun: dryRunSchema,
   }, (project, args) => setEnvironment(project, args as { scene: string; revision: string; settings: unknown; dryRun?: boolean }));

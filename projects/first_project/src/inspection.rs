@@ -460,6 +460,7 @@ mod tests {
             "request={op='view',seq=1,yaw=0.0,pitch=0.0,distance=12.0,target=[0.0,0.0,0.0],projection='perspective',field_of_view_degrees=45.0,view_size=12.0}"
         )
         .is_ok());
+        assert!(toml::from_str::<Envelope>("request={op='probe',seq=2,x=0.5,y=0.5}").is_ok());
         assert!(toml::from_str::<Envelope>("request={op='unknown',seq=1}").is_err());
     }
 }

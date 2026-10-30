@@ -82,7 +82,6 @@ export function NewSceneModal({ projectId, disabled, onBeforeOpen, onCreated }: 
               <span>Scene name</span>
               <input ref={inputRef} value={name} maxLength={64} onChange={(event) => { setName(event.target.value); setError(""); }} placeholder="Forest clearing" autoComplete="off" />
             </label>
-            <p>The scene will be saved under the project&apos;s scenes directory and selected in the scene viewer.</p>
             {error && <p className="asset-create-error" role="alert">{error}</p>}
             <footer>
               <button type="button" className="asset-cancel" onClick={close}>Cancel</button>

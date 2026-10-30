@@ -11,7 +11,7 @@ async function main(){
   const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aBmcAAAAASUVORK5CYII=","base64");
   await page.route("**/api/particles/thumbnail?*",route=>route.fulfill({contentType:"image/png",body:png}));
   const scene="assets/scenes/main.scene.toml";
-  const routes=[['/images','Image Generator'],['/terrain','Terrain Builder'],['/objects','Object Creator'],['/object-builder','Object Builder'],['/materials','Material Generator'],['/textures','Texture Creator'],['/particles','Particle Generator'],['/tweens','Tween Editor'],['/player','Player settings'],['/settings','Settings']];
+  const routes=[['/images','Image Generator'],['/terrain','Terrain Builder'],['/objects','Object Creator'],['/object-builder','Object Builder'],['/materials','Material Generator'],['/particles','Particle Generator'],['/tweens','Tween Editor'],['/player','Player settings'],['/settings','Settings']];
   for(const [path,label] of routes){
    await page.goto(`${base}${path}?scene=${encodeURIComponent(scene)}`);
    const balance=page.getByRole("button",{name:"fal balance",exact:true});await expect(balance).toHaveCount(1);await expect(balance).toBeVisible();await expect(balance).toContainText("$8.76");assert.ok(await balance.evaluate(el=>Boolean(el.closest("header"))));

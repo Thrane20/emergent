@@ -1,0 +1,34 @@
+schema_version = 1
+id = "guard"
+name = "Guard area"
+kind = "brain"
+description = "Circles its post; chases intruders that come within 8 m, but never strays more than 12 m from home."
+
+[[nodes]]
+id = "root"
+type = "priority"
+
+[[nodes]]
+id = "leash"
+parent = "root"
+type = "stay_within"
+radius = 12.0
+
+[[nodes]]
+id = "alert"
+parent = "root"
+type = "within_distance"
+group = "intruders"
+distance = 8.0
+
+[[nodes]]
+id = "chase"
+parent = "alert"
+type = "seek"
+group = "intruders"
+
+[[nodes]]
+id = "post"
+parent = "root"
+type = "orbit"
+radius = 3.0

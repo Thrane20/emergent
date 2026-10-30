@@ -54,8 +54,8 @@ test("an authorised client initialises, lists tools and resolves a name to a dur
   const init = await rpc("initialize", { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "1" } });
   assert.match(String((init.result as { instructions?: string }).instructions), /Names are NOT unique/);
   const tools = ((await rpc("tools/list")).result!.tools as { name: string; annotations?: { readOnlyHint?: boolean } }[]);
-  const readOnly = ["describe", "find", "history", "list", "project_overview", "view"];
-  const writes = ["assign_ids", "delete", "place_asset", "rename", "reparent", "set_camera", "set_environment", "set_material", "set_physics", "set_transform", "undo"];
+  const readOnly = ["describe", "find", "history", "list", "list_component_types", "project_overview", "view"];
+  const writes = ["assign_ids", "delete", "place_asset", "rename", "reparent", "set_camera", "set_component", "set_environment", "set_material", "set_physics", "set_transform", "undo"];
   assert.deepEqual(tools.map(item => item.name).sort(), [...readOnly, ...writes].sort());
   for (const item of tools) assert.equal(item.annotations?.readOnlyHint, readOnly.includes(item.name), `${item.name} read-only annotation`);
   const edit = await tool("set_transform", { ref: "instance:main/pyramid", revision: "nope", translation: [1, 2, 3] });

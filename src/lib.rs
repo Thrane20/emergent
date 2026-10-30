@@ -4,7 +4,9 @@
 //! it multiplies authored geometry dimensions and composes through the hierarchy.
 
 mod behavior;
+pub mod brain;
 mod camera;
+pub mod component;
 #[cfg(feature = "density-mesh")]
 mod density_mesh;
 mod engine;
@@ -16,6 +18,8 @@ mod geometry;
 mod gpu_profile;
 #[cfg(feature = "graphics")]
 mod graphics;
+mod input;
+mod motion;
 #[cfg(feature = "graphics")]
 pub use gpu_profile::GpuFrameProfile;
 mod inspection;
@@ -48,7 +52,9 @@ pub use behavior::{
 };
 pub use bevy_ecs;
 pub use bevy_ecs::component::Component;
+pub use brain::{BrainAgent, BrainDefinition, BrainSettings, CompiledBrain, Group, GroupNames};
 pub use camera::{Camera, CameraError, CameraProjection};
+pub use component::{ComponentField, ComponentRegistry, ComponentType, ComponentValues, FieldKind};
 pub use engine::{
     Engine, EngineConfig, EngineContext, EngineError, FrameAdvance, Game, SchedulePhase,
     SimulationTime,
@@ -60,17 +66,19 @@ pub use graphics::{
     CubeRenderer, GeometryId, GeometryInstance, GeometryRenderer, GraphicsError, LightInstance,
     RaymarchedTerrainId, RenderOutcome, RenderedFrame, RendererInfo, ShadingMode,
 };
+pub use input::{Input, Key, KeySet};
 pub use inspection::{
     gizmo_frame, project_point, GizmoTool, InspectionRay, PickingMesh, TransformGizmo,
     TransformSpace,
 };
 pub use light::{LightError, LightKind, LightSource, ShadowCasting};
+pub use motion::{ActiveCamera, CharacterController, Follow, Spin};
 pub use primitives::{Primitive, PrimitiveKind};
 pub use project::{
     BuildProfile, Project, ProjectError, ProjectManifest, ProjectOutput, TargetOs,
     PROJECT_SCHEMA_VERSION,
 };
-pub use scene::{LoadedScene, SceneDefinition, SceneError};
+pub use scene::{LoadedScene, SceneComponent, SceneDefinition, SceneError};
 pub use world::{
     Entity, EntityId, EntityIdentity, EntityLifecycleCommandKind, EntityLifecycleQueue,
     EntityLifecycleResult, EntityLifecycleResults, GlobalTransform, PropagationStats, Transform,

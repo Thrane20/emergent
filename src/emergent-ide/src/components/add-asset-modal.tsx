@@ -145,7 +145,7 @@ export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }:
               </label>}
               <div className="asset-path-preview">
                 <span>CREATES</span>
-                <code>{`${selected.directory}/<unique-id>${selected.extension}`}</code><small>Names can repeat. Each asset gets a unique ID.</small>
+                <code>{`${selected.directory}/<unique-id>${selected.extension}`}</code>
               </div>
               </div>
                 {error && <p className="asset-create-error" role="alert">{error}</p>}

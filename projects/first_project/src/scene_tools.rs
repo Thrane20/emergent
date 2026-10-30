@@ -35,7 +35,8 @@ struct Report {
 
 pub fn report(project: &Project, path: &str) -> Result<(), Box<dyn Error>> {
     let mut world = World::new();
-    let scene = SceneDefinition::load(project, path)?.instantiate(&mut world)?;
+    let scene = SceneDefinition::load_with(project, path, &crate::components::registry())?
+        .instantiate(&mut world)?;
     world.propagate_transforms();
     let mut ids: Vec<_> = scene.entities.keys().collect();
     ids.sort();
@@ -76,7 +77,8 @@ pub fn convert(
     }
     let values: Values = toml::from_str(&source)?;
     let mut world = World::new();
-    let scene = SceneDefinition::load(project, path)?.instantiate(&mut world)?;
+    let scene = SceneDefinition::load_with(project, path, &crate::components::registry())?
+        .instantiate(&mut world)?;
     world.propagate_transforms();
     let entity = *scene
         .entities

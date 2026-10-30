@@ -1,7 +1,8 @@
 use emergent::{EngineContext, Game};
 
 use crate::avoidance::DistanceAvoidance;
-use crate::bounce::{GroundBounce, PeriodicPop};
+use crate::bounce::GroundBounce;
+use crate::components::ProjectComponents;
 use crate::generated::main_scene::{build_main_scene, MainScene};
 use crate::spin::{rotate_z, SLOW_SPIN_DEGREES_PER_SECOND};
 
@@ -10,14 +11,13 @@ const CENTER_CUBE_SPIN_DEGREES_PER_SECOND: f32 = 90.0;
 const DEFENDER_ID: &str = "a5be312c-a7b9-4d9b-9eff-5be691a320b2";
 const OFFENDER_BOX_ID: &str = "c1836e8d-78b5-4d90-9d59-f22cec9ac856";
 const GROUND_ID: &str = "ground";
-const FALLING_CUBE_ID: &str = "falling-cube";
 
 pub struct FirstProjectGame {
     pub loaded: emergent::LoadedScene,
     scene: Option<MainScene>,
     avoidance: Option<DistanceAvoidance>,
     bounce: Option<GroundBounce>,
-    jumping_bean: Option<PeriodicPop>,
+    components: ProjectComponents,
     exit_after_ticks: Option<u64>,
 }
 
@@ -32,7 +32,8 @@ impl FirstProjectGame {
         if !leader_speed.is_finite() {
             return Err("leader speed must be finite".into());
         }
-        let definition = emergent::SceneDefinition::load(project, path)?;
+        let definition =
+            emergent::SceneDefinition::load_with(project, path, &crate::components::registry())?;
         let chain = match definition.builder() {
             Some("emergent.first-project.generated.main_scene") => true,
             None => false,
@@ -77,25 +78,13 @@ impl FirstProjectGame {
             .copied()
             .zip(loaded.entities.get(GROUND_ID).copied())
             .map(|(offender, ground)| GroundBounce::new(offender, ground, 0.5));
-        let jumping_bean = loaded
-            .entities
-            .get(FALLING_CUBE_ID)
-            .copied()
-            .filter(|entity| {
-                engine
-                    .world()
-                    .component::<emergent::PhysicsBody>(*entity)
-                    .ok()
-                    .flatten()
-                    .is_some_and(|body| body.body == emergent::BodyKind::Dynamic)
-            })
-            .map(PeriodicPop::new);
+        let components = ProjectComponents::attach(&loaded)?;
         Ok(Self {
             loaded,
             scene,
             avoidance,
             bounce,
-            jumping_bean,
+            components,
             exit_after_ticks,
         })
     }
@@ -107,11 +96,9 @@ impl Game for FirstProjectGame {
     }
 
     fn fixed_update(&mut self, context: &mut EngineContext<'_>) {
-        if let Some(jumping_bean) = &mut self.jumping_bean {
-            jumping_bean
-                .update(context.world, context.fixed_delta)
-                .expect("authored falling-cube remains a dynamic physics body");
-        }
+        self.components
+            .fixed_update(context.world, context.fixed_delta)
+            .expect("project components keep their validated objects");
 
         if let Some(bounce) = &mut self.bounce {
             bounce
@@ -222,7 +209,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let cube = game.loaded.entities[super::FALLING_CUBE_ID];
+        let cube = game.loaded.entities["falling-cube"];
 
         engine.run_ticks(&mut game, 250).unwrap();
 

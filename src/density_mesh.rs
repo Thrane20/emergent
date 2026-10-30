@@ -42,7 +42,8 @@ pub struct DensityMesh {
 }
 impl RaymarchedTerrain {
     /// Extracts a Surface Nets approximation of the full field, with exterior padding.
-    /// Blocking authoring preparation; metre spacing must be 0.125..=64 and fit sample/output caps.
+    /// Blocking experimental preparation; metre spacing must be 0.125..=64 and fit sample/output caps.
+    /// Output may be nonmanifold or miss sub-cell features; not a validated physics collider.
     pub fn extract_mesh(&self, cell_size: f32) -> Result<DensityMesh, DensityMeshError> {
         self.validate().map_err(DensityMeshError::InvalidSettings)?;
         let (mut lower, upper) = self.bounds();
@@ -210,7 +211,7 @@ mod tests {
         let mesh = prepare().mesh.unwrap();
         assert_eq!(Some(mesh.clone()), prepare().mesh);
         let mut edges = HashMap::<(u32, u32), (usize, i32)>::new();
-        for triangle in mesh.indices().chunks_exact(3) {
+        for triangle in mesh.indices().as_chunks::<3>().0 {
             let [a, b, c] =
                 std::array::from_fn(|i| mesh.vertices()[triangle[i] as usize].position());
             assert!((b - a).cross(c - a).dot((a + b + c) / 3.) > 0.);

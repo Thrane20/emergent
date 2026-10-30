@@ -64,6 +64,22 @@ struct InstanceFile {
     physics: Option<PhysicsFile>,
     material: Option<crate::MaterialDefinition>,
     camera: Option<CameraFile>,
+    #[serde(default)]
+    components: Vec<ComponentFile>,
+}
+
+/// An authored `[[entities.components]]` entry; fields are checked against the registry schema.
+#[derive(Deserialize)]
+struct ComponentFile {
+    #[serde(rename = "type")]
+    kind: String,
+    #[serde(default = "enabled_default")]
+    enabled: bool,
+    #[serde(flatten)]
+    fields: toml::Table,
+}
+fn enabled_default() -> bool {
+    true
 }
 
 #[derive(Deserialize)]
@@ -397,6 +413,39 @@ struct LightFile {
 }
 
 impl LightFile {
+    /// Overrides from a schema-validated `emergent.light` component.
+    fn apply(&mut self, fields: &toml::Table) {
+        let number = |value: &toml::Value| {
+            value
+                .as_float()
+                .or(value.as_integer().map(|n| n as f64))
+                .map(|n| n as f32)
+        };
+        for (name, value) in fields {
+            match name.as_str() {
+                "color" => {
+                    if let Some(color) = value.as_array().and_then(|c| {
+                        <[f32; 3]>::try_from(c.iter().map(number).collect::<Option<Vec<_>>>()?).ok()
+                    }) {
+                        self.color = color;
+                    }
+                }
+                "intensity" => self.intensity = number(value).unwrap_or(self.intensity),
+                "range" => self.range = number(value).or(self.range),
+                "inner_half_angle" => {
+                    self.inner_half_angle = number(value).or(self.inner_half_angle)
+                }
+                "outer_half_angle" => {
+                    self.outer_half_angle = number(value).or(self.outer_half_angle)
+                }
+                "casts_shadows" => {
+                    self.casts_shadows = value.as_bool().unwrap_or(self.casts_shadows)
+                }
+                _ => {}
+            }
+        }
+    }
+
     fn source(self) -> Result<LightSource, Box<dyn std::error::Error>> {
         let [r, g, b] = self.color;
         let color = Color::new(r, g, b, 1.)?;
@@ -487,6 +536,21 @@ struct ValidatedEntity {
     material: Option<crate::Material>,
     terrain_field: Option<crate::TerrainField>,
     particles: Option<crate::ParticleEffect>,
+    controller: Option<crate::CharacterController>,
+    spin: Option<crate::Spin>,
+    /// Target instance ID, speed and stop distance; resolved to a handle at construction.
+    follow: Option<(String, f32, f32)>,
+    group: Option<String>,
+    brain: Option<(std::sync::Arc<crate::BrainDefinition>, crate::BrainSettings)>,
+    project_components: Vec<(String, toml::Table)>,
+}
+
+/// An enabled project-defined component, handed to the game to attach its runtime.
+#[derive(Clone, Debug)]
+pub struct SceneComponent {
+    pub entity: EntityId,
+    pub type_id: String,
+    pub fields: toml::Table,
 }
 
 /// Fully validated candidate; loading never mutates the active world.
@@ -508,6 +572,8 @@ pub struct LoadedScene {
     pub lights: Vec<EntityId>,
     pub cameras: Vec<EntityId>,
     pub active_camera: Option<EntityId>,
+    /// Enabled project components, in scene order.
+    pub components: Vec<SceneComponent>,
 }
 
 fn identifier(id: &str) -> bool {
@@ -541,22 +607,45 @@ fn read_bounded<T: serde::de::DeserializeOwned>(
 
 impl SceneDefinition {
     pub fn load(project: &Project, path: &str) -> Result<Self, SceneError> {
+        Self::load_with(project, path, &crate::ComponentRegistry::builtin())
+    }
+
+    /// Loads with a registry that includes the project's own component types.
+    pub fn load_with(
+        project: &Project,
+        path: &str,
+        registry: &crate::ComponentRegistry,
+    ) -> Result<Self, SceneError> {
         let scene: SceneFile = read(project, path)?;
-        Self::validate(project, path, scene)
+        Self::validate(project, path, scene, registry)
     }
 
     /// Validates an editor candidate against the real project's asset definitions.
     /// No scene or runtime world is modified.
     pub fn from_source(project: &Project, path: &str, source: &str) -> Result<Self, SceneError> {
+        Self::from_source_with(project, path, source, &crate::ComponentRegistry::builtin())
+    }
+
+    pub fn from_source_with(
+        project: &Project,
+        path: &str,
+        source: &str,
+        registry: &crate::ComponentRegistry,
+    ) -> Result<Self, SceneError> {
         project.asset_path(path).map_err(|e| error(path, e))?;
         if source.len() as u64 > MAX_FILE_BYTES {
             return Err(error(path, "scene file exceeds 256 KiB"));
         }
         let scene = toml::from_str(source).map_err(|e| error(path, e))?;
-        Self::validate(project, path, scene)
+        Self::validate(project, path, scene, registry)
     }
 
-    fn validate(project: &Project, path: &str, scene: SceneFile) -> Result<Self, SceneError> {
+    fn validate(
+        project: &Project,
+        path: &str,
+        scene: SceneFile,
+        registry: &crate::ComponentRegistry,
+    ) -> Result<Self, SceneError> {
         if scene.schema_version != 1 || !identifier(&scene.id) {
             return Err(error(
                 path,
@@ -577,6 +666,8 @@ impl SceneDefinition {
         let active_camera = scene.active_camera;
         let mut entities = Vec::with_capacity(scene.entities.len());
         let mut ids = HashSet::new();
+        // Brains shared by several instances load once per scene validation.
+        let mut brains: HashMap<String, std::sync::Arc<crate::BrainDefinition>> = HashMap::new();
         for instance in scene.entities {
             if !identifier(&instance.id) || !ids.insert(instance.id.clone()) {
                 return Err(error(
@@ -713,7 +804,99 @@ impl SceneDefinition {
                             .into(),
                     );
                 }
-                let light = definition.light.map(LightFile::source).transpose()?;
+                let mut light_file = definition.light;
+                let mut light_enabled = true;
+                let (mut controller, mut spin, mut follow) = (None, None, None);
+                let (mut group, mut brain) = (None, None);
+                let mut project_components = Vec::new();
+                let mut seen = HashSet::new();
+                for component in &instance.components {
+                    let kind = registry.get(&component.kind).ok_or_else(|| {
+                        format!(
+                            "unknown component type '{}'; known types: {}",
+                            component.kind,
+                            registry
+                                .types()
+                                .iter()
+                                .map(|t| t.id)
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    })?;
+                    if !seen.insert(kind.id) {
+                        return Err(
+                            format!("component '{}' appears more than once", kind.id).into()
+                        );
+                    }
+                    kind.validate(&component.fields)?;
+                    let values = kind.values(&component.fields);
+                    let number = |name| values.number(name).unwrap_or_default();
+                    // Built-ins are applied by the subsystem that owns them; project types go to the game.
+                    match kind.id {
+                        crate::component::LIGHT => {
+                            light_file
+                                .as_mut()
+                                .ok_or("emergent.light requires a light asset")?
+                                .apply(&component.fields);
+                            light_enabled = component.enabled;
+                        }
+                        _ if !component.enabled => {}
+                        crate::component::CHARACTER_CONTROLLER => {
+                            controller = Some(crate::CharacterController {
+                                speed: number("speed"),
+                                jump_speed: number("jump_speed"),
+                                camera_relative: values.bool("camera_relative").unwrap_or(true),
+                                force: number("force"),
+                            });
+                        }
+                        crate::component::SPIN => {
+                            let axis =
+                                Vec3::from_array(values.vector3("axis").unwrap_or([0., 1., 0.]))
+                                    .try_normalize()
+                                    .ok_or("emergent.spin axis must not be zero")?;
+                            spin = Some(crate::Spin {
+                                axis,
+                                degrees_per_second: number("degrees_per_second"),
+                            });
+                        }
+                        crate::component::FOLLOW => {
+                            let target = values.entity("target").unwrap_or_default().to_string();
+                            if target == instance.id {
+                                return Err("emergent.follow cannot target its own object".into());
+                            }
+                            follow = Some((target, number("speed"), number("stop_distance")));
+                        }
+                        crate::component::GROUP => {
+                            group = values.entity("name").map(str::to_string);
+                        }
+                        crate::component::BRAIN => {
+                            let path = values.entity("brain").unwrap_or_default();
+                            let definition = match brains.get(path) {
+                                Some(definition) => definition.clone(),
+                                None => {
+                                    let loaded = std::sync::Arc::new(crate::BrainDefinition::load(
+                                        project, path,
+                                    )?);
+                                    brains.insert(path.to_string(), loaded.clone());
+                                    loaded
+                                }
+                            };
+                            brain = Some((
+                                definition,
+                                crate::BrainSettings {
+                                    max_speed: number("max_speed"),
+                                    acceleration: number("acceleration"),
+                                    planar: values.bool("planar").unwrap_or(false),
+                                    face_movement: values.bool("face_movement").unwrap_or(true),
+                                },
+                            ));
+                        }
+                        _ => {
+                            project_components.push((kind.id.to_string(), component.fields.clone()))
+                        }
+                    }
+                }
+                let light = light_file.map(LightFile::source).transpose()?;
                 if instance.camera.is_some() && definition.kind != "camera" {
                     return Err("Camera overrides require a camera asset.".into());
                 }
@@ -771,6 +954,7 @@ impl SceneDefinition {
                         .into())
                     }
                 }
+                let light = light.filter(|_| light_enabled);
                 let physics = instance
                     .physics
                     .or(definition.physics)
@@ -807,7 +991,26 @@ impl SceneDefinition {
                         Ok(material)
                     })
                     .transpose()?;
+                if [controller.is_some(), follow.is_some(), brain.is_some()]
+                    .iter()
+                    .filter(|b| **b)
+                    .count()
+                    > 1
+                {
+                    return Err("an object can have only one of character controller, follow and brain; each moves it".into());
+                }
+                if (spin.is_some() || follow.is_some())
+                    && physics.is_some_and(|p| p.body == crate::BodyKind::Dynamic)
+                {
+                    return Err("spin and follow move the transform, which a dynamic physics body owns; make the body static or remove physics".into());
+                }
                 Ok(ValidatedEntity {
+                    group,
+                    brain,
+                    controller,
+                    spin,
+                    follow,
+                    project_components,
                     raymarched_terrain,
                     id: instance.id,
                     parent: instance.parent,
@@ -890,6 +1093,29 @@ impl SceneDefinition {
             }
         }
         for entity in &entities {
+            if let Some((definition, _)) = &entity.brain {
+                if let Some(missing) = definition
+                    .object_references()
+                    .into_iter()
+                    .find(|id| !by_id.contains_key(id))
+                {
+                    return Err(error(
+                        path,
+                        format!("instance {}: brain {} names '{missing}', which is not in this scene; use a group to target objects across scenes", entity.id, definition.path),
+                    ));
+                }
+            }
+            if let Some((target, ..)) = &entity.follow {
+                if !by_id.contains_key(target.as_str()) {
+                    return Err(error(
+                        path,
+                        format!(
+                            "instance {}: follow target '{target}' is not in this scene",
+                            entity.id
+                        ),
+                    ));
+                }
+            }
             let matrix_for = |t: Transform| {
                 crate::Mat4::from_scale_rotation_translation(t.scale, t.rotation, t.translation)
             };
@@ -948,6 +1174,11 @@ impl SceneDefinition {
             let mut renderables = Vec::new();
             let mut lights = Vec::new();
             let mut cameras = Vec::new();
+            let mut components = Vec::new();
+            let mut groups = world
+                .resource::<crate::GroupNames>()
+                .cloned()
+                .unwrap_or_default();
             for entity in &self.entities {
                 let id = world.spawn_child(root, entity.name.clone())?;
                 world.set_local_transform(id, entity.transform)?;
@@ -971,7 +1202,35 @@ impl SceneDefinition {
                     world.insert_component(id, camera)?;
                     cameras.push(id);
                 }
+                if let Some(controller) = entity.controller {
+                    world.insert_component(id, controller)?;
+                }
+                if let Some(spin) = entity.spin {
+                    world.insert_component(id, spin)?;
+                }
                 entities.insert(entity.id.clone(), id);
+            }
+            // Brains compile once per asset for this scene, after every instance has a handle.
+            let mut compiled: HashMap<String, std::sync::Arc<crate::CompiledBrain>> =
+                HashMap::new();
+            for entity in &self.entities {
+                let Some((definition, settings)) = &entity.brain else {
+                    continue;
+                };
+                let brain = compiled
+                    .entry(definition.path.clone())
+                    .or_insert_with(|| {
+                        std::sync::Arc::new(crate::CompiledBrain::compile(
+                            definition,
+                            &|id| entities.get(id).copied(),
+                            &mut groups,
+                        ))
+                    })
+                    .clone();
+                world.insert_component(
+                    entities[&entity.id],
+                    crate::BrainAgent::new(brain, *settings, crate::brain::seed_from(&entity.id)),
+                )?;
             }
             for entity in self.entities {
                 let id = entities[&entity.id];
@@ -987,8 +1246,34 @@ impl SceneDefinition {
                 if let Some(geometry) = entity.geometry {
                     renderables.push((id, geometry));
                 }
+                if let Some(name) = &entity.group {
+                    let group = groups.id(name);
+                    world.insert_component(id, crate::Group(group))?;
+                }
+                if let Some((target, speed, stop_distance)) = entity.follow {
+                    let target = entities[&target];
+                    world.insert_component(
+                        id,
+                        crate::Follow {
+                            target,
+                            speed,
+                            stop_distance,
+                        },
+                    )?;
+                }
+                components.extend(entity.project_components.into_iter().map(
+                    |(type_id, fields)| SceneComponent {
+                        entity: id,
+                        type_id,
+                        fields,
+                    },
+                ));
             }
+            world.insert_resource(groups);
             let active_camera = active_camera_name.as_ref().map(|name| entities[name]);
+            if let Some(camera) = active_camera {
+                world.insert_resource(crate::ActiveCamera(camera));
+            }
             Ok(LoadedScene {
                 root,
                 environment: self.environment.clone(),
@@ -997,6 +1282,7 @@ impl SceneDefinition {
                 lights,
                 cameras,
                 active_camera,
+                components,
             })
         })();
         match result {

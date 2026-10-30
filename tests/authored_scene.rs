@@ -333,6 +333,69 @@ fn lights_are_validated_and_attached_as_components() {
 }
 
 #[test]
+fn light_components_override_one_instance_disable_and_reject_bad_entries() {
+    let f = Fixture::new();
+    f.asset("schema_version=1\nid='lamp'\nkind='point-light'\n[light]\ntype='point'\ncolor=[1.0,1.0,1.0]\nintensity=8.0\nrange=24.0\n");
+    let scene = |component: &str| {
+        f.scene(&format!("[[entities]]\nid='a'\nasset='assets/cube.entity.toml'\n{component}[[entities]]\nid='b'\nasset='assets/cube.entity.toml'\n"));
+    };
+    scene("[[entities.components]]\ntype='emergent.light'\ncolor=[1.0,0.0,0.0]\nintensity=2\n");
+    let mut world = World::new();
+    let loaded = f.load().unwrap().instantiate(&mut world).unwrap();
+    let light = |id: &str| {
+        world
+            .component::<emergent::LightSource>(loaded.entities[id])
+            .unwrap()
+    };
+    let a = light("a").unwrap();
+    assert_eq!(
+        (a.intensity(), a.range(), a.color()),
+        (2.0, Some(24.0), Color::new(1., 0., 0., 1.).unwrap())
+    );
+    assert_eq!(
+        light("b").unwrap().intensity(),
+        8.0,
+        "the shared asset is unchanged"
+    );
+    scene("[[entities.components]]\ntype='emergent.light'\nenabled=false\n");
+    let mut world = World::new();
+    let loaded = f.load().unwrap().instantiate(&mut world).unwrap();
+    assert!(world
+        .component::<emergent::LightSource>(loaded.entities["a"])
+        .unwrap()
+        .is_none());
+    assert_eq!(loaded.lights.len(), 1);
+    for (component, message) in [
+        ("type='emergent.wobble'\n", "unknown component type"),
+        ("type='emergent.light'\nbrightness=2\n", "no field"),
+        ("type='emergent.light'\nintensity=-1\n", "must be a number"),
+        (
+            "type='emergent.light'\ninner_half_angle=0.2\n",
+            "cone angles",
+        ),
+    ] {
+        scene(&format!("[[entities.components]]\n{component}"));
+        let error = f.load().err().unwrap().to_string();
+        assert!(error.contains(message), "{error}");
+    }
+    scene("[[entities.components]]\ntype='emergent.light'\n[[entities.components]]\ntype='emergent.light'\n");
+    assert!(f
+        .load()
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("more than once"));
+    f.asset(CUBE);
+    scene("[[entities.components]]\ntype='emergent.light'\n");
+    assert!(f
+        .load()
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("requires a light asset"));
+}
+
+#[test]
 fn file_instance_light_and_subdivision_limits_are_enforced() {
     let f = Fixture::new();
     f.asset(&" ".repeat(256 * 1024 + 1));

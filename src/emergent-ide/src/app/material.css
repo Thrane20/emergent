@@ -2,3 +2,14 @@
 
 .material-shadow-options{display:grid;gap:5px;margin:8px 0}.material-shadow-options .transform-note{margin:0}
 .material-control{display:flex;align-items:center;gap:5px;min-width:0}.material-control>input{flex:1;min-width:0}.noise-swatch-picker{position:relative;display:inline-flex;flex-shrink:0}.noise-swatch{width:30px;height:30px;padding:0;display:grid;place-items:center;border:1px solid var(--theme-line-strong, #47614f);border-radius:5px;background:var(--theme-surface-high, #26372c) center/cover no-repeat;color:var(--theme-foreground, #a8bfaf);font:16px var(--font-ui);cursor:pointer}.noise-swatch.assigned{border-color:var(--theme-accent, #8ba893)}.noise-swatch:disabled{opacity:.6;cursor:wait}.noise-swatch-menu{position:absolute;right:0;top:35px;z-index:6;display:flex;flex-direction:column;width:220px;max-height:230px;overflow:auto;padding:5px;background:var(--theme-surface-high, #19281f);border:1px solid var(--theme-line-strong, #4b6755);border-radius:7px;box-shadow:0 8px 25px #0006}.noise-swatch-menu button{padding:6px;border:0;border-radius:4px;background:transparent;text-align:left;color:var(--theme-foreground, #c9dccf);font:11px var(--font-ui)}.noise-swatch-menu button:hover,.noise-swatch-menu button[aria-pressed=true]{background:var(--theme-accent-soft, #304a39)}.noise-swatch-menu>span{padding:6px;color:var(--theme-muted, #8da394);font-size:10px}
+
+.material-heading{display:flex;align-items:center;gap:20px;min-width:0;padding:10px 16px}
+.material-title{flex:none}.material-title h1{margin:2px 0;font-size:24px}
+.material-heading .particle-effect-library{flex:1;min-width:0}
+.material-swatch-edit img,.material-swatch-fallback{display:block;width:100%;height:60px;object-fit:contain;background:#161d24}
+.material-swatch-fallback{border-radius:0}
+.material-workspace{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(340px,1fr);gap:14px;min-height:0;padding:0 16px 16px}
+.material-stage{display:flex;flex-direction:column;min-height:0;overflow:hidden;padding:0}
+.material-stage .panel-head{padding:12px 16px}
+.material-stage-canvas{flex:1;min-height:0;position:relative}.material-stage-canvas canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+@media(max-width:860px){.material-heading{flex-direction:column;align-items:stretch}.material-workspace{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(260px,1fr) auto;overflow-y:auto}}

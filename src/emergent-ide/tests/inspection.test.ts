@@ -84,6 +84,11 @@ test("tool results are bounded and malformed gizmo controls cannot cross the pro
  for(const value of [{op:"pick",x:NaN,y:0},{op:"drag",x:2,y:0},{op:"begin",axis:3,x:0.5,y:0.5},{op:"select",id:"cube",space:"screen",tool:"scale"}])assert.throws(()=>inspectionCommand(value,5));
  assert.match(inspectionCommand({op:"begin",axis:2,x:0.4,y:0.6,id:"cube",space:"local",tool:"translate",token:"test-gesture"},5),/axis=2/);
  assert.match(inspectionCommand({op:"cancel",token:"test-gesture"},6),/cancel/);
+ assert.equal(inspectionCommand({op:"probe",x:0.25,y:0.75},7),'request={seq=7, op="probe",x=0.25,y=0.75}\n');
+ assert.throws(()=>inspectionCommand({op:"probe",x:1.5,y:0},8));
+ const hits:{id:string;point:number[]}[]=[];new InspectionDecoder(()=>{},(_seq,_error,result)=>{if(result?.hit)hits.push({...result.hit});}).push(packet(1,Buffer.concat([ack,Buffer.from(source+'hit={id="ground",point=[1.0,-0.5,2.0]}\n')])));
+ assert.deepEqual(hits,[{id:"ground",point:[1,-0.5,2]}]);
+ assert.throws(()=>decoder.push(packet(1,Buffer.concat([ack,Buffer.from(source+'hit={id="ground",point=[1.0]}\n')]))),/probe hit/);
 });
 
 test("terrain-sized inspection orbits remain bounded",()=>{const camera={projection:"isometric",fieldOfView:45,orthographicSize:200};assert.match(inspectionCommand({op:"view",yaw:0,pitch:0,distance:200,target:[0,0,0],...camera},1),/view_size=200/);assert.throws(()=>inspectionCommand({op:"view",yaw:0,pitch:0,distance:30001,target:[0,0,0],...camera},1),/bounds/);});

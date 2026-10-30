@@ -59,7 +59,7 @@ export function TerrainSculptor({values,settings,disabled,onCommit,onPaintingCha
   </div>
    <div className="terrain-brush-guide">
    <div className="terrain-brush-mask" aria-label="Soft circular grayscale brush"/>
-   <p id="terrain-paint-help"><span className="terrain-stroke-status" role="status">{brush.strength===0?"Strength is zero — increase it to paint.":painting?"Painting… release to update 3D.":applied?"Stroke applied. Paint again or undo.":"Click and drag in the heightmap above."}</span><br/>{target==="material"?"Palette colours show material coverage. Soft strokes blend materials.":"Paint the heightmap."} · Black = 0 m, white = {settings.height} m<br/>Hold or drag to sculpt. 3D updates when you release.<br/>Brush opacity: black 0 → white 1 × strength.<br/>Keyboard: arrows move, Space paints. Generate replaces edits.</p>
+   <p id="terrain-paint-help"><span className="terrain-stroke-status" role="status">{brush.strength===0?"Strength is zero — increase it to paint.":painting?"Painting… release to update 3D.":applied?"Stroke applied. Paint again or undo.":"Click and drag in the heightmap above."}</span><br/>Black = 0 m, white = {settings.height} m</p>
   </div></div>
  </section>;
 }

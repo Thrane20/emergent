@@ -193,6 +193,8 @@ pub(crate) mod runtime {
         entries: HashMap<EntityId, Entry>,
         pub(crate) inputs: Vec<(EntityId, PhysicsBody)>,
         pending_forces: HashMap<EntityId, Vec3>,
+        /// Target horizontal velocity, jump speed and drive force in newtons (0 sets velocity directly).
+        pending_drives: HashMap<EntityId, (Vec3, Option<f32>, f32)>,
     }
     impl PhysicsState {
         pub(crate) fn queue_force(
@@ -209,6 +211,29 @@ pub(crate) mod runtime {
             }
             self.pending_forces.insert(id, accumulated);
             Ok(())
+        }
+        pub(crate) fn queue_drive(
+            &mut self,
+            id: EntityId,
+            velocity: Vec3,
+            jump: Option<f32>,
+            force: f32,
+        ) -> Result<(), PhysicsError> {
+            if !velocity.is_finite()
+                || jump.is_some_and(|j| !j.is_finite())
+                || !force.is_finite()
+                || force < 0.0
+            {
+                return Err(PhysicsError::InvalidForce);
+            }
+            self.pending_drives.insert(id, (velocity, jump, force));
+            Ok(())
+        }
+        pub(crate) fn linear_velocity(&self, id: EntityId) -> Option<Vec3> {
+            let entry = self.entries.get(&id)?;
+            Some(Vec3::from_array(
+                self.backend.bodies[entry.handle].linvel().to_array(),
+            ))
         }
     }
     fn pose(t: Transform) -> Pose {
@@ -256,6 +281,7 @@ pub(crate) mod runtime {
         pub(crate) fn step(&mut self, world: &mut World, dt: Duration) -> Result<(), PhysicsError> {
             if self.inputs.is_empty() && self.entries.is_empty() {
                 self.pending_forces.clear();
+                self.pending_drives.clear();
                 return Ok(());
             }
             let dt = dt.as_secs_f32();
@@ -378,6 +404,41 @@ pub(crate) mod runtime {
                 }
             }
             self.pending_forces.clear();
+            for (&id, &(velocity, jump, force)) in &self.pending_drives {
+                if let Some(entry) = self.entries.get(&id) {
+                    if entry.settings.body == BodyKind::Dynamic {
+                        let body = &mut self.backend.bodies[entry.handle];
+                        body.lock_rotations(true, true);
+                        let current = body.linvel();
+                        // shortcut: "grounded" is near-zero vertical speed, so a jump at the apex is allowed; use contact queries once they exist.
+                        let vertical = match jump {
+                            Some(speed) if current.y.abs() < 0.05 => speed,
+                            _ => current.y,
+                        };
+                        let target = Vector::new(velocity.x, 0.0, velocity.z);
+                        let horizontal = if force <= 0.0 {
+                            target
+                        } else {
+                            let now = Vector::new(current.x, 0.0, current.z);
+                            if target == Vector::ZERO {
+                                // No input: contact friction (μ·m·g, so a = μ·g) coasts the body to rest.
+                                now
+                            } else {
+                                // a = F/m toward the target; friction still acts in the step, so net a = F/m − μ·g.
+                                let gap = target - now;
+                                let step = force / body.mass().max(f32::EPSILON) * dt;
+                                if gap.length() <= step {
+                                    target
+                                } else {
+                                    now + gap.normalize() * step
+                                }
+                            }
+                        };
+                        body.set_linvel(Vector::new(horizontal.x, vertical, horizontal.z), true);
+                    }
+                }
+            }
+            self.pending_drives.clear();
             self.backend.gravity = Vector::new(0.0, -9.81, 0.0);
             self.backend.integration_parameters.dt = dt;
             self.backend.step();

@@ -22,7 +22,6 @@ export function PhysicsInspector({instance,disabled,onApply,onDirty,onBusy}:{ins
           {draft.body==="dynamic"&&instance.parent&&<p className="transform-error">Move this instance to the scene root before enabling dynamic physics.</p>}
           {([["gravity_scale","Gravity scale",0,100],["mass","Mass (kg)",0.0001,1000000],["friction","Friction",0,10],["restitution","Bounce",0,1]] as const).map(([key,label,min,max])=><label key={key}>{label}<input aria-label={label} type="number" min={min} max={max} step="any" required value={Number.isNaN(draft[key])?"":draft[key]} onChange={event=>setDraft({...draft,[key]:event.target.valueAsNumber})}/></label>)}
           <label>Collider<select aria-label="Collider type" value={draft.collider.shape} onChange={event=>setDraft({...draft,body:event.target.value==="terrain"?"static":draft.body,collider:{shape:event.target.value as "box"|"terrain"}})}><option value="box">Box</option>{instance.terrain&&<option value="terrain">Terrain — follows surface</option>}</select></label>
-          {draft.collider.shape==="terrain"&&<p className="transform-note">Static height-field collision follows the generated terrain surface.</p>}
           {draft.collider.shape==="box"&&<>
           <label className="uniform-scale"><input type="checkbox" checked={auto} onChange={event=>setDraft({...draft,collider:event.target.checked?{shape:"box"}:{shape:"box",center:[0,0,0],half_extents:[0.5,0.5,0.5]}})}/>Auto-fit from geometry</label>
           {!auto&&(["center","half_extents"] as const).map(key=><fieldset key={key}><legend>{key==="center"?"Collider centre":"Collider half-extents"}</legend><div className="transform-vector">{["X","Y","Z"].map((axis,index)=><label key={axis}>{axis}<input aria-label={`${key} ${axis}`} type="number" required min={key==="half_extents"?0.0001:undefined} step="any" value={Number.isNaN(draft.collider[key]?.[index])?"":draft.collider[key]?.[index]??0} onChange={event=>setDraft({...draft,collider:{...draft.collider,[key]:(draft.collider[key]??[0,0,0]).map((n,i)=>i===index?event.target.valueAsNumber:n)}})}/></label>)}</div></fieldset>)}
@@ -31,7 +30,6 @@ export function PhysicsInspector({instance,disabled,onApply,onDirty,onBusy}:{ins
       </fieldset>
       {save.error&&<p role="alert" className="transform-error">{save.error}</p>}<p className="transform-note" role="status">{save.status}</p>
       <div className="transform-actions"><button type="button" disabled={blocked||(!instance.physicsOverridden&&!save.dirty)} onClick={save.reset}>Use asset defaults</button></div>
-      <p className="transform-note">Saved on this scene instance. Inspection stays paused. Box outlines are shown; terrain collision follows its mesh. Restart Run to simulate. Colliders require positive scale; scene parenting does not create joints.</p>
     </form>
   </div>;
 }

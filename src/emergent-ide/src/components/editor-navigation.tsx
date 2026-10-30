@@ -18,9 +18,9 @@ const editors=[
  {path:"/object-builder",name:"Object Builder",icon:"build"},
  {path:"/materials",name:"Material Generator",icon:"material"},
  {path:"/images",name:"Image Generator",icon:"image"},
- {path:"/textures",name:"Texture Creator",icon:"texture"},
  {path:"/particles",name:"Particle Generator",icon:"particle"},
  {path:"/tweens",name:"Tween Editor",icon:"tween"},
+ {path:"/brains",name:"Brain Editor",icon:"brain"},
 ] as const;
 
 function EditorIcon({name}:{name:string}){
@@ -33,9 +33,9 @@ function EditorIcon({name}:{name:string}){
   build:<><path d="M2 13h8v8H2zM14 13h8v8h-8zM8 1h8v8H8zM12 9v3m-6 1v-1h12v1"/></>,
   material:<><circle cx="12" cy="12" r="9"/><path d="M12 3c-5 4-5 14 0 18m0-18v18m0-11 6-6m-6 12 9-9m-8 14 8-8"/></>,
   image:<><rect x="2" y="3" width="20" height="18" rx="2"/><circle cx="8" cy="9" r="2"/><path d="m3 19 6-6 4 4 4-6 5 7"/></>,
-  texture:<><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M9 3v18m6-18v18M3 9h18M3 15h18"/><path d="M3 3h6v6H3zm12 0h6v6h-6zm-6 6h6v6H9zm-6 6h6v6H3zm12 0h6v6h-6z" fill="currentColor" stroke="none" opacity=".45"/></>,
   particle:<><path d="m12 4 1.7 5.3L19 11l-5.3 1.7L12 18l-1.7-5.3L5 11l5.3-1.7Z"/><circle cx="3" cy="3" r="1"/><circle cx="21" cy="5" r="1"/><circle cx="20" cy="20" r="1"/><path d="M3 18v4m-2-2h4"/></>,
   tween:<><path d="M3 20V4m0 16h18M4 18C14 18 9 5 20 5"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="5" r="2"/></>,
+  brain:<><circle cx="12" cy="4" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 6v6M5 17v-2.5h14V17M12 12v5"/></>,
   player:<><path d="M7 7h10c4 0 6 12 3 13-2 1-4-4-5-4H9c-1 0-3 5-5 4C1 19 3 7 7 7ZM8 10v5m-2.5-2.5h5M15 11h.01M18 14h.01"/></>,
   settings:<><path d="m9 3 1-2h4l1 2 3 1 2 1 2 4-1 2v2l1 2-2 4-2 1-3 1-1 2h-4l-1-2-3-1-2-1-2-4 1-2v-2L2 9l2-4 2-1Z" transform="translate(1 1) scale(.9)"/><circle cx="12" cy="12" r="3"/></>,
   reload:<><path d="M20 7a9 9 0 1 0 1 8M20 2v6h-6"/></>,

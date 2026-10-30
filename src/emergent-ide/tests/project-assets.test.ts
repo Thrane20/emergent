@@ -66,6 +66,13 @@ test("asset creation optionally includes instances, preserves comments, and reta
   assert.equal(cameraScene.active_camera,camera.id);
   assert.equal((cameraScene.entities as { id:string }[]).some(entity=>entity.id===camera.id),true);
   assert.equal((parse(await readFile(path.join(root,camera.path),"utf8")).camera as {projection:string}).projection,"perspective");
+  // Point markers are empty entities: placeable scene-graph nodes with a transform and nothing the loader rejects.
+  const waypoint = await createProjectAsset(project,"marker.point","Waypoint","assets/main.scene.toml");
+  assert.equal(waypoint.sceneError,undefined);
+  const marker = parse(await readFile(path.join(root,waypoint.path),"utf8"));
+  assert.equal(marker.kind,"entity");
+  assert.equal(marker.geometry,undefined);
+  assert.equal((parse(await readFile(target,"utf8")).entities as { id:string }[]).some(entity=>entity.id===waypoint.id),true);
   await assert.rejects(createProjectAsset(project,"object.cube","../escape"),/Use letters/);
   await writeFile(target,'schema_version=99\nid="main"\nentities=[]');
   const failed = await createProjectAsset(project,"object.pyramid","Kept pyramid","assets/main.scene.toml");

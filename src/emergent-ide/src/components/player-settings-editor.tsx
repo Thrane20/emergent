@@ -74,13 +74,11 @@ export function PlayerSettingsEditor({ projectId, initialDocument }: { projectId
             <span className="local-only">PROJECT TARGET</span>
           </div>
           <div className="player-settings-body">
-            <p className="player-description">Describe the resolution and frame-rate experience you want to target. FPS expectations are goals, not a cap or performance guarantee.</p>
             <label className="settings-field">
               <span>Output resolution</span>
               <select aria-label="Output resolution" value={draft.output.resolution} disabled={busy} onChange={event => setDraft({ ...draft, output: { ...draft.output, resolution: event.target.value as PlayerSettings["output"]["resolution"] } })}>
                 {resolutions.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}
               </select>
-              <small>Native follows the player’s display. Fixed sizes describe the intended output resolution.</small>
             </label>
             <div className="player-field-grid">
               <label className="settings-field">
@@ -88,14 +86,13 @@ export function PlayerSettingsEditor({ projectId, initialDocument }: { projectId
                 <select aria-label="Target frame rate" value={draft.output.target_fps} disabled={busy} onChange={event => setDraft({ ...draft, output: { ...draft.output, target_fps: Number(event.target.value) as PlayerSettings["output"]["target_fps"] } })}>
                   {targetRates.map(rate => <option value={rate} key={rate}>{rate} FPS</option>)}
                 </select>
-                <small>Desired steady-state frame rate ({(1000 / draft.output.target_fps).toFixed(1)} ms per frame).</small>
+                <small>{(1000 / draft.output.target_fps).toFixed(1)} ms per frame</small>
               </label>
               <label className="settings-field">
                 <span>Minimum expected frame rate</span>
                 <select aria-label="Minimum expected frame rate" value={draft.output.minimum_fps} disabled={busy} onChange={event => setDraft({ ...draft, output: { ...draft.output, minimum_fps: Number(event.target.value) as PlayerSettings["output"]["minimum_fps"] } })}>
                   {minimumRates.map(rate => <option value={rate} key={rate}>{rate} FPS</option>)}
                 </select>
-                <small>Lower bound for the intended experience.</small>
               </label>
             </div>
             {!valid && <p className="player-error" role="alert">Minimum expected FPS cannot exceed the target frame rate.</p>}
@@ -113,15 +110,10 @@ export function PlayerSettingsEditor({ projectId, initialDocument }: { projectId
               <select aria-label="Anti-aliasing" value={draft.rendering.antialiasing} disabled={busy} onChange={event => setDraft({ ...draft, rendering: { antialiasing: event.target.value as PlayerSettings["rendering"]["antialiasing"] } })}>
                 {antialiasingOptions.map(option => <option value={option.value} key={option.value}>{option.label}</option>)}
               </select>
-              <small>MSAA improves geometric edges with additional GPU cost. FXAA and TAA are post-process options.</small>
             </label>
           </div>
         </section>
 
-        <aside className="player-runtime-note">
-          <b>Saved as project targets</b>
-          <p>These preferences are stored in <code>player.settings.toml</code>. The current engine does not yet apply output resolution, frame-rate targets, or anti-aliasing at runtime.</p>
-        </aside>
         {(error || message) && <p className={`player-save-message${error ? " error" : ""}`} role={error ? "alert" : "status"}>{error || message}</p>}
         <div className="player-actions">
           <button type="button" className="settings-clear" disabled={!dirty || busy} onClick={reset}>Discard changes</button>

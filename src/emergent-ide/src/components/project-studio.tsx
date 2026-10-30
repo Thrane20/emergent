@@ -6,6 +6,7 @@ import Link from "next/link";
 import {EditorRail} from "./editor-navigation";
 import { useRouter } from "next/navigation";
 import { AddAssetModal } from "@/components/add-asset-modal";
+import { PlaceHereModal } from "@/components/place-here-modal";
 import { NewSceneModal } from "@/components/new-scene-modal";
 import { ProjectChat } from "@/components/project-chat";
 import { ProjectRunControl } from "@/components/project-run-control";
@@ -15,6 +16,8 @@ import { MaterialInspector } from "@/components/material-inspector";
 import type { MaterialSettings } from "@/lib/material-settings";
 import { PhysicsInspector } from "@/components/physics-inspector";
 import {CameraInspector} from "@/components/camera-inspector";
+import {ComponentsInspector} from "@/components/components-inspector";
+import type {ComponentPatch,ComponentType} from "@/lib/components";
 import {cameraAssetSettings,replaceCameraAsset,type CameraSettings} from "@/lib/camera-settings";
 import type { PhysicsSettings } from "@/lib/scene-placement";
 import { TransformInspector } from "@/components/transform-inspector";
@@ -81,19 +84,22 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
   },[project,activeScenePath,inspectorReload,space]);
   // External (MCP) edits: refresh when safe; never discard drafts or interrupt a gesture.
   const [externalNotice,setExternalNotice]=useState("");
+  const [placeAt,setPlaceAt]=useState<{id:string;point:number[]}|null>(null);
+  const [componentTypes,setComponentTypes]=useState<ComponentType[]|null>(null),[componentError,setComponentError]=useState("");
+  useEffect(()=>{let active=true;fetch(`/api/components?projectId=${encodeURIComponent(project.id)}`).then(async response=>{const data=await response.json();if(!response.ok)throw new Error(data.error??"Component types unavailable.");if(active)setComponentTypes(data.types);}).catch(error=>{if(active)setComponentError(error instanceof Error?error.message:"Component types unavailable.");});return()=>{active=false;};},[project.id]);
   const externalState=useRef({busy:false,dirty:false,scene:activeScenePath,view});
   externalState.current={busy:sceneLoading||tomlBusy||gizmoBusy,dirty:tomlDirty,scene:activeScenePath,view};
   useEffect(()=>{
     const events=new EventSource(`/api/project-events?projectId=${encodeURIComponent(project.id)}`);
     events.addEventListener("changed",message=>{
-      let change:{summary:string;scenes:string[];live:boolean};
+      let change:{summary:string;scenes:string[];live:boolean;source:"mcp"|"ide"};
       try{change=JSON.parse((message as MessageEvent<string>).data);}catch{return;}
       const current=externalState.current;
       router.refresh();
       if(current.busy||current.dirty){setExternalNotice(`AI changed the project (${change.summary}). Save or discard your edit, then reload.`);return;}
       setInspectorReload(value=>value+1);setTomlEpoch(value=>value+1);
       if(current.view==="scene"&&current.scene&&change.scenes.includes(current.scene)&&!change.live)restartInspection();
-      setExternalNotice(`AI: ${change.summary}`);
+      setExternalNotice(`${change.source==="ide"?"Placed":"AI"}: ${change.summary}`);
     });
     return ()=>events.close();
   },[project.id,router,restartInspection]);
@@ -179,6 +185,19 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
     }finally{setSceneLoading(false);}
   }
 
+  async function deleteScene(){
+    const target=scenes.find(scene=>scene.path===activeScenePath);
+    if(!target||target.path===project.entryScene||!canNavigate()||!window.confirm(`Permanently delete the scene "${target.name}"? Its instances are removed; shared assets are kept.`))return;
+    setSceneLoading(true);setSceneError("");
+    try{
+      const response=await fetch("/api/assets",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:target.path})});
+      const result=await response.json();if(!response.ok)throw new Error(result.error??"Scene could not be deleted.");
+      setInstanceId(null);setSelectedPath(project.entryScene);router.refresh();
+      await loadScene(project.entryScene,false);
+    }catch(error){setSceneError(error instanceof Error?error.message:"Scene could not be deleted.");}
+    finally{setSceneLoading(false);}
+  }
+
   async function reparentInstance(id:string,parent:string|null,revision=currentPlacement?.revision){
     if(!canNavigate()||!currentPlacement)return;
     setSceneLoading(true);setSceneError("");
@@ -249,6 +268,18 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
     }finally{setSceneLoading(false);}
   }
 
+  async function applyComponent(type:string,patch:ComponentPatch|null) {
+    if(!currentPlacement||!selectedInstance)throw new Error("Select a scene instance first.");
+    setSceneLoading(true);
+    try{
+      const response=await fetch("/api/scenes/placement",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:currentPlacement.path,id:selectedInstance.id,revision:currentPlacement.revision,action:"component",type,patch,space})});
+      const data=await response.json();if(!response.ok)throw new Error(data.error??"Component could not be saved.");
+      setPlacement(data);router.refresh();setTomlEpoch(value=>value+1);
+      // shortcut: components are not pushed into the live inspection world yet, so it restarts to show the change.
+      if(inspection&&inspection.scene===currentPlacement.path)restartInspection();
+    }finally{setSceneLoading(false);}
+  }
+
   async function applyCameraAsset(camera:CameraSettings|null){
     if(!camera||!selected.content)throw new Error("Camera settings are required.");
     const read=await fetch(`/api/project-toml?projectId=${encodeURIComponent(project.id)}&path=${encodeURIComponent(selected.path)}`,{cache:"no-store"}),document=await read.json();
@@ -286,7 +317,7 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
       <header className="topbar">
         <div className="brand"><span className="brand-mark">E</span><span>Emergent</span><b>IDE</b></div>
         <div className="project-pill"><span>◫</span>{project.name}<span className="muted">LOCAL</span></div>
-        <div className="scene-selector"><label htmlFor="scene-picker">Scene viewer</label><select id="scene-picker" value={scenes.some((scene) => scene.path === scenePath) ? scenePath : scenes[0]?.path ?? ""} onChange={(event) => { if(canNavigate()){setScenePath(event.target.value); setInstanceId(null);} }} disabled={!scenes.length || sceneLoading || tomlBusy || gizmoBusy}>{!scenes.length && <option value="">No scenes</option>}{scenes.map((scene) => <option key={scene.path} value={scene.path}>{scene.name}</option>)}</select><button onClick={() => {if(canNavigate())void loadScene();}} disabled={!scenes.length || sceneLoading || tomlBusy || gizmoBusy}>{sceneLoading ? "Loading…" : "Load"}</button><NewSceneModal projectId={project.id} disabled={sceneLoading || tomlBusy || gizmoBusy} onBeforeOpen={canNavigate} onCreated={(path) => { setScenePath(path); setSelectedPath(path); setInstanceId(null); setSceneError(""); setView("scene"); router.refresh(); }} /></div>
+        <div className="scene-selector"><label htmlFor="scene-picker">Scene viewer</label><select id="scene-picker" value={scenes.some((scene) => scene.path === scenePath) ? scenePath : scenes[0]?.path ?? ""} onChange={(event) => { if(canNavigate()){setScenePath(event.target.value); setInstanceId(null);} }} disabled={!scenes.length || sceneLoading || tomlBusy || gizmoBusy}>{!scenes.length && <option value="">No scenes</option>}{scenes.map((scene) => <option key={scene.path} value={scene.path}>{scene.name}</option>)}</select><button onClick={() => {if(canNavigate())void loadScene();}} disabled={!scenes.length || sceneLoading || tomlBusy || gizmoBusy}>{sceneLoading ? "Loading…" : "Load"}</button><button type="button" onClick={()=>void deleteScene()} disabled={!activeScenePath || activeScenePath===project.entryScene || sceneLoading || tomlBusy || gizmoBusy} title={activeScenePath===project.entryScene?"The entry scene cannot be deleted":undefined}>Delete</button><NewSceneModal projectId={project.id} disabled={sceneLoading || tomlBusy || gizmoBusy} onBeforeOpen={canNavigate} onCreated={(path) => { setScenePath(path); setSelectedPath(path); setInstanceId(null); setSceneError(""); setView("scene"); router.refresh(); }} /></div>
         <div className="space-switch" role="group" aria-label="Transform space">{(["local","global"] as const).map(mode=><button key={mode} aria-pressed={space===mode} disabled={sceneLoading||tomlBusy||gizmoBusy} onClick={()=>{if(mode!==space&&canNavigate())setSpace(mode);}}>{capitalize(mode)}</button>)}</div>
         <div className="top-actions"><ProjectRunControl projectId={project.id} scenePath={activeScenePath} disabled={sceneLoading || tomlBusy || gizmoBusy || tomlDirty} /></div>
       <FalBalance/></header>
@@ -329,8 +360,9 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
           {(sceneError || inspectionError) && <p className="scene-load-error" role="alert">{sceneError || inspectionError}</p>}
           {externalNotice && <p className="scene-external-change" role="status">{externalNotice}</p>}
           {inspection && <section className="scene-canvas-slot" aria-label="Rust-rendered scene preview">
-            <InspectionViewport key={inspection.id} frame={currentPlacement?.frame} projectId={project.id} sessionId={inspection.id} sceneName={scenes.find(scene=>scene.path===inspection.scene)?.name??inspection.scene} selectedId={selectedInstance?.id??null} revision={currentPlacement?.revision??""} space={space} disabled={sceneLoading||tomlBusy||tomlDirty||!currentPlacement||activeScenePath!==inspection.scene} onBusy={markGizmoBusy} onCommit={persistGizmo} onSelect={id=>{if(!canNavigate())return;if(id){const instance=currentPlacement?.instances.find(item=>item.id===id);if(instance)selectInstance(instance);}else setInstanceId(null);}} onReady={inspectionReady} onFailure={inspectionFailed} />
+            <InspectionViewport key={inspection.id} frame={currentPlacement?.frame} projectId={project.id} sessionId={inspection.id} sceneName={scenes.find(scene=>scene.path===inspection.scene)?.name??inspection.scene} selectedId={selectedInstance?.id??null} revision={currentPlacement?.revision??""} space={space} disabled={sceneLoading||tomlBusy||tomlDirty||!currentPlacement||activeScenePath!==inspection.scene} onBusy={markGizmoBusy} onCommit={persistGizmo} onSelect={id=>{if(!canNavigate())return;if(id){const instance=currentPlacement?.instances.find(item=>item.id===id);if(instance)selectInstance(instance);}else setInstanceId(null);}} onReady={inspectionReady} onFailure={inspectionFailed} onPlaceAt={hit=>{if(canNavigate())setPlaceAt(hit);}} />
           </section>}
+          {placeAt&&currentPlacement&&<PlaceHereModal projectId={project.id} scenePath={currentPlacement.path} revision={currentPlacement.revision} files={project.files} hit={placeAt} surfaceName={currentPlacement.instances.find(item=>item.id===placeAt.id)?.name??placeAt.id} onClose={()=>setPlaceAt(null)}/>}
           {view === "scene" && !inspection && <div className="scene-empty">{inspectionLoading ? "Starting scene inspection…" : inspectionError ? "Scene inspection could not start. Use Load to retry." : "Choose a scene to inspect it."}</div>}
           {view === "preview" && (selectedNoise?<div className="noise-overview" ref={setNoisePreviewTarget}/>:<AssetPreview project={project} file={selected} />)}
           {view === "source" && (/\.(entity|tween)\.toml$/.test(selected.path) ? <TomlEditor key={`source:${selected.path}:${tomlEpoch}`} projectId={project.id} path={selected.path} onDirty={markTomlDirty} onBusy={markTomlBusy} onSaved={()=>{router.refresh();setInspectorReload(value=>value+1);}}/> : <SourceView file={selected} />)}
@@ -356,13 +388,14 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
               <div className="panel-head"><h2>Noise filter</h2><span className="kind-badge">FILTER</span></div>
               <NoiseInspector key={`${selected.path}:${tomlEpoch}`} projectId={project.id} path={selected.path} previewTarget={noisePreviewTarget} onDirty={markTomlDirty} onBusy={markTomlBusy} onSaved={()=>router.refresh()}/>
             </>:selectedInstance && currentPlacement ? <>
-              {selectedInstance?.particles&&<div className="terrain-edit-action"><Link className="quiet-button" href={`/particles?asset=${encodeURIComponent(selectedInstance.asset)}&scene=${encodeURIComponent(activeScenePath??project.entryScene)}`} onNavigate={event=>{if(!canNavigate())event.preventDefault();}}>Edit particle effect ↗</Link><small>Effect preview is frozen at 2 s while editing. Run to animate.</small></div>}
-              {selectedInstance?.structure&&<div className="terrain-edit-action"><Link className="quiet-button" href={`/object-builder?asset=${encodeURIComponent(selectedInstance.asset)}&scene=${encodeURIComponent(activeScenePath??project.entryScene)}&instance=${encodeURIComponent(selectedInstance.id)}`} onNavigate={event=>{if(!canNavigate())event.preventDefault();}}>Edit object ↗</Link><small>Open its local hierarchy and editable mesh.</small></div>}
-              {terrainEditHref&&<div className="terrain-edit-action"><Link className="quiet-button" href={terrainEditHref} onNavigate={event=>{event.preventDefault();if(canNavigate())router.push(`${terrainEditHref}&open=${crypto.randomUUID()}`);}}>Edit terrain ↗</Link><small>Open this terrain in Terrain Builder.</small></div>}
+              {selectedInstance?.particles&&<div className="terrain-edit-action"><Link className="quiet-button" href={`/particles?asset=${encodeURIComponent(selectedInstance.asset)}&scene=${encodeURIComponent(activeScenePath??project.entryScene)}`} onNavigate={event=>{if(!canNavigate())event.preventDefault();}}>Edit particle effect ↗</Link></div>}
+              {selectedInstance?.structure&&<div className="terrain-edit-action"><Link className="quiet-button" href={`/object-builder?asset=${encodeURIComponent(selectedInstance.asset)}&scene=${encodeURIComponent(activeScenePath??project.entryScene)}&instance=${encodeURIComponent(selectedInstance.id)}`} onNavigate={event=>{if(!canNavigate())event.preventDefault();}}>Edit object ↗</Link></div>}
+              {terrainEditHref&&<div className="terrain-edit-action"><Link className="quiet-button" href={terrainEditHref} onNavigate={event=>{event.preventDefault();if(canNavigate())router.push(`${terrainEditHref}&open=${crypto.randomUUID()}`);}}>Edit terrain ↗</Link></div>}
               <div className="panel-head"><h2>Transform</h2><span className="kind-badge">INSTANCE</span></div>
               <TransformInspector key={`${currentPlacement.path}:${selectedInstance.id}:${inspectorReload}:${space}:${tomlEpoch}`} instance={selectedInstance} space={space} instances={currentPlacement.instances} onReparent={parent=>reparentInstance(selectedInstance.id,parent)} live={Boolean(inspection && inspection.scene===currentPlacement.path)} disabled={sceneLoading || tomlBusy || gizmoBusy || Boolean(inspection && readyInspection!==inspection.id)} onApply={applyPlacement} onDirty={markTomlDirty} onBusy={markTomlBusy} onReload={() => setInspectorReload(value => value + 1)} />
-              {selectedInstance.raymarched?<p className="transform-note">Experimental ray-marched terrain is visual only. Overhang/cave collision is not implemented.</p>:<PhysicsInspector key={`physics:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} instance={selectedInstance} disabled={sceneLoading || tomlBusy || gizmoBusy} onApply={applyPhysics} onDirty={markTomlDirty} onBusy={markTomlBusy}/>}
+              {!selectedInstance.raymarched&&<PhysicsInspector key={`physics:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} instance={selectedInstance} disabled={sceneLoading || tomlBusy || gizmoBusy} onApply={applyPhysics} onDirty={markTomlDirty} onBusy={markTomlBusy}/>}
               {selectedInstance.camera&&<CameraInspector key={`camera:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} settings={selectedInstance.camera} overridden={selectedInstance.cameraOverridden} disabled={sceneLoading||tomlBusy||gizmoBusy} onApply={applyCamera} onDirty={markTomlDirty} onBusy={markTomlBusy}/>}
+              <ComponentsInspector key={`components:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} types={componentTypes} registryError={componentError} kind={selectedInstance.objectKind} authored={selectedInstance.components??[]} defaults={selectedInstance.light} variant={typeof selectedInstance.light?.type==="string"?selectedInstance.light.type:undefined} instances={currentPlacement.instances.map(item=>({id:item.id,name:item.name??item.id}))} selfId={selectedInstance.id} brains={project.files.filter(file=>file.path.endsWith(".brain.toml")).map(file=>({id:file.path,name:file.displayName??file.name.replace(/\.brain\.toml$/,"")}))} disabled={sceneLoading||tomlBusy||gizmoBusy} onApply={applyComponent} onDirty={markTomlDirty} onBusy={markTomlBusy}/>
               {selectedInstance.renderable&&!selectedInstance.raymarched&&<MaterialInspector textureAssets={project.files.filter(file=>/\.(png|jpe?g)$/i.test(file.path)&&project.assetRoots.some(root=>file.path.startsWith(`${root}/`)))} projectId={project.id} key={`material:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} instance={selectedInstance} noiseAssets={project.files.filter(file=>file.path.endsWith(".noise.toml")&&project.assetRoots.some(root=>file.path.startsWith(`${root}/`)))} disabled={sceneLoading||tomlBusy||gizmoBusy} onApply={applyMaterial} onDirty={markTomlDirty} onBusy={markTomlBusy}/>}
             </> : selectedCamera ? <>
               <div className="panel-head"><h2>Camera asset</h2><span className="kind-badge">DEFAULTS</span></div>
@@ -389,7 +422,7 @@ function AssetPreview({ project, file }: { project: ProjectSnapshot; file: Proje
 }
 
 function SourceView({ file }: { file: ProjectFile }) {
-  return <div className="source-view"><div className="source-head"><span>{file.path}</span><b>{file.content ? `${file.content.split("\n").length} lines` : "binary or unavailable"}</b></div>{file.content ? <pre><code>{file.content}</code></pre> : <div className="connection-empty"><b>No text preview</b><span>The IDE keeps the reference visible without claiming it can decode this asset type.</span></div>}</div>;
+  return <div className="source-view"><div className="source-head"><span>{file.path}</span><b>{file.content ? `${file.content.split("\n").length} lines` : "binary or unavailable"}</b></div>{file.content ? <pre><code>{file.content}</code></pre> : <div className="connection-empty"><b>No text preview</b></div>}</div>;
 }
 
 type FileTree = { folders: Map<string, FileTree>; files: ProjectFile[] };

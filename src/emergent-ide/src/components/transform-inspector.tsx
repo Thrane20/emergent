@@ -8,7 +8,7 @@ import {lookDirection} from "@/lib/inspection-navigation";
 
 const groups = [["translation","Position"],["rotation_degrees","Rotation (degrees)"],["scale","Scale"]] as const;
 
-export function TransformInspector({ instance, disabled, live = false, space="local",instances,onReparent,onApply, onReload,onDirty,onBusy }: {
+export function TransformInspector({ instance, disabled, space="local",instances,onReparent,onApply, onReload,onDirty,onBusy }: {
   instance: SceneInstance;
   disabled: boolean;
   live?: boolean;
@@ -37,12 +37,11 @@ export function TransformInspector({ instance, disabled, live = false, space="lo
     <div className="instance-context"><b title={instance.id}>{instance.name??instance.id}</b><span>Asset · {instance.asset.split("/").at(-1)}</span>{instances&&onReparent?<label>Parent<select aria-label="Parent" value={instance.parent??""} disabled={blocked} onChange={event=>{setParentError("");void onReparent(event.target.value||null).catch(error=>setParentError(error.message));}}><option value="">Scene root</option>{validParents(instances,instance.id).map(parent=><option value={parent.id} key={parent.id} title={parent.id}>{parent.name??parent.id}</option>)}</select></label>:<span>Parent · {instances?.find(parent=>parent.id===instance.parent)?.name??instance.parent??"Scene root"}</span>}</div>
     <p className="transform-note">{space==="global"?"Global coordinates":"Local to parent"} · {instance.overridden ? "Scene override" : "Asset defaults"}</p>
     {translationOnly&&<p className="transform-note">This hierarchy produces shear. Global position is editable; use Local mode for rotation and scale.</p>}
-    <p className="transform-note" id="transform-units-help">1 world unit = 1 m. Position is in metres; scale is a multiplier of the asset’s dimensions. Scale 1× keeps the authored size.</p>
     <form onSubmit={event => { event.preventDefault(); }}>
       {groups.map(([key,label]) => <fieldset disabled={blocked||Boolean(translationOnly&&key!=="translation")} key={key}>
         <legend>{label}{key==="translation"?" (m)":key==="scale"?" (×)":""}</legend>
         <div className="transform-vector">{["X","Y","Z"].map((axis,index) => <label key={axis}><span>{axis}</span><input
-          aria-label={`${label} ${axis}`} aria-describedby="transform-units-help" type="number" step="any" required value={translationOnly&&key!=="translation"?"":draft[key][index]}
+          aria-label={`${label} ${axis}`} type="number" step="any" required value={translationOnly&&key!=="translation"?"":draft[key][index]}
           disabled={key === "scale" && uniform && index > 0}
           onChange={event => {
             const text = event.target.value;
@@ -56,9 +55,8 @@ export function TransformInspector({ instance, disabled, live = false, space="lo
       }} />Uniform scale</label>
       {(save.error||parentError)&&<p className="transform-error" role="alert">{save.error||parentError}</p>}
       <p className="transform-note" role="status">{save.status}</p>
-      <fieldset className="look-direction"><legend>Look-at direction · world</legend><div className="transform-vector">{["X","Y","Z"].map((axis,index)=><label key={axis}><span>{axis}</span><input aria-label={`Look-at ${axis}`} readOnly value={direction?direction[index].toFixed(4):"—"}/></label>)}</div><p className="transform-note">Normalized forward (-Z), including parent transforms. F: frame selection · Shift-F: move selection to editor view.</p></fieldset>
+      <fieldset className="look-direction"><legend>Look-at direction · world</legend><div className="transform-vector">{["X","Y","Z"].map((axis,index)=><label key={axis}><span>{axis}</span><input aria-label={`Look-at ${axis}`} readOnly value={direction?direction[index].toFixed(4):"—"}/></label>)}</div></fieldset>
       <div className="transform-actions"><button type="button" disabled={blocked||(!instance.overridden&&!save.dirty)} onClick={save.reset}>Reset to asset defaults</button><button type="button" disabled={blocked} onClick={onReload}>Reload inspector</button></div>
-      <p className="transform-note">{live ? "Applies to the retained inspection world. Restart Run to use saved placement." : "Updates the paused preview. Restart Run to use saved placement."}</p>
     </form>
   </div>;
 }

@@ -1,0 +1,16 @@
+schema_version = 1
+id = "5a131e10-c2da-4b1b-ab30-498c07e054e3"
+name = "Green"
+
+[material]
+shading = "smooth"
+cast_shadows = false
+receive_shadows = true
+specular = [ 0, 0, 0 ]
+shininess = 32
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0
+noise_resolution = 32
+terrain_layers = []
+albedo = [ 0.021219010376003555, 0.3467040563550296, 0.07227185068231748 ]

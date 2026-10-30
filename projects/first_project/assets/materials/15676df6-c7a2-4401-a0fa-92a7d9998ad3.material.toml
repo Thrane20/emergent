@@ -1,0 +1,20 @@
+schema_version = 1
+id = "15676df6-c7a2-4401-a0fa-92a7d9998ad3"
+name = "BrightRocks"
+
+[material]
+shading = "smooth"
+cast_shadows = false
+receive_shadows = true
+specular = [ 0.5209955732043543, 0.30946892281750854, 0.30946892281750854 ]
+shininess = 54
+emission = [ 0, 0, 0 ]
+emission_intensity = 0
+bump_strength = 0.1
+noise_resolution = 32
+terrain_layers = []
+albedo = [ 1, 1, 1 ]
+
+[material.diffuse_map]
+asset = "assets/textures/19e566b5-8269-43f6-90af-bf8aaa22cc31/Rocky Ground.png"
+scale = 1

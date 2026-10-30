@@ -353,6 +353,13 @@ pub struct World {
     physics: Option<crate::physics::runtime::PhysicsState>,
     #[cfg(feature = "physics")]
     physics_query: QueryState<(&'static EntityIdentity, &'static crate::PhysicsBody)>,
+    controller_query: QueryState<(&'static EntityIdentity, &'static crate::CharacterController)>,
+    follow_query: QueryState<(&'static EntityIdentity, &'static crate::Follow)>,
+    spin_query: QueryState<(&'static EntityIdentity, &'static crate::Spin)>,
+    brain_query: QueryState<(&'static EntityIdentity, &'static mut crate::BrainAgent)>,
+    group_query: QueryState<(&'static EntityIdentity, &'static crate::Group)>,
+    brains: Option<crate::brain::BrainScratch>,
+    motion: Option<crate::motion::MotionScratch>,
 }
 
 impl Default for World {
@@ -376,6 +383,11 @@ impl World {
         #[cfg(feature = "physics")]
         let physics_query = components.query::<(&EntityIdentity, &crate::PhysicsBody)>();
         let particle_query = components.query::<(&EntityIdentity, &crate::ParticleEffect)>();
+        let controller_query = components.query::<(&EntityIdentity, &crate::CharacterController)>();
+        let follow_query = components.query::<(&EntityIdentity, &crate::Follow)>();
+        let spin_query = components.query::<(&EntityIdentity, &crate::Spin)>();
+        let brain_query = components.query::<(&EntityIdentity, &mut crate::BrainAgent)>();
+        let group_query = components.query::<(&EntityIdentity, &crate::Group)>();
         let id = NEXT_WORLD_ID.fetch_add(1, Ordering::Relaxed);
         Self {
             id,
@@ -391,7 +403,143 @@ impl World {
             physics: None,
             #[cfg(feature = "physics")]
             physics_query,
+            controller_query,
+            follow_query,
+            spin_query,
+            brain_query,
+            group_query,
+            brains: Some(Default::default()),
+            motion: Some(Default::default()),
         }
+    }
+
+    /// Motion components for this tick in a buffer reused across ticks.
+    pub(crate) fn take_motion_scratch(&mut self) -> crate::motion::MotionScratch {
+        let mut scratch = self.motion.take().unwrap_or_default();
+        scratch.controllers.clear();
+        scratch.controllers.extend(
+            self.controller_query
+                .iter(&self.components)
+                .map(|(id, controller)| (id.id(), *controller)),
+        );
+        scratch.follows.clear();
+        scratch.follows.extend(
+            self.follow_query
+                .iter(&self.components)
+                .map(|(id, follow)| (id.id(), *follow)),
+        );
+        scratch.spins.clear();
+        scratch.spins.extend(
+            self.spin_query
+                .iter(&self.components)
+                .map(|(id, spin)| (id.id(), *spin)),
+        );
+        scratch
+    }
+
+    /// Committed positions of group members, brain agents and the objects brains name,
+    /// in a buffer reused across ticks. Velocities are filled in by the brain step.
+    pub(crate) fn take_brain_scratch(&mut self) -> crate::brain::BrainScratch {
+        use crate::brain::Entry;
+        let mut scratch = self.brains.take().unwrap_or_default();
+        scratch.entries.clear();
+        scratch.index.clear();
+        let push = |scratch: &mut crate::brain::BrainScratch, id: EntityId, group: Option<u32>| {
+            if !scratch.index.contains_key(&id) {
+                scratch.index.insert(id, scratch.entries.len());
+                scratch.entries.push(Entry {
+                    id,
+                    position: Vec3::ZERO,
+                    velocity: Vec3::ZERO,
+                    group,
+                });
+            }
+        };
+        for (id, group) in self.group_query.iter(&self.components) {
+            push(&mut scratch, id.id(), Some(group.0));
+        }
+        for (id, agent) in self.brain_query.iter(&self.components) {
+            push(&mut scratch, id.id(), None);
+            for &object in &agent.brain.objects {
+                push(&mut scratch, object, None);
+            }
+        }
+        // Positions after the scan: objects deleted since load drop out of the snapshot.
+        scratch
+            .entries
+            .retain(|entry| self.key_for(entry.id).is_ok());
+        scratch.index.clear();
+        for i in 0..scratch.entries.len() {
+            let id = scratch.entries[i].id;
+            scratch.entries[i].position = self
+                .global_transform(id)
+                .map_or(Vec3::ZERO, |t| t.translation());
+            scratch.index.insert(id, i);
+        }
+        scratch
+    }
+
+    pub(crate) fn restore_brain_scratch(&mut self, scratch: crate::brain::BrainScratch) {
+        self.brains = Some(scratch);
+    }
+
+    pub(crate) fn for_each_brain_agent(
+        &mut self,
+        mut f: impl FnMut(EntityId, &mut crate::BrainAgent),
+    ) {
+        for (id, mut agent) in self.brain_query.iter_mut(&mut self.components) {
+            f(id.id(), &mut agent);
+        }
+    }
+
+    pub(crate) fn restore_motion_scratch(&mut self, scratch: crate::motion::MotionScratch) {
+        self.motion = Some(scratch);
+    }
+
+    /// Drives a dynamic body for its next physics step: sets its horizontal velocity
+    /// (`velocity.y` is ignored) and keeps it upright. `jump` sets the vertical speed only
+    /// while the body is not already moving vertically.
+    #[cfg(feature = "physics")]
+    pub fn drive_body(
+        &mut self,
+        id: EntityId,
+        velocity: Vec3,
+        jump: Option<f32>,
+    ) -> Result<(), crate::PhysicsError> {
+        self.drive_body_with_force(id, velocity, jump, 0.0)
+    }
+
+    /// Like [`World::drive_body`], but a positive `force` (newtons) accelerates the body toward
+    /// `velocity` at `force / mass` instead of setting it, and a zero `velocity` leaves the body
+    /// to coast under contact friction.
+    #[cfg(feature = "physics")]
+    pub fn drive_body_with_force(
+        &mut self,
+        id: EntityId,
+        velocity: Vec3,
+        jump: Option<f32>,
+        force: f32,
+    ) -> Result<(), crate::PhysicsError> {
+        self.key_for(id)?;
+        if !matches!(
+            self.component::<crate::PhysicsBody>(id)?,
+            Some(body) if body.body == crate::BodyKind::Dynamic
+        ) {
+            return Err(crate::PhysicsError::NotDynamicBody);
+        }
+        self.physics
+            .get_or_insert_with(crate::physics::runtime::PhysicsState::default)
+            .queue_drive(id, velocity, jump, force)
+    }
+
+    /// Linear velocity of a simulated dynamic body, or `None` before its first physics step.
+    #[cfg(feature = "physics")]
+    pub fn linear_velocity(&self, id: EntityId) -> Result<Option<Vec3>, WorldError> {
+        self.key_for(id)?;
+        Ok(self
+            .physics
+            .as_ref()
+            .and_then(|state| state.linear_velocity(id)))
     }
 
     /// Steps physics only when explicitly called by the fixed simulation loop.

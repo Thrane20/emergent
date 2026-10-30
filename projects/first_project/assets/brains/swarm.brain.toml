@@ -1,0 +1,35 @@
+schema_version = 1
+id = "swarm"
+name = "Swarm"
+kind = "brain"
+description = "A loose cloud that drifts towards the target and spreads out when crowded."
+
+[[nodes]]
+id = "root"
+type = "blend"
+
+[[nodes]]
+id = "go"
+parent = "root"
+type = "arrive"
+group = "target"
+slow_radius = 6.0
+stop_radius = 2.0
+weight = 0.8
+
+[[nodes]]
+id = "cloud"
+parent = "root"
+type = "flock"
+group = "swarm"
+radius = 3.0
+separation = 2.5
+alignment = 0.3
+cohesion = 0.6
+
+[[nodes]]
+id = "buzz"
+parent = "root"
+type = "wander"
+weight = 0.6
+jitter = 4.0

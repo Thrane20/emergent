@@ -10,7 +10,7 @@ id = "key-light"
 asset = "assets/entities/key-light.entity.toml"
 
 [entities.transform]
-translation = [-5.8988867,4.9224477,4]
+translation = [-5.8988867,20.782036,4]
 rotation_degrees = [0,0,0]
 scale = [1,1,1]
 
@@ -18,12 +18,13 @@ scale = [1,1,1]
 id = "ground"
 asset = "assets/entities/ground.entity.toml"
 
-[entities.transform]
-translation = [0,-1.0863346,0]
-rotation_degrees = [0,0,0]
-scale = [12,1,12]
 [entities.material]
 asset = "assets/materials/8e98bd84-791b-47ae-9b5c-8329950e82df.material.toml"
+
+[entities.transform]
+translation = [0,-626.9935,0]
+rotation_degrees = [0,0,0]
+scale = [12,1,12]
 
 [[entities]]
 id = "pyramid"
@@ -35,43 +36,35 @@ rotation_degrees = [-160.75679,0,0]
 scale = [1.0532434,1.8545134,1]
 
 [[entities]]
-id = "cube"
-asset = "assets/entities/cube.entity.toml"
-
-[entities.transform]
-translation = [2.2061982,0,0]
-rotation_degrees = [0,0,0]
-scale = [1,1,1]
-
-[[entities]]
-parent = "cube"
-id = "sphere"
-asset = "assets/entities/sphere.entity.toml"
-
-[entities.transform]
-translation = [2.627283,0,2.6087596]
-rotation_degrees = [0,0,0]
-scale = [1,1,1]
-
-[[entities]]
 name = "Defender"
 id = "a5be312c-a7b9-4d9b-9eff-5be691a320b2"
 asset = "assets/entities/a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml"
 
+[entities.material]
+asset = "assets/materials/8e98bd84-791b-47ae-9b5c-8329950e82df.material.toml"
+
 [entities.transform]
-translation = [-1.5689248,0,2]
-rotation_degrees = [0,0,0]
+translation = [19.630512,-5.444739,37.65206]
+rotation_degrees = [-13.936761,21.722542,1.708047]
 scale = [1,1,1]
+[[entities.components]]
+type = "emergent.character_controller"
+[entities.physics]
+enabled = true
+body = "dynamic"
+gravity_scale = 1
+mass = 10
+friction = 0.1
+restitution = 0
+
+[entities.physics.collider]
+shape = "box"
 
 [[entities]]
 name = "OffenderBox"
 id = "c1836e8d-78b5-4d90-9d59-f22cec9ac856"
 asset = "assets/entities/c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml"
 
-[entities.transform]
-translation = [1,0,2]
-rotation_degrees = [0,0,0]
-scale = [1,1,1]
 [entities.material]
 shading = "flat"
 cast_shadows = true
@@ -89,31 +82,25 @@ albedo = [ 1, 1, 1 ]
 asset = "assets/textures/f2740eaa-19bd-4912-90cf-37ec01943fc0/MossyGround.png"
 scale = 1
 
+[entities.transform]
+translation = [0.5252407,0.2765465,3.4216866]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
 
 [[entities]]
 id = "7c10b616-becf-4d62-a112-ac704dad2b7c"
 asset = "assets/entities/7c10b616-becf-4d62-a112-ac704dad2b7c.entity.toml"
 
-[entities.transform]
-translation = [1.6943636,0.9867525,13.062682]
-rotation_degrees = [0,0,0]
-scale = [1,1,1]
 [entities.camera]
 projection = "perspective"
 field_of_view_degrees = 35
 near = 0.1
 far = 100
 
-
-[[entities]]
-id = "a4c0ea40-7938-4cd6-a96c-ae0d66fa5968"
-asset = "assets/structures/c4c10463-2bc3-481a-8bf9-f0191c18e43f.entity.toml"
-
 [entities.transform]
-translation = [0,0,0]
-rotation_degrees = [0,-59.29321,0]
-scale = [1,1,1]
-
+translation = [23.582531,-2.998188,42.73323]
+rotation_degrees = [-29.054611,34.211792,17.34688]
+scale = [1,0.99999994,1]
 
 [[entities]]
 id = "e424712c-c93e-4dc5-a57f-aca53d97c59a"
@@ -121,6 +108,45 @@ asset = "assets/particles/bee8db8d-ec4e-423d-bc9e-c90f0aa6add9.entity.toml"
 
 [entities.transform]
 translation = [5.364612,-1.0270336,0]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+
+[environment]
+ambient_color = [ 1, 1, 1 ]
+ambient_intensity = 2.24
+background_color = [ 0.10461648409110419, 0.1946178304415758, 0.4232676699860717 ]
+skybox_rotation = 0
+skybox_intensity = 1
+
+[[entities]]
+id = "e027d5d9-910a-4840-9e04-ea8a1f29a476"
+asset = "assets/terrains/a36e8c24-a3e2-46b4-8317-2931a52728b4.entity.toml"
+
+[entities.material]
+asset = "assets/materials/1ade844b-8cdc-4517-9d20-8f8b9e9a8cf5.material.toml"
+
+[entities.transform]
+translation = [0,-10.725059,0]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+[[entities]]
+id = "324a2b17-799b-4f32-b37c-a0c2c4715026"
+asset = "assets/entities/5889cf58-e1a4-4aa3-9b71-d21aad31560f.entity.toml"
+
+[entities.transform]
+translation = [-17.745,-6.474,11.164]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
+
+
+[[entities]]
+id = "65ba42fe-4dda-4f50-8d60-ae7b5ad32dab"
+asset = "assets/entities/65ba42fe-4dda-4f50-8d60-ae7b5ad32dab.entity.toml"
+
+[entities.transform]
+translation = [0,12.436249,0]
 rotation_degrees = [0,0,0]
 scale = [1,1,1]
 

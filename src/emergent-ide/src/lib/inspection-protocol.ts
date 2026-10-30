@@ -1,8 +1,8 @@
 import {cameraSettings,type CameraSettings} from "./camera-settings";
 import {parse} from "smol-toml";
 export type InspectionFrame = { sequence: number; command: number; tick: number; renderUs: number; encodeUs: number; width: number; height: number; workerPid: number; png: Buffer };
-export type ToolResult = {bounds?:{center:number[];radius:number};view?:{eye:number[];forward:number[];projection:"perspective"|"isometric";field_of_view_degrees:number;view_size:number};placement?:{translation:number[];rotation_degrees:number[];scale:number[]};frustum?:{id:string;segments:number[][][]};selected:string;tool:string;space:string;origin?:number[];handles:{axis:number;points:number[][]}[];markers:{id:string;point:number[]}[];transform?:{translation:number[];rotation_degrees:number[];scale:number[]}};
-export type InspectionControl = {op:"preview";quality:"auto"|"full"|"half";stepHeatmap:boolean} | {op:"focus"|"align";id:string} | {op:"camera";id:string;camera:CameraSettings} | { op: "view"; yaw: number; pitch: number; distance: number; target: number[]; projection: "perspective" | "isometric"; fieldOfView: number; orthographicSize: number } | { op: "transform"; id: string; translation: number[]; rotation_degrees: number[]; scale: number[] } | {op:"reparent";id:string;parent:string|null} | {op:"pick";x:number;y:number} | {op:"drag";token:string;x:number;y:number} | {op:"select";id:string|null;space:"local"|"global";tool:"translate"|"rotate"|"scale"} | {op:"begin";id:string;space:string;tool:string;token:string;axis:number;x:number;y:number} | {op:"finish"|"cancel";token:string};
+export type ToolResult = {bounds?:{center:number[];radius:number};view?:{eye:number[];forward:number[];projection:"perspective"|"isometric";field_of_view_degrees:number;view_size:number};placement?:{translation:number[];rotation_degrees:number[];scale:number[]};frustum?:{id:string;segments:number[][][]};selected:string;tool:string;space:string;origin?:number[];handles:{axis:number;points:number[][]}[];markers:{id:string;point:number[]}[];transform?:{translation:number[];rotation_degrees:number[];scale:number[]};hit?:{id:string;point:number[]}};
+export type InspectionControl = {op:"preview";quality:"auto"|"full"|"half";stepHeatmap:boolean} | {op:"focus"|"align";id:string} | {op:"camera";id:string;camera:CameraSettings} | { op: "view"; yaw: number; pitch: number; distance: number; target: number[]; projection: "perspective" | "isometric"; fieldOfView: number; orthographicSize: number } | { op: "transform"; id: string; translation: number[]; rotation_degrees: number[]; scale: number[] } | {op:"reparent";id:string;parent:string|null} | {op:"pick"|"probe";x:number;y:number} | {op:"drag";token:string;x:number;y:number} | {op:"select";id:string|null;space:"local"|"global";tool:"translate"|"rotate"|"scale"} | {op:"begin";id:string;space:string;tool:string;token:string;axis:number;x:number;y:number} | {op:"finish"|"cancel";token:string};
 const MAX_PACKET = 4 * 1024 * 1024;
 
 export class InspectionDecoder {
@@ -69,11 +69,11 @@ export function inspectionCommand(value: unknown, seq: number): string {
     if(input.id!==null&&(typeof input.id!=="string"||!/^[a-z0-9_.-]{1,128}$/i.test(input.id)))throw new Error("Invalid scene instance ID.");
     if(!["local","global"].includes(input.space as string)||!["translate","rotate","scale"].includes(input.tool as string))throw new Error("Invalid gizmo mode.");
     fields=`op="select",space=${JSON.stringify(input.space)},tool=${JSON.stringify(input.tool)}${input.id===null?"":`,id=${JSON.stringify(input.id)}`}`;
-  } else if(input.op==="pick"||input.op==="begin"||input.op==="drag"){
+  } else if(input.op==="pick"||input.op==="probe"||input.op==="begin"||input.op==="drag"){
     if(![input.x,input.y].every(n=>typeof n==="number"&&Number.isFinite(n)&&n>=0&&n<=1))throw new Error("Pointer is outside the viewport.");
     if(input.op==="begin"&&(!Number.isInteger(input.axis)||(input.axis as number)<0||(input.axis as number)>2))throw new Error("Invalid gizmo axis.");
     if(input.op==="begin"&&(typeof input.id!=="string"||!/^[a-z0-9_.-]{1,128}$/i.test(input.id)||!["local","global"].includes(input.space as string)||!["translate","rotate","scale"].includes(input.tool as string)))throw new Error("Invalid gizmo selection.");
-    fields=`op=${JSON.stringify(input.op)},x=${input.x},y=${input.y}${input.op==="pick"?"":token()}${input.op==="begin"?`,axis=${input.axis},id=${JSON.stringify(input.id)},space=${JSON.stringify(input.space)},tool=${JSON.stringify(input.tool)}`:""}`;
+    fields=`op=${JSON.stringify(input.op)},x=${input.x},y=${input.y}${input.op==="pick"||input.op==="probe"?"":token()}${input.op==="begin"?`,axis=${input.axis},id=${JSON.stringify(input.id)},space=${JSON.stringify(input.space)},tool=${JSON.stringify(input.tool)}`:""}`;
   } else if(input.op==="finish"||input.op==="cancel")fields=`op=${JSON.stringify(input.op)}${token()}`;
   else throw new Error("Unsupported inspection command.");
   return `request={seq=${seq}, ${fields}}\n`;
@@ -90,5 +90,6 @@ function toolResult(value:unknown):ToolResult {
   const vector3=(v:unknown)=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof n==="number"&&Number.isFinite(n)&&Math.abs(n)<=3.4028234e38);
   if(result.bounds&&(!vector3(result.bounds.center)||!Number.isFinite(result.bounds.radius)||result.bounds.radius<0||result.bounds.radius>3.4028234e38))throw new Error("Invalid selection bounds.");
   if(result.view&&(!vector3(result.view.eye)||!vector3(result.view.forward)||Math.abs(Math.hypot(...result.view.forward)-1)>0.001||!["perspective","isometric"].includes(result.view.projection)||!Number.isFinite(result.view.field_of_view_degrees)||result.view.field_of_view_degrees<0.999||result.view.field_of_view_degrees>=179||!Number.isFinite(result.view.view_size)||result.view.view_size<0.001||result.view.view_size>1000000))throw new Error("Invalid inspection view.");
+  if(result.hit&&(typeof result.hit.id!=="string"||result.hit.id.length>128||!vector3(result.hit.point)))throw new Error("Invalid probe hit.");
   return result;
 }

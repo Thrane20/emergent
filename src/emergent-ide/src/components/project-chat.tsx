@@ -124,7 +124,7 @@ export function ProjectChat({ projectId, projectName, scene, object, aiSettings,
         </div>
         <div className="chat-messages">
           {thread.length === 0
-            ? <div className="chat-empty"><span>Ask for a component, behaviour, scene change, or new project file.</span><small>Requests can update project files; questions receive an answer.</small></div>
+            ? null
             : thread.map((message) => <div className={`chat-message ${message.role} ${message.state ?? ""}`} key={message.id}><b>{message.role === "user" ? "You" : "Emergent"}</b><p>{message.text}</p></div>)}
         </div>
         <form className="chat-composer" onSubmit={submit}>

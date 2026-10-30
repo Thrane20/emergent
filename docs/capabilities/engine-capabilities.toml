@@ -340,13 +340,22 @@ depends_on = ["audio.mixer", "world.transforms-3d"]
 summary = "Sources, listeners, attenuation, panning, Doppler, and occlusion hooks."
 
 [[capabilities]]
+id = "behaviour.brains"
+category = "simulation"
+name = "Brains (steering trees)"
+status = "preview"
+owner = "brain"
+depends_on = ["runtime.fixed-step", "world.transforms-3d"]
+summary = "Saved trees of steering nodes (seek/flee, wander, patrol, flocking, formation, avoidance, evaluation and composition) attached with emergent.brain, evaluated deterministically each fixed tick against committed positions; groups via emergent.group; editor preview through the same runtime. Neighbour queries are linear; line of sight, obstacles and pathfinding are planned."
+
+[[capabilities]]
 id = "input.actions"
 category = "input"
 name = "Input actions"
-status = "planned"
+status = "preview"
 owner = "input"
 depends_on = ["runtime.fixed-step"]
-summary = "Keyboard, pointer, gamepad, joystick, touch, mapping, rebinding, and tick snapshots."
+summary = "Preview: deterministic per-tick keyboard snapshots (held/pressed/released for WASD, arrows, Space, Shift, Q, E) fed by the native window or a headless script. Pointer, gamepad, touch, action mapping and rebinding remain planned."
 
 [[capabilities]]
 id = "physics.world"
@@ -355,7 +364,7 @@ name = "Physics and collision"
 status = "preview"
 owner = "physics"
 depends_on = ["world.transforms-3d", "ecs.schedules"]
-summary = "Optional physics feature: Rapier static/dynamic bodies, gravity, per-fixed-tick force application, fitted/explicit box colliders, static terrain heightfield colliders and fixed-tick contacts. IDE instance controls, terrain enablement/type selection and paused box collider outlines. Queries, other shapes, triggers, joints and controllers remain planned."
+summary = "Optional physics feature: Rapier static/dynamic bodies, gravity, per-fixed-tick force application, fitted/explicit box colliders, static terrain heightfield colliders and fixed-tick contacts. IDE instance controls, terrain enablement/type selection and paused box collider outlines. A character-controller drive (horizontal velocity, upright, grounded jump) and linear-velocity read are available. Queries, other shapes, triggers and joints remain planned."
 
 [[capabilities]]
 id = "navigation.paths"

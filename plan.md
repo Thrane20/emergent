@@ -18,6 +18,16 @@ the same change that finishes it. Long-range goals and stage gates are in
   `run_status`, and the IDE selection as a resource, so that "this" or "the selected
   cube" resolves to a ref. [Design](docs/design/project-mcp-server.md).
 
+- **Brains: follow-ups.** Editor, runtime, preview and starter brains are delivered.
+  Next: MCP brain tools (`list_brain_nodes`, edit by node ID), a neighbour grid before
+  flocks above ~300 agents (0.53 ms/tick at 256, quadratic), and the planned nodes that
+  need physics queries. [Design](docs/design/brain-editor.md).
+- **Object components: follow-ups.** Slices 1–4 are delivered (light, controller,
+  spin, follow, project types, input). Next: move the spin/bounce/avoidance wiring for
+  `main` and the `bda577fe…` scene onto authored components once those scenes' current
+  edits are settled; asset-level component defaults; live component push to inspection.
+  [Design](docs/design/object-components.md).
+
 ## Known issues
 
 - `first_project` test `authored_offender_bounces_about_four_metres_above_ground`
@@ -27,11 +37,12 @@ the same change that finishes it. Long-range goals and stage gates are in
 - Player settings (`/player`, `player.settings.toml`) are not consumed at runtime.
   Either wire resolution/fps/AA into the native run, or label the page as planned.
 - No evidence record exists yet for scene lighting/skyboxes.
+- The Line, Convex polygon and Indexed mesh templates write a `[geometry]` table the
+  scene loader doesn't read, so they're marked planned. Point is now a placeable empty
+  entity (`marker.point`). Look-at and path-finding to scene targets aren't built yet.
 - `assets/textures/c6dfc7dc-…/explosion_atlas.png` still has no durable ID. Run the
   MCP `assign_ids` tool (dry-run first) to give it one; this hasn't been applied to
   the real project yet.
-- Restart the IDE dev server on port 3000. Its pages returned 500 after this week's
-  dependency install, and it needs the MCP-2 code plus the inspection camera fix.
 
 ## Next
 

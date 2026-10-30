@@ -51,36 +51,6 @@
       }
     },
     {
-      "id": "1d40ecc1-84a1-4669-9a5a-68bbeca5c228",
-      "subject": "file:assets/entities/a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml",
-      "text": "this object doesn't like being chased, it will try and get away from the object called \"OffenderBox\" - it needs to translate a minimum distance of 2 units away if it comes near.",
-      "implemented": true,
-      "confidence": "high",
-      "evidence": "assets/scenes/main.scene.toml instantiates Defender and OffenderBox, while src/game.rs calls src/avoidance.rs each fixed update to move Defender away whenever their world-space separation is below 2 units.",
-      "checkedAt": "2026-10-25T05:22:52.966Z",
-      "implementation": {
-        "summary": "Added project-owned minimum-distance avoidance using canonical EntityId handles. The Defender and OffenderBox authored assets are now instantiated in the entry scene, passed through the generated scene builder, updated during fixed simulation, and automatically included in native/headless/tick-zero rendering through the existing LoadedScene pipeline. The correction maintains at least 2 world units of separation while preserving the Defender's local rotation and scale.",
-        "reused": [
-          "foundation/src/world.rs · World::local_from_global_position: Converts the corrected world-space Defender position into its authored local hierarchy space while retaining local rotation and scale.",
-          "foundation/src/world.rs · EntityId: Used as the canonical runtime identity resolved from durable authored scene IDs; no runtime SlotMap key is serialized.",
-          "foundation/src/engine.rs · Game: The avoidance correction is wired into the existing fixed_update callback used by native and headless simulation.",
-          "src/generated/main_scene.rs · build_main_scene: Extended the existing registered entry-scene builder so the authored Defender and OffenderBox runtime entities are explicitly wired into generated scene state.",
-          "src/visual.rs · ProjectGeometry::upload: Existing LoadedScene renderable extraction automatically uploads and renders the two newly authored entry-scene instances without a parallel renderer path.",
-          "assets/scenes/bda577fe-67ad-439b-a556-8a2ef548f2e9.scene.toml · bda577fe-67ad-439b-a556-8a2ef548f2e9.scene.toml: Inspected to reuse the existing durable Defender and OffenderBox asset identities and the authored OffenderBox display name.",
-          "assets/entities/a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml · a5be312c-a7b9-4d9b-9eff-5be691a320b2.entity.toml: Reused the selected authored Defender primitive rather than creating duplicate geometry.",
-          "assets/entities/c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml · c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml: Reused the existing authored cube associated with the OffenderBox scene instance."
-        ],
-        "files": [
-          "src/avoidance.rs",
-          "src/generated/main_scene.rs",
-          "src/game.rs",
-          "src/main.rs",
-          "assets/scenes/main.scene.toml"
-        ],
-        "validatedAt": "2026-10-25T05:22:50.748Z"
-      }
-    },
-    {
       "id": "573fd075-d826-4ce0-a181-8940b36b3089",
       "subject": "file:assets/entities/c1836e8d-78b5-4d90-9d59-f22cec9ac856.entity.toml",
       "text": "this object bounces with upwards force when it hits the ground/terrain. suggest about 4m high bouncing.",

@@ -22,6 +22,12 @@ pub enum ToolCommand {
         x: f32,
         y: f32,
     },
+    /// Surface under the cursor, for placing assets; leaves the selection unchanged.
+    Probe {
+        seq: u32,
+        x: f32,
+        y: f32,
+    },
     Select {
         seq: u32,
         id: Option<String>,
@@ -59,6 +65,7 @@ impl ToolCommand {
             Self::Focus { seq, .. }
             | Self::Align { seq, .. }
             | Self::Pick { seq, .. }
+            | Self::Probe { seq, .. }
             | Self::Select { seq, .. }
             | Self::Begin { seq, .. }
             | Self::Drag { seq, .. }
@@ -76,6 +83,11 @@ pub struct Marker {
 pub struct Handle {
     axis: usize,
     points: Vec<[f32; 2]>,
+}
+#[derive(Clone, Serialize)]
+pub struct Hit {
+    id: String,
+    point: [f32; 3],
 }
 #[derive(Serialize)]
 pub struct Frustum {
@@ -101,6 +113,8 @@ pub struct ToolResult {
     origin: Option<[f32; 2]>,
     #[serde(skip_serializing_if = "Option::is_none")]
     transform: Option<Values>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    hit: Option<Hit>,
 }
 #[derive(Serialize)]
 struct Bounds {
@@ -137,6 +151,7 @@ pub struct Tools {
     tool: GizmoTool,
     drag: Option<(EntityId, TransformGizmo, String)>,
     meshes: Vec<(EntityId, PickingMesh)>,
+    hit: Option<Hit>,
 }
 impl Tools {
     pub fn new(game: &FirstProjectGame) -> Self {
@@ -151,6 +166,7 @@ impl Tools {
                 .iter()
                 .map(|(id, g)| (*id, PickingMesh::from_geometry(g)))
                 .collect(),
+            hit: None,
         }
     }
     pub fn dragging(&self) -> bool {
@@ -163,6 +179,7 @@ impl Tools {
         game: &FirstProjectGame,
         renderer: &GeometryRenderer,
     ) -> Result<Option<Transform>, Box<dyn Error>> {
+        self.hit = None;
         if self.drag.is_some()
             && !matches!(
                 command,
@@ -224,38 +241,7 @@ impl Tools {
                 let vp = renderer.view_projection();
                 let ray =
                     InspectionRay::from_viewport(vp, cursor).ok_or("Pick outside viewport")?;
-                let mut best = ray.length;
-                let mut selected = None;
-                for (id, mesh) in &self.meshes {
-                    if let Some(distance) =
-                        mesh.intersect(ray, engine.world().global_transform(*id)?.matrix())
-                    {
-                        if distance < best {
-                            best = distance;
-                            selected = Some(*id);
-                        }
-                    }
-                }
-                for &id in game.loaded.entities.values() {
-                    if let Some(field) = engine
-                        .world()
-                        .component::<emergent::RaymarchedTerrain>(id)?
-                    {
-                        let model = engine.world().global_transform(id)?.matrix();
-                        let inverse = model.inverse();
-                        let local_origin = inverse.transform_point3(ray.origin);
-                        let local_direction = inverse.transform_vector3(ray.direction);
-                        if let Some(t) = field.trace(local_origin, local_direction)? {
-                            let point = model
-                                .transform_point3(local_origin + local_direction.normalize() * t);
-                            let distance = point.distance(ray.origin);
-                            if distance < best {
-                                best = distance;
-                                selected = Some(id);
-                            }
-                        }
-                    }
-                }
+                let mut selected = self.surface(engine, game, ray)?.map(|(id, _)| id);
                 // Light/empty-node origins are editor icons, visible above scene geometry.
                 let mut icon_distance = 12.0;
                 for marker in self.markers(engine, game, vp)? {
@@ -267,12 +253,17 @@ impl Tools {
                         selected = Some(game.loaded.entities[&marker.id]);
                     }
                 }
-                self.selected = selected.and_then(|id| {
-                    game.loaded
-                        .entities
-                        .iter()
-                        .find(|(_, entity)| **entity == id)
-                        .map(|(name, _)| name.clone())
+                self.selected = selected.and_then(|id| name(game, id));
+            }
+            ToolCommand::Probe { x, y, .. } => {
+                let ray =
+                    InspectionRay::from_viewport(renderer.view_projection(), Vec2::new(*x, *y))
+                        .ok_or("Probe outside viewport")?;
+                self.hit = self.surface(engine, game, ray)?.and_then(|(id, distance)| {
+                    Some(Hit {
+                        id: name(game, id)?,
+                        point: (ray.origin + ray.direction * distance).to_array(),
+                    })
                 });
             }
             ToolCommand::Begin {
@@ -351,6 +342,47 @@ impl Tools {
         }
         Ok(None)
     }
+    /// Nearest mesh or ray-marched surface along the ray, as (entity, world distance).
+    fn surface(
+        &self,
+        engine: &Engine,
+        game: &FirstProjectGame,
+        ray: InspectionRay,
+    ) -> Result<Option<(EntityId, f32)>, Box<dyn Error>> {
+        let mut best = ray.length;
+        let mut hit = None;
+        for (id, mesh) in &self.meshes {
+            if let Some(distance) =
+                mesh.intersect(ray, engine.world().global_transform(*id)?.matrix())
+            {
+                if distance < best {
+                    best = distance;
+                    hit = Some(*id);
+                }
+            }
+        }
+        for &id in game.loaded.entities.values() {
+            if let Some(field) = engine
+                .world()
+                .component::<emergent::RaymarchedTerrain>(id)?
+            {
+                let model = engine.world().global_transform(id)?.matrix();
+                let inverse = model.inverse();
+                let local_origin = inverse.transform_point3(ray.origin);
+                let local_direction = inverse.transform_vector3(ray.direction);
+                if let Some(t) = field.trace(local_origin, local_direction)? {
+                    let point =
+                        model.transform_point3(local_origin + local_direction.normalize() * t);
+                    let distance = point.distance(ray.origin);
+                    if distance < best {
+                        best = distance;
+                        hit = Some(id);
+                    }
+                }
+            }
+        }
+        Ok(hit.map(|id| (id, best)))
+    }
     fn entity(&self, game: &FirstProjectGame) -> Result<EntityId, Box<dyn Error>> {
         self.selected
             .as_ref()
@@ -407,6 +439,7 @@ impl Tools {
             markers: self.markers(engine, game, vp)?,
             origin: None,
             transform: None,
+            hit: self.hit.clone(),
         };
         let Ok(id) = self.entity(game) else {
             return Ok(result);
@@ -610,6 +643,14 @@ fn clip_segment(vp: Mat4, a: Vec3, b: Vec3) -> Option<[[f32; 2]; 2]> {
             ((1. - p.y / p.w) * 0.5).clamp(0., 1.),
         ]
     }))
+}
+
+fn name(game: &FirstProjectGame, id: EntityId) -> Option<String> {
+    game.loaded
+        .entities
+        .iter()
+        .find(|(_, entity)| **entity == id)
+        .map(|(name, _)| name.clone())
 }
 
 #[cfg(test)]

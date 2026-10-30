@@ -93,26 +93,30 @@ field_of_view_degrees = 60
 near = 0.1
 far = 1000
 
-[entities.transform]
-translation = [47.381966,37.420216,67.0655]
-rotation_degrees = [-20.52228,21.585205,7.8408523]
-scale = [1,1,1]
-
-
-
-[[entities]]
-id = "5cb4b6a6-6b14-4ad1-a8ea-48e984e0c696"
-asset = "assets/terrains/7ed428b5-a92d-45a2-a70a-1286a11557d8.entity.toml"
-
-[entities.transform]
-translation = [0,-8.924546,0]
-rotation_degrees = [0,0,0]
-scale = [1,1,1]
-
 [environment]
 ambient_color = [ 1, 1, 1 ]
 ambient_intensity = 1.73
 background_color = [ 0.14126329114027164, 0.2788942634768104, 0.6514056374198242 ]
 skybox_rotation = 181
 skybox_intensity = 1
+
+[entities.transform]
+translation = [47.381966,27.56094,45.755173]
+rotation_degrees = [-20.52228,21.585205,7.8408523]
+scale = [1,1,1]
+
+[[entities]]
+id = "43344395-5699-428d-8542-f2f2a66a9475"
+asset = "assets/terrains/207ae579-3ba2-45da-850b-fc7e3b71e902.entity.toml"
+[entities.material]
+asset = "assets/materials/1ade844b-8cdc-4517-9d20-8f8b9e9a8cf5.material.toml"
+
+[[entities]]
+id = "e792a627-991a-487a-92bd-5c2da3826162"
+asset = "assets/entities/e792a627-991a-487a-92bd-5c2da3826162.entity.toml"
+
+[entities.transform]
+translation = [-8.444766,3.514165,0]
+rotation_degrees = [0,0,0]
+scale = [1,1,1]
 

@@ -1,0 +1,12 @@
+schema_version = 1
+id = "e792a627-991a-487a-92bd-5c2da3826162"
+name = "Waypoint"
+kind = "entity"
+template = "marker.point"
+runtime_status = "available"
+
+# Durable authored identity only. Runtime SlotMap handles are resolved later.
+[transform]
+translation = [0.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]

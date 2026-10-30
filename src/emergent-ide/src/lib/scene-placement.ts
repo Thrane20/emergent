@@ -6,13 +6,14 @@ import { parse, stringify } from "smol-toml";
 import { containedFile } from "./object-files";
 import type { ProjectSnapshot } from "./project";
 import { applyChanges } from "./statement-files";
-import { localFromGlobal, sceneWorldTransforms, validateProjectScene } from "./scene-preview";
+import { componentRegistry, localFromGlobal, sceneWorldTransforms, validateProjectScene } from "./scene-preview";
 import { materialSettings, materialChannels,materialTextures,isTexturePath, type MaterialSettings } from "./material-settings";
 import {readMaterial} from "./material-assets";
 import {TERRAIN_DATA_MAX_BYTES,terrainSettings} from "./terrain";
 import { sceneHierarchy } from "./scene-hierarchy";
 import {lightingSettings} from "./lighting-settings";
 import {cameraSettings,type CameraSettings} from "./camera-settings";
+import {authoredComponents,componentTables,patchComponents,type AuthoredComponent,type ComponentPatch} from "./components";
 import {raymarchedSettings} from "./raymarched-terrain";
 
 export type TransformValues = { translation: number[]; rotation_degrees: number[]; scale: number[] };
@@ -28,7 +29,7 @@ export function physicsSettings(value:unknown):PhysicsSettings {
   for(const key of ["center","half_extents"] as const){const vector=result.collider[key];if(vector!==undefined&&(!Array.isArray(vector)||vector.length!==3||!vector.every(n=>typeof n==="number"&&Number.isFinite(n)&&Math.abs(n)<=1000000&&(key!=="half_extents"||n>=0.0001))))throw new Error(`Invalid collider ${key}.`);}
   return result;
 }
-export type SceneInstance = { id: string; name?: string; asset: string; parent: string | null; defaults: TransformValues; transform: TransformValues; overridden: boolean; display?:TransformValues; globalTranslationOnly?:boolean; physics?:PhysicsSettings; physicsOverridden?:boolean;terrain?:boolean;raymarched?:boolean;structure?:boolean;particles?:boolean;terrainExtent?:{size:number;height:number};renderable?:boolean;material?:MaterialSettings;materialOverridden?:boolean;geometryColor?:number[];camera?:CameraSettings;cameraOverridden?:boolean };
+export type SceneInstance = { id: string; name?: string; asset: string; parent: string | null; defaults: TransformValues; transform: TransformValues; overridden: boolean; display?:TransformValues; globalTranslationOnly?:boolean; physics?:PhysicsSettings; physicsOverridden?:boolean;terrain?:boolean;raymarched?:boolean;structure?:boolean;particles?:boolean;terrainExtent?:{size:number;height:number};renderable?:boolean;material?:MaterialSettings;materialOverridden?:boolean;geometryColor?:number[];camera?:CameraSettings;cameraOverridden?:boolean;components?:AuthoredComponent[];objectKind?:string;light?:Record<string,unknown> };
 export type ScenePlacement = { path: string; revision: string; instances: SceneInstance[]; space:TransformSpace;frame?:{target:number[];distance:number} };
 const identity: TransformValues = { translation: [0,0,0], rotation_degrees: [0,0,0], scale: [1,1,1] };
 const fields = ["translation", "rotation_degrees", "scale"] as const;
@@ -96,7 +97,7 @@ async function snapshot(project: ProjectSnapshot, path: string) {
     const geometry=asset.geometry as {color?:number[]}|undefined;
     if(raymarched) instances.push({id:item.id as string,asset:item.asset as string,parent:item.parent as string|undefined??null,name:typeof item.name==="string"?item.name:typeof asset.name==="string"?asset.name:item.id as string,defaults,transform:transform(item.transform,defaults),overridden:item.transform!==undefined,terrain:true,raymarched:true,terrainExtent:{size:raymarched.size,height:raymarched.version===1?raymarched.size*0.1875:12+raymarched.relief+raymarched.overhang},renderable:true});
     else
-    instances.push({ camera:asset.kind==="camera"?cameraSettings(item.camera??asset.camera):undefined,cameraOverridden:item.camera!==undefined, id: item.id, name: item.name === undefined ? (typeof asset.name === "string" && asset.name.trim() ? asset.name : item.id) : instanceName(item.name), asset: item.asset, parent: item.parent as string | undefined ?? null, defaults, transform: transform(item.transform,defaults), overridden: item.transform !== undefined, physics:physicsSettings(item.physics??asset.physics), physicsOverridden:item.physics!==undefined,particles:asset.kind==="particle-effect",structure:asset.kind==="structure",terrain:asset.kind==="terrain",terrainExtent:asset.terrain?(({size,height})=>({size,height}))(terrainSettings(asset.terrain)):undefined,renderable:Boolean(asset.geometry||asset.terrain||asset.structure),material,materialOverridden:item.material!==undefined,geometryColor:geometry?.color?.slice(0,3) });
+    instances.push({ components:authoredComponents(item.components),objectKind:typeof asset.kind==="string"&&asset.kind.endsWith("-light")?"light":typeof asset.kind==="string"?asset.kind:undefined,light:asset.light&&typeof asset.light==="object"&&!Array.isArray(asset.light)?{...asset.light as Record<string,unknown>}:undefined,camera:asset.kind==="camera"?cameraSettings(item.camera??asset.camera):undefined,cameraOverridden:item.camera!==undefined, id: item.id, name: item.name === undefined ? (typeof asset.name === "string" && asset.name.trim() ? asset.name : item.id) : instanceName(item.name), asset: item.asset, parent: item.parent as string | undefined ?? null, defaults, transform: transform(item.transform,defaults), overridden: item.transform !== undefined, physics:physicsSettings(item.physics??asset.physics), physicsOverridden:item.physics!==undefined,particles:asset.kind==="particle-effect",structure:asset.kind==="structure",terrain:asset.kind==="terrain",terrainExtent:asset.terrain?(({size,height})=>({size,height}))(terrainSettings(asset.terrain)):undefined,renderable:Boolean(asset.geometry||asset.terrain||asset.structure),material,materialOverridden:item.material!==undefined,geometryColor:geometry?.color?.slice(0,3) });
   }
   // Include picker candidates too, so attaching a newly selected map cannot race its edits.
   for(const file of project.files.filter(file=>file.path.endsWith(".noise.toml")&&project.assetRoots.some(root=>file.path.startsWith(`${root}/`))))if(!assets.has(file.path))assets.set(file.path,await assetSource(project,file.path));
@@ -310,7 +311,7 @@ export async function commitSceneEdit(project:ProjectSnapshot,path:string,revisi
 
 
 /** Preserve unrelated scene text and prove that only the selected settings table changed. */
-function replaceInstanceSettings(source:string,id:string,section:"physics"|"material"|"camera",settings:PhysicsSettings|MaterialSettings|CameraSettings|null) {
+function replaceInstanceSettings(source:string,id:string,section:"physics"|"material"|"camera"|"components",settings:PhysicsSettings|MaterialSettings|CameraSettings|Record<string,unknown>[]|null) {
   const expected=parse(source);if(!Array.isArray(expected.entities))throw new Error("Scene instances are missing.");
   const index=expected.entities.findIndex(entry=>table(entry).id===id);if(index<0)throw new Error("Scene instance no longer exists.");
   const item=table(expected.entities[index]);if(settings===null)delete item[section];else item[section]=parse(stringify({[section]:settings}))[section];
@@ -356,4 +357,19 @@ export function replaceInstanceCamera(source:string,id:string,value:unknown) {
 }
 export async function saveSceneCamera(project:ProjectSnapshot,path:string,id:string,revision:string,value:unknown,space:TransformSpace="local") {
  return commitPlacement(project,path,revision,space,source=>replaceInstanceCamera(source,id,value));
+}
+/** Rewrite one instance's [[entities.components]] list after patching a single component type. */
+export function replaceInstanceComponent(source:string,id:string,type:string,patch:ComponentPatch|null,keepEmpty=false) {
+ const document=parse(source);const item=Array.isArray(document.entities)?document.entities.map(table).find(entry=>entry.id===id):undefined;
+ if(!item)throw new Error("Scene instance no longer exists.");
+ const next=patchComponents(authoredComponents(item.components),type,patch,keepEmpty);
+ return replaceInstanceSettings(source,id,"components",next.length?componentTables(next):null);
+}
+export async function saveSceneComponent(project:ProjectSnapshot,path:string,id:string,revision:string,type:string,patch:ComponentPatch|null,space:TransformSpace="local") {
+ const keepEmpty=await addedComponentType(project,type);
+ return commitPlacement(project,path,revision,space,source=>replaceInstanceComponent(source,id,type,patch,keepEmpty));
+}
+/** Types any object can carry are kept while empty; an object kind's own type (Light) is not. Unknown types fail native validation. */
+export async function addedComponentType(project:ProjectSnapshot,type:string) {
+ return (await componentRegistry(project)).find(entry=>entry.id===type)?.applies_to==="any";
 }

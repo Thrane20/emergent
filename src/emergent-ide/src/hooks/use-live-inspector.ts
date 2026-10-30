@@ -18,7 +18,7 @@ export function useLiveInspector<T,V>(initial:T,prepare:(draft:T)=>V,onSave:(val
  function commit(value:V|null){
   cancel();markDirty(true);setSaving(true);setError("");
   const active=document.activeElement;
-  if(active instanceof HTMLElement&&active.closest(".material-inspector,.physics-inspector,.transform-inspector,.noise-inspector,.camera-inspector"))focusedControl=active;
+  if(active instanceof HTMLElement&&active.closest(".material-inspector,.physics-inspector,.transform-inspector,.noise-inspector,.camera-inspector,.components-inspector"))focusedControl=active;
   const operation=saveQueue.catch(()=>{}).then(async()=>{
    onBusy?.(true);
    try{await saveRef.current(value);markDirty(false);}

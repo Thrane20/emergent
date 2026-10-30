@@ -4,7 +4,6 @@ import {useLiveInspector} from "@/hooks/use-live-inspector";
 import {createPortal} from "react-dom";
 import {decodeNoiseField,DEFAULT_NOISE,noiseSettings,type NoiseField,type NoiseSettings} from "@/lib/noise-field";
 type Document={path:string;revision:string;settings:NoiseSettings};
-const descriptions={perlin:"Smooth gradient noise: a useful starting point for terrain and textures.","open-simplex":"Another smooth gradient pattern, useful for organic variation.",worley:"Distance-based cellular noise, useful for cells, stones and clustered masks."};
 export function NoiseInspector({projectId,path,previewTarget,onDirty,onBusy,onSaved}:{projectId:string;path:string;previewTarget:HTMLElement|null;onDirty:(dirty:boolean)=>void;onBusy:(busy:boolean)=>void;onSaved:()=>void}){
  const [document,setDocument]=useState<Document|null>(null),[field,setField]=useState<NoiseField|null>(null),[generated,setGenerated]=useState<NoiseSettings|null>(null),[slice,setSlice]=useState(0),[error,setError]=useState(""),[message,setMessage]=useState(""),[busy,setBusy]=useState(false);
  const liveSave=useLiveInspector(document?.settings??DEFAULT_NOISE,noiseSettings,async settings=>{
@@ -27,10 +26,8 @@ export function NoiseInspector({projectId,path,previewTarget,onDirty,onBusy,onSa
  }
  const preview=<NoisePreview field={field} settings={generated} slice={slice} setSlice={setSlice} stale={Boolean(generated&&JSON.stringify(generated)!==JSON.stringify(draft))}/>;
  return <div className="noise-inspector">
-  <p className="noise-description">A reusable filter asset. Generate a grayscale field from editable inputs; save settings separately.</p>
   <fieldset disabled={busy||liveSave.saving||!document}>
    <label>Algorithm<select aria-label="Noise algorithm" value={draft.algorithm} onChange={event=>change({...draft,algorithm:event.target.value as NoiseSettings["algorithm"]})}><option value="perlin">Perlin</option><option value="open-simplex">OpenSimplex</option><option value="worley">Worley (cellular)</option></select></label>
-   <p className="noise-description">{descriptions[draft.algorithm]}</p>
    <label>Field<select aria-label="Noise dimensions" value={draft.dimensions} onChange={event=>change({...draft,dimensions:Number(event.target.value),size:Number(event.target.value)===3?32:128})}><option value="2">2D field</option><option value="3">3D volume</option></select></label>
    <div className="noise-input-row"><label>Seed<input aria-label="Noise seed" type="number" min="0" max="4294967295" step="1" value={Number.isFinite(draft.seed)?draft.seed:""} onChange={event=>change({...draft,seed:event.target.valueAsNumber})}/></label><button type="button" onClick={()=>change({...draft,seed:crypto.getRandomValues(new Uint32Array(1))[0]})}>New seed</button></div>
    <label>Resolution per axis<input aria-label="Noise resolution" type="number" min="2" max={draft.dimensions===2?512:128} step="1" value={Number.isFinite(draft.size)?draft.size:""} onChange={event=>change({...draft,size:event.target.valueAsNumber})}/></label>
@@ -52,12 +49,11 @@ function NoisePreview({field,settings,slice,setSlice,stale}:{field:NoiseField|nu
   context.putImageData(image,0,0);
  },[field,slice]);
  return <section className="noise-preview" aria-label="Noise field preview">
-  <header><span className="eyebrow">FILTER / NOISE FUNCTION</span><h2>{field?`${settings?.algorithm} · ${field.depth===1?"2D field":"3D volume"}`:"Noise field"}</h2><p>{field?`${field.width} × ${field.height}${field.depth>1?` × ${field.depth}`:""} · ${field.values.length.toLocaleString()} samples · Seed ${settings?.seed}`:"Choose inputs in the inspector, then Generate preview."}</p></header>
+  <header><span className="eyebrow">FILTER / NOISE FUNCTION</span><h2>{field?`${settings?.algorithm} · ${field.depth===1?"2D field":"3D volume"}`:"Noise field"}</h2><p>{field?`${field.width} × ${field.height}${field.depth>1?` × ${field.depth}`:""} · ${field.values.length.toLocaleString()} samples · Seed ${settings?.seed}`:""}</p></header>
   {field?<><canvas ref={canvas} width={field.width} height={field.height} role="img" aria-label="Grayscale noise field" data-depth={field.depth} data-seed={settings?.seed} data-slice={slice}/>
    {field.depth>1&&<label className="noise-slice">Z slice <input aria-label="Noise Z slice" type="range" min="0" max={field.depth-1} step="1" value={slice} onChange={event=>setSlice(Number(event.target.value))}/><output>{slice} / {field.depth-1}</output></label>}
    <p className="noise-range">Field range {field.min.toFixed(4)} — {field.max.toFixed(4)}{stale?" · Preview uses earlier inputs; generate again to update.":""}</p>
   </>:<div className="noise-empty">2D fields · 3D volume slices<br/>Deterministic generation in Rust</div>}
   <div className="noise-legend"><span>0 · Black</span><i/><span>1 · White</span></div>
-  <p className="noise-description">Linear grayscale · no automatic contrast stretching{field&&field.depth>1?" · XY slice of a complete 3D field":""}</p>
  </section>;
 }

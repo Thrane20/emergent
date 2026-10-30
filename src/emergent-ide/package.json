@@ -25,7 +25,6 @@
     "test:terrain": "tsx scripts/terrain-smoke.ts",
     "test:terrain-save": "tsx scripts/terrain-save-smoke.ts",
     "test:textures": "tsx scripts/texture-smoke.ts",
-    "test:texture-creator": "tsx --conditions=react-server scripts/texture-creator-smoke.ts",
     "test:media": "tsx --conditions=react-server scripts/media-library-smoke.ts",
     "test:images": "tsx --conditions=react-server scripts/image-generator-smoke.ts",
     "test:tweens": "tsx scripts/tween-smoke.ts",

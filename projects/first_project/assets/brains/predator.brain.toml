@@ -1,0 +1,49 @@
+schema_version = 1
+id = "predator"
+name = "Predator"
+kind = "brain"
+description = "Patrols until prey comes into view, then pursues the nearest one; keeps clear of its own pack."
+
+[[nodes]]
+id = "root"
+type = "blend"
+
+[[nodes]]
+id = "choose"
+parent = "root"
+type = "selector"
+
+[[nodes]]
+id = "sees"
+parent = "choose"
+type = "in_view"
+group = "prey"
+angle = 70.0
+distance = 14.0
+
+[[nodes]]
+id = "hunt"
+parent = "sees"
+type = "pursue"
+group = "prey"
+prediction = 1.0
+
+[[nodes]]
+id = "prowl"
+parent = "choose"
+type = "speed_limit"
+max_speed = 1.5
+
+[[nodes]]
+id = "roam"
+parent = "prowl"
+type = "wander"
+jitter = 1.5
+
+[[nodes]]
+id = "space"
+parent = "root"
+type = "separation"
+group = "predators"
+radius = 3.0
+weight = 1.5

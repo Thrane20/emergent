@@ -1,0 +1,31 @@
+schema_version = 1
+id = "escort"
+name = "Escort"
+kind = "brain"
+description = "Holds a wedge formation around the leader and peels off to drive away nearby threats."
+
+[[nodes]]
+id = "root"
+type = "priority"
+
+[[nodes]]
+id = "defend"
+parent = "root"
+type = "within_distance"
+group = "threats"
+distance = 5.0
+
+[[nodes]]
+id = "intercept"
+parent = "defend"
+type = "pursue"
+group = "threats"
+
+[[nodes]]
+id = "formation"
+parent = "root"
+type = "formation"
+group = "leader"
+members = "escort"
+shape = "wedge"
+spacing = 2.0

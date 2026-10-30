@@ -98,12 +98,13 @@ pub struct PeriodicPop {
 }
 
 impl PeriodicPop {
-    pub const fn new(entity: EntityId) -> Self {
+    /// A pop with authored interval and impulse (the `project.jumping_bean` component).
+    pub const fn with(entity: EntityId, interval: Duration, impulse: f32) -> Self {
         Self {
             entity,
-            interval: DEFAULT_POP_INTERVAL,
+            interval,
             elapsed: Duration::ZERO,
-            impulse: DEFAULT_POP_IMPULSE,
+            impulse,
         }
     }
 

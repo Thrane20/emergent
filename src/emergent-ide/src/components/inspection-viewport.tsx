@@ -13,9 +13,9 @@ type Drag={token:string;id:string;revision:string;ready:Promise<void>;latest?:Tr
 const initialView=():View=>({yaw:Math.atan2(7,9),pitch:Math.asin(5/Math.sqrt(155)),distance:Math.sqrt(155),target:[0,0,0],projection:"perspective",fieldOfView:45,orthographicSize:12});
 const colors=["#ff7979","#8ee7a5","#80b5ff"];
 
-export function InspectionViewport({projectId,sessionId,sceneName,frame,readOnly=false,terrainPreview=false,selectedId,revision,space,disabled,onSelect,onCommit,onBusy,onReady,onFailure}:{
+export function InspectionViewport({projectId,sessionId,sceneName,frame,readOnly=false,terrainPreview=false,selectedId,revision,space,disabled,onSelect,onCommit,onBusy,onReady,onFailure,onPlaceAt}:{
  terrainPreview?:boolean;readOnly?:boolean;projectId:string;sessionId:string;sceneName:string;frame?:{target:number[];distance:number};selectedId:string|null;revision:string;space:TransformSpace;disabled:boolean;
- onSelect:(id:string|null)=>void;onCommit:(id:string,revision:string,transform:TransformValues)=>Promise<void>;onBusy:(busy:boolean)=>void;onReady:(id:string)=>void;onFailure:()=>void;
+ onPlaceAt?:(hit:{id:string;point:number[]})=>void;onSelect:(id:string|null)=>void;onCommit:(id:string,revision:string,transform:TransformValues)=>Promise<void>;onBusy:(busy:boolean)=>void;onReady:(id:string)=>void;onFailure:()=>void;
 }){
  const canvas=useRef<HTMLCanvasElement>(null),container=useRef<HTMLDivElement>(null);
  const camera=useRef(initialView()),orbit=useRef<{x:number;y:number;startX:number;startY:number;moved:boolean}|null>(null);
@@ -120,6 +120,7 @@ export function InspectionViewport({projectId,sessionId,sceneName,frame,readOnly
   <canvas ref={canvas} width={960} height={540} className="inspection-frame" aria-label="Live Rust inspection viewport" data-session={sessionId} data-frame={stats.sequence} data-worker={stats.worker} data-command={stats.command} data-tick="0" data-fps={stats.fps.toFixed(1)}
    onPointerDown={event=>{if(event.button!==0||busy||disabled||!point(event))return;event.currentTarget.setPointerCapture(event.pointerId);orbit.current={x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false};}}
    onPointerUp={event=>{const start=orbit.current;orbit.current=null;if(start&&!start.moved&&!disabled&&!readOnly){const p=point(event);if(p)void command({op:"pick",...p}).then(result=>callbacks.current.onSelect(result.selected||null)).catch(error=>setError(error.message));}}}
+   onContextMenu={event=>{if(!onPlaceAt||readOnly)return;event.preventDefault();const p=point(event);if(!p||disabled||busy)return;void command({op:"probe",...p}).then(result=>{if(result.hit)onPlaceAt(result.hit);else setError("Nothing under the cursor to place on. Right-click a surface.");}).catch(error=>setError(error.message));}}
    onPointerCancel={()=>{orbit.current=null;}} onLostPointerCapture={()=>{orbit.current=null;}}
    onPointerMove={event=>{const start=orbit.current;if(!start)return;const dx=event.clientX-start.x,dy=event.clientY-start.y;if(!start.moved&&Math.hypot(event.clientX-start.startX,event.clientY-start.startY)<4)return;start.moved=true;start.x=event.clientX;start.y=event.clientY;const view=camera.current;if(event.shiftKey){const speed=(view.projection==="perspective"?view.distance:view.orthographicSize)*0.002;update({...view,target:[view.target[0]-dx*speed*Math.cos(view.yaw),view.target[1]+dy*speed,view.target[2]+dx*speed*Math.sin(view.yaw)]});}else update({...view,yaw:Math.max(-10000,Math.min(10000,view.yaw-dx*0.008)),pitch:Math.max(-1.45,Math.min(1.45,view.pitch+dy*0.008))});}}
   />

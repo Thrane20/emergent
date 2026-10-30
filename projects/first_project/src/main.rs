@@ -1,5 +1,7 @@
 mod avoidance;
 mod bounce;
+mod brain_tools;
+mod components;
 mod game;
 mod generated;
 mod inspection;
@@ -15,6 +17,19 @@ use crate::game::FirstProjectGame;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project = Project::load(env!("CARGO_MANIFEST_DIR"))?;
     let args: Vec<String> = std::env::args().skip(1).collect();
+    match args.first().map(String::as_str) {
+        Some("--export-brain-nodes") if args.len() == 1 => {
+            print!("{}", emergent::brain::export_node_catalogue()?);
+            return Ok(());
+        }
+        Some("--validate-brain") => return brain_tools::validate(&project, &args[1..]),
+        Some("--simulate-brain") => return brain_tools::preview(&project, &args[1..]),
+        _ => {}
+    }
+    if args.first().map(String::as_str) == Some("--export-components") && args.len() == 1 {
+        print!("{}", components::registry().export_toml()?);
+        return Ok(());
+    }
     if args.first().map(String::as_str) == Some("--scene-transforms") && args.len() == 2 {
         return scene_tools::report(&project, &args[1]);
     }
@@ -28,7 +43,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         && args.len() <= 129
     {
         for path in &args[1..] {
-            emergent::SceneDefinition::load(&project, path)?;
+            emergent::SceneDefinition::load_with(&project, path, &components::registry())?;
         }
         println!("Scene candidates validated");
         return Ok(());
@@ -41,14 +56,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if args.first().map(String::as_str) == Some("--validate-scene") {
         if args.len() == 2 {
-            emergent::SceneDefinition::load(&project, &args[1])?;
+            emergent::SceneDefinition::load_with(&project, &args[1], &components::registry())?;
         } else if args.len() == 4 && args[2] == "--candidate" {
             use std::io::Read;
             let mut source = String::new();
             std::fs::File::open(&args[3])?
                 .take(256 * 1024 + 1)
                 .read_to_string(&mut source)?;
-            emergent::SceneDefinition::from_source(&project, &args[1], &source)?;
+            emergent::SceneDefinition::from_source_with(
+                &project,
+                &args[1],
+                &source,
+                &components::registry(),
+            )?;
         } else {
             return Err("usage: --validate-scene <scene> [--candidate <source>]".into());
         }

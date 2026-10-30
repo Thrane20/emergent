@@ -97,7 +97,6 @@ export function StatementsPanel({ projectId, subject, subjectLabel, aiConfigured
     <header className="statements-head"><div><span className="eyebrow">STATEMENTS</span><h3>{subjectLabel}</h3></div><span className="statement-count">{statements.length}</span></header>
     <div className="statement-list">
       {loading && <p className="statement-empty">Loading intentions…</p>}
-      {!loading && statements.length === 0 && <p className="statement-empty">Record what this selection is meant to be or do.</p>}
       {statements.map((statement) => <article className="statement-item" key={statement.id}>
         <input type="checkbox" checked={statement.implemented === true} readOnly aria-label={statement.implemented ? "AI marked implemented" : "Not marked implemented"} />
         <div><p>{statement.text}</p><small className={statement.implemented === true ? "implemented" : statement.implemented === false ? "missing" : "unchecked"}>{statusLabel(statement)}</small>{statement.evidence && <em>{statement.evidence}</em>}{statement.implementation && <details className="statement-implementation"><summary>Reuse &amp; changes · Cargo check passed</summary><p>{statement.implementation.summary}</p>{statement.implementation.reused.map((source) => <em key={source}>{source}</em>)}<small>{statement.implementation.files.join(", ")}</small></details>}</div>

@@ -306,6 +306,7 @@ struct FirstProjectApp {
     smoke: bool,
     smoke_resize_requested: bool,
     smoke_resize_observed: bool,
+    keys: emergent::KeySet,
 }
 
 impl FirstProjectApp {
@@ -337,6 +338,7 @@ impl FirstProjectApp {
             smoke: exit_after_ticks.is_some(),
             smoke_resize_requested: false,
             smoke_resize_observed: false,
+            keys: emergent::KeySet::EMPTY,
         })
     }
 
@@ -462,6 +464,23 @@ impl ApplicationHandler for FirstProjectApp {
                 if size.width > 0 && size.height > 0 {
                     window.request_redraw();
                 }
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if let winit::keyboard::PhysicalKey::Code(code) = event.physical_key {
+                    if let Some(key) = emergent::Key::from_winit(code) {
+                        if event.state.is_pressed() {
+                            self.keys.insert(key);
+                        } else {
+                            self.keys.remove(key);
+                        }
+                        self.engine.set_keys(self.keys);
+                    }
+                }
+            }
+            // Releases are lost while unfocused, so drop held keys rather than leave them stuck.
+            WindowEvent::Focused(false) => {
+                self.keys = emergent::KeySet::EMPTY;
+                self.engine.set_keys(self.keys);
             }
             WindowEvent::Occluded(occluded) => {
                 self.occluded = occluded;

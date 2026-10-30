@@ -63,6 +63,13 @@ export async function checkCandidate(project: ProjectSnapshot, changes: FileChan
       }
     }
     dependencies(manifest);
+    // Scene validation runs the staged game so project components resolve; a distinct binary name keeps the live game's executable untouched.
+    const candidateBin = `${String((manifest.package as Record<string, unknown> | undefined)?.name ?? "game")}-candidate`;
+    const brains = changes.filter(file => file.path.endsWith(".brain.toml")).map(file => file.path);
+    if (scenes.length || brains.length) {
+      if (manifest.bin !== undefined) throw new Error("Explicit [[bin]] targets are not yet supported by isolated scene validation.");
+      manifest.bin = [{ name: candidateBin, path: "src/main.rs" }];
+    }
     await writeFile(path.join(stage, "Cargo.toml"), stringify(manifest));
     try { await cp(path.join(context.root, "Cargo.lock"), path.join(stage, "Cargo.lock")); } catch (error) { if (!missing(error)) throw error; }
     for (const file of changes) {
@@ -71,14 +78,11 @@ export async function checkCandidate(project: ProjectSnapshot, changes: FileChan
     }
     try {
       await execute("cargo", ["check", "--offline", "--all-targets", "--manifest-path", path.join(stage, "Cargo.toml"), "--target-dir", path.join(context.root, "target")], { cwd: stage, timeout: 120_000, maxBuffer: 1024 * 1024, shell: false, windowsHide: true });
-      if(scenes.length){
-        const dependency=(manifest.dependencies as Record<string,{features?:string[]}>|undefined)?.emergent;
-        // Keep staged validation from overwriting the live game's named Cargo executable.
-        await execute("cargo",["run","--offline","--quiet","--manifest-path",path.join(context.root,"Cargo.toml"),...(dependency?.features?.includes("physics")?["--features","physics"]:[]),"--example","scene_validate","--","--project",stage,"--validate-scenes",...scenes],{cwd:context.root,timeout:120000,maxBuffer:1024*1024,shell:false,windowsHide:true});
-      }
+      if(scenes.length)await execute("cargo",["run","--offline","--quiet","--manifest-path",path.join(stage,"Cargo.toml"),"--target-dir",path.join(context.root,"target"),"--bin",candidateBin,"--","--validate-scenes",...scenes],{cwd:stage,timeout:120000,maxBuffer:1024*1024,shell:false,windowsHide:true});
+      for(const brain of brains)await execute("cargo",["run","--offline","--quiet","--manifest-path",path.join(stage,"Cargo.toml"),"--target-dir",path.join(context.root,"target"),"--bin",candidateBin,"--","--validate-brain",brain],{cwd:stage,timeout:120000,maxBuffer:1024*1024,shell:false,windowsHide:true});
     } catch (error) {
       const diagnostics = error && typeof error === "object" && "stderr" in error ? String(error.stderr).slice(-7000) : "Cargo could not run.";
-      throw new Error(`Candidate failed ${scenes.length?"validation":"cargo check"}; project files were not changed.\n${diagnostics}`);
+      throw new Error(`Candidate failed ${scenes.length||brains.length?"validation":"cargo check"}; project files were not changed.\n${diagnostics}`);
     }
   } finally { await rm(directory, { recursive: true, force: true }); }
 }

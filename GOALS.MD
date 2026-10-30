@@ -352,6 +352,8 @@ Exit: behaviour changes arise from composition and links; equivalent runs with t
 - [ ] Test duplicate IDs, missing assets/types/ports, invalid link types, recursive composition, hierarchy cycles, unsupported schemas, and failed-load cleanup.
 - [ ] Complete the AI-generated project proof and record any manual corrections.
 
+Brains (2026-10-31) add authored, saved steering trees with a node catalogue export, validated references between brains, and a deterministic runtime. Authored components (2026-10-30) deliver part of this: a component registry with schemas exported by the game, built-in and project-registered types validated on load, and statements directed to add project component types. Nested compositions, behaviour links in scenes and graph exports remain open.
+
 The narrower live AI proof is complete: a cube Statement generated a project-owned spin helper, passed staged compilation and an independent check, and was tested in the reference game. Manual cleanup is recorded. The full authored-composition/type-registry proof above remains open.
 
 Exit: a developer or AI generator can extend, validate, build, and run a headless game project without editing the engine. Minimal authored-scene persistence is included; full runtime save games remain deferred.

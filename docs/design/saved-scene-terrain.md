@@ -44,9 +44,10 @@ are first-pass framing limits, not large-world precision guarantees. Terrain
 colliders are not drawn as misleading yellow boxes; their render mesh is the
 surface. Existing box outline overlays remain.
 
-Staged scene checks use the headless engine `scene_validate` example after project
-Cargo checks. This avoids overwriting the live game executable with a staged
-binary containing a temporary CARGO_MANIFEST_DIR. Navigation keys scene/instance
+Staged scene checks run the staged game's own `--validate-scenes` mode after project
+Cargo checks, so project component types resolve. The staged manifest renames the
+binary to `<package>-candidate`, so the live game executable is never overwritten
+with a binary containing a temporary CARGO_MANIFEST_DIR. Navigation keys scene/instance
 props so returning from Terrain Builder selects the newly saved object even when
 Next.js retains the earlier project page in its route cache.
 

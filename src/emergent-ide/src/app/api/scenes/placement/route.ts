@@ -1,6 +1,6 @@
 import { objectProject, sameOrigin } from "@/lib/object-http";
 import { ObjectCreatorError } from "@/lib/object-types";
-import { deleteSceneInstance, renameSceneInstance, saveSceneMaterial, saveScenePhysics, saveSceneCamera, reparentSceneInstance, saveScenePlacement, scenePlacement } from "@/lib/scene-placement";
+import { deleteSceneInstance, renameSceneInstance, saveSceneMaterial, saveScenePhysics, saveSceneCamera, reparentSceneInstance, saveScenePlacement, saveSceneComponent, scenePlacement } from "@/lib/scene-placement";
 
 export async function GET(request: Request) {
   try {
@@ -30,6 +30,10 @@ export async function PUT(request: Request) {
     if(body.action==="physics"){
       if(body.physics===undefined)throw new Error("Physics settings are required.");
       return Response.json(await saveScenePhysics(project,body.path,body.id,body.revision,body.physics,space));
+    }
+    if(body.action==="component"){
+      if(typeof body.type!=="string"||body.patch===undefined)throw new Error("Component type and changes are required.");
+      return Response.json(await saveSceneComponent(project,body.path,body.id,body.revision,body.type,body.patch,space));
     }
     if(body.action==="reparent"){
       if(body.parent!==null&&typeof body.parent!=="string")throw new Error("Parent must be an instance ID or null.");

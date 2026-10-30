@@ -119,6 +119,8 @@ pub struct EngineContext<'a> {
     pub world: &'a mut World,
     pub tick: u64,
     pub fixed_delta: Duration,
+    /// Keyboard state for this tick.
+    pub input: crate::Input,
     exit_requested: &'a mut bool,
 }
 
@@ -141,6 +143,8 @@ pub struct Engine {
     exit_requested: bool,
     started: bool,
     accumulator: Duration,
+    keys: crate::KeySet,
+    input: crate::Input,
 }
 
 impl Engine {
@@ -160,6 +164,8 @@ impl Engine {
             exit_requested: false,
             started: false,
             accumulator: Duration::ZERO,
+            keys: crate::KeySet::EMPTY,
+            input: crate::Input::default(),
         })
     }
 
@@ -181,6 +187,12 @@ impl Engine {
 
     pub fn exit_requested(&self) -> bool {
         self.exit_requested
+    }
+
+    /// Keys currently held, reported by the platform (or a headless script). Each fixed
+    /// tick snapshots them, so presses are seen exactly once even during catch-up.
+    pub fn set_keys(&mut self, keys: crate::KeySet) {
+        self.keys = keys;
     }
 
     /// Starts a game so an external platform loop can advance it frame by frame.
@@ -287,6 +299,8 @@ impl Engine {
     }
 
     fn update_once<G: Game>(&mut self, game: &mut G) -> Result<(), EngineError> {
+        self.input = self.input.advance(self.keys);
+        self.world.insert_resource(self.input);
         self.world.insert_resource(SimulationTime {
             tick: self.tick,
             fixed_delta: self.config.fixed_timestep,
@@ -301,6 +315,8 @@ impl Engine {
             .run_component_schedule(&mut self.schedules.fixed)?;
         self.world.evaluate_behaviors(self.config.fixed_timestep)?;
         self.world.commit_lifecycle_commands();
+        self.world.propagate_transforms();
+        crate::motion::step(&mut self.world, self.input, self.config.fixed_timestep)?;
         self.world.propagate_transforms();
         #[cfg(feature = "physics")]
         {
@@ -327,6 +343,7 @@ impl Engine {
             world: &mut self.world,
             tick: self.tick,
             fixed_delta: self.config.fixed_timestep,
+            input: self.input,
             exit_requested: &mut self.exit_requested,
         }
     }

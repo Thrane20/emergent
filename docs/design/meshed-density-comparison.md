@@ -30,11 +30,20 @@ uploaded resources. Any collision smoke uses the existing Rapier dependency in a
 isolated example, without changing World/physics attachment semantics.
 
 `RaymarchedTerrain::extract_mesh(cell_size)` samples the full finite field bounds
-with one-cell exterior padding. Use isotropic metre spacing; reject non-finite,
+with exterior padding. Legacy v1 bounds clip the lower sphere/torus for tracing;
+extraction extends the lower bound to enclose their actual distance field, so the
+underside is not an equivalent rendering comparison. Use isotropic metre spacing; reject non-finite,
 non-positive/tiny spacing and requests above four million scalar samples before
 allocating. Quantize dimensions by ceil, retain an exterior halo, and use the
 same deterministic distance query for sampling and reference measurements.
 No smoothing, automatic filling of missing features or post-hoc topology repair.
+
+Aligned zero-valued planes on the clipped-box fixture initially produced
+degenerate output, correctly rejected by Mesh validation. The bounded comparison
+uses a deterministic quarter-cell lattice offset (origin lower − 1.25 cells;
+sample dimensions ceil(extent/spacing) + 4), retaining at least a cell of exterior
+padding. This is not a selected global chunk lattice. Limit active surface cells
+to 250,000 before library allocation to bound output as well as scalar storage.
 
 Convert library positions to field-local metres and normals into existing mesh
 vertices. Reject invalid/degenerate output through existing Mesh validation;

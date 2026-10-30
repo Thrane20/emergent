@@ -65,9 +65,9 @@ export function AISettingsForm({ initialSettings }: Props) {
         <span className={selected.configured ? "settings-state connected" : "settings-state"}><i />{selected.configured ? "Configured" : "Key required"}</span>
       </div>
 
-      <label className="settings-field"><span>Model</span><input value={model} list={`ai-models-${provider}`} onChange={(event) => setModel(event.target.value)} required /><datalist id={`ai-models-${provider}`}>{selected.models.map(item => <option key={item} value={item} />)}</datalist><small>Used for project chat, Statements and Implement.</small></label>
-      <label className="settings-field"><span>Base URL</span><input type="url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required /><small>{provider === "anthropic" ? "Anthropic API root." : "OpenAI-compatible API root."} HTTPS is required except for localhost.</small></label>
-      <label className="settings-field"><span>API key</span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={selected.keyHint ? `Saved: ${selected.keyHint}` : provider === "anthropic" ? "sk-ant-…" : "sk-…"} autoComplete="new-password" /><small>{selected.configured ? "Leave blank to keep the saved key." : "Stored only by the local IDE server and never returned to the browser."}</small></label>
+      <label className="settings-field"><span>Model</span><input value={model} list={`ai-models-${provider}`} onChange={(event) => setModel(event.target.value)} required /><datalist id={`ai-models-${provider}`}>{selected.models.map(item => <option key={item} value={item} />)}</datalist></label>
+      <label className="settings-field"><span>Base URL</span><input type="url" value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required /></label>
+      <label className="settings-field"><span>API key</span><input type="password" value={apiKey} onChange={(event) => setApiKey(event.target.value)} placeholder={selected.keyHint ? `Saved: ${selected.keyHint}` : provider === "anthropic" ? "sk-ant-…" : "sk-…"} autoComplete="new-password" /></label>
 
       <div className="settings-actions">
         <button className="settings-save" type="submit" disabled={status === "saving"}>{status === "saving" ? "Saving…" : settings.provider === provider ? "Save provider" : `Save and use ${selected.label}`}</button>

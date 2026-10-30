@@ -1,0 +1,45 @@
+schema_version = 1
+id = "prey"
+name = "Prey"
+kind = "brain"
+description = "Grazes with its herd; scatters from the nearest predator when it comes close."
+
+[[nodes]]
+id = "root"
+type = "priority"
+label = "Survive, then herd"
+
+[[nodes]]
+id = "panic"
+parent = "root"
+type = "evade"
+group = "predators"
+panic_distance = 6.0
+prediction = 0.5
+
+[[nodes]]
+id = "herd"
+parent = "root"
+type = "blend"
+label = "Herd"
+
+[[nodes]]
+id = "flock"
+parent = "herd"
+type = "flock"
+group = "prey"
+radius = 5.0
+
+[[nodes]]
+id = "graze"
+parent = "herd"
+type = "wander"
+weight = 0.4
+jitter = 1.0
+
+[[nodes]]
+id = "range"
+parent = "herd"
+type = "stay_within"
+radius = 15.0
+weight = 2.0
