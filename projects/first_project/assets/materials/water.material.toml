@@ -1,0 +1,8 @@
+schema_version = 1
+id = "shader-water"
+name = "Stylised water"
+
+[material]
+shader = "assets/shaders/water.shader.toml"
+cast_shadows = false
+shading = "smooth"

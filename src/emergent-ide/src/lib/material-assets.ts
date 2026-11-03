@@ -34,7 +34,7 @@ export async function saveMaterial(project:ProjectSnapshot,input:{path?:unknown;
  const id=current?.id??randomUUID(),path=current?.path??`${project.assetRoots[0]}/materials/${id}.material.toml`;
  const content=stringify({schema_version:1,id,name:input.name.trim(),material});
  const changes:FileChange[]=[{path,before:current?.source??null,content}];
- const dependencies=[...materialChannels.flatMap(channel=>material[`${channel}_map`]?.asset?[material[`${channel}_map`]!.asset]:[]),...materialTextures(material).map(map=>map.asset)];
+ const dependencies=[...(material.shader?[material.shader]:[]),...materialChannels.flatMap(channel=>material[`${channel}_map`]?.asset?[material[`${channel}_map`]!.asset]:[]),...materialTextures(material).map(map=>map.asset)];
  const stamps=await Promise.all(dependencies.map(async path=>({path,bytes:await readFile(await containedFile(project.root,path,16*1024*1024))})));
  // Validate an unassigned material through the same native loader as scene objects.
  const token=randomUUID(),root=project.assetRoots[0],probeEntity=`${root}/materials/${token}.entity.toml`,probeScene=`${root}/materials/${token}.scene.toml`;

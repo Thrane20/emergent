@@ -1,5 +1,9 @@
 import "server-only";
-import { createHash } from "node:crypto";
+import {classification,type Classification} from "./object-labels";
+import {readObjectLabels} from "./object-label-assets";
+import { SCENE_MAX_BYTES, SCENE_MAX_INSTANCES } from "./scene-limits";
+import { createHash, randomUUID } from "node:crypto";
+import { duplicateSceneObject } from "./prefabs";
 import { readFile } from "node:fs/promises";
 import { isDeepStrictEqual } from "node:util";
 import { parse, stringify } from "smol-toml";
@@ -29,7 +33,7 @@ export function physicsSettings(value:unknown):PhysicsSettings {
   for(const key of ["center","half_extents"] as const){const vector=result.collider[key];if(vector!==undefined&&(!Array.isArray(vector)||vector.length!==3||!vector.every(n=>typeof n==="number"&&Number.isFinite(n)&&Math.abs(n)<=1000000&&(key!=="half_extents"||n>=0.0001))))throw new Error(`Invalid collider ${key}.`);}
   return result;
 }
-export type SceneInstance = { id: string; name?: string; asset: string; parent: string | null; defaults: TransformValues; transform: TransformValues; overridden: boolean; display?:TransformValues; globalTranslationOnly?:boolean; physics?:PhysicsSettings; physicsOverridden?:boolean;terrain?:boolean;raymarched?:boolean;structure?:boolean;particles?:boolean;terrainExtent?:{size:number;height:number};renderable?:boolean;material?:MaterialSettings;materialOverridden?:boolean;geometryColor?:number[];camera?:CameraSettings;cameraOverridden?:boolean;components?:AuthoredComponent[];objectKind?:string;light?:Record<string,unknown> };
+export type SceneInstance = { prefabLabel?:string; classification?:Classification; id: string; name?: string; asset: string; parent: string | null; defaults: TransformValues; transform: TransformValues; overridden: boolean; display?:TransformValues; globalTranslationOnly?:boolean; physics?:PhysicsSettings; physicsOverridden?:boolean;kinematicLocomotion?:boolean;physicalLocomotion?:string;terrain?:boolean;raymarched?:boolean;structure?:boolean;particles?:boolean;terrainExtent?:{size:number;height:number};renderable?:boolean;material?:MaterialSettings;materialOverridden?:boolean;geometryColor?:number[];camera?:CameraSettings;cameraOverridden?:boolean;components?:AuthoredComponent[];objectKind?:string;light?:Record<string,unknown> };
 export type ScenePlacement = { path: string; revision: string; instances: SceneInstance[]; space:TransformSpace;frame?:{target:number[];distance:number} };
 const identity: TransformValues = { translation: [0,0,0], rotation_degrees: [0,0,0], scale: [1,1,1] };
 const fields = ["translation", "rotation_degrees", "scale"] as const;
@@ -58,10 +62,11 @@ async function assetSource(project: ProjectSnapshot, relative: string, limit=256
 
 async function snapshot(project: ProjectSnapshot, path: string) {
   if (!path.endsWith(".scene.toml")) throw new Error("Choose a scene file.");
-  const source = await assetSource(project, path);
+  const source = await assetSource(project, path, SCENE_MAX_BYTES);
   const document = parse(source);
-  if (document.schema_version !== 1 || !Array.isArray(document.entities) || document.entities.length > 1024) throw new Error("Scene must use schema 1 and at most 1024 instances.");
-  const hash = createHash("sha256").update(JSON.stringify([path,source]));
+  if (document.schema_version !== 1 || !Array.isArray(document.entities) || document.entities.length > SCENE_MAX_INSTANCES) throw new Error(`Scene must use schema 1 and at most ${SCENE_MAX_INSTANCES} instances.`);
+  const labels=await readObjectLabels(project);
+  const hash = createHash("sha256").update(JSON.stringify([path,source,labels.revision]));
   const environment=lightingSettings(document.environment);
   if(environment.skybox){
     if(!project.assetRoots.some(root=>environment.skybox!.startsWith(`${root}/`)))throw new Error("Skybox is outside project asset roots.");
@@ -69,6 +74,7 @@ async function snapshot(project: ProjectSnapshot, path: string) {
   }
   const ids = new Set<string>();
   const assets = new Map<string, string>();
+  const locomotionKinds = new Map<string,string>();
   const instances: SceneInstance[] = [];
   for (const entry of document.entities) {
     const item = table(entry);
@@ -81,12 +87,14 @@ async function snapshot(project: ProjectSnapshot, path: string) {
     if(typeof asset.particles==="string"&&!assets.has(asset.particles))assets.set(asset.particles,await assetSource(project,asset.particles,128*1024));
     if(typeof asset.structure==="string"&&!assets.has(asset.structure))assets.set(asset.structure,await assetSource(project,asset.structure,2*1024*1024));
     if(typeof asset.terrain_heights==="string"&&!assets.has(asset.terrain_heights))assets.set(asset.terrain_heights,await assetSource(project,asset.terrain_heights,TERRAIN_DATA_MAX_BYTES));
+    if(Array.isArray(item.components))for(const entry of item.components){const component=table(entry);if(component.type==="emergent.ui"&&typeof component.ui==="string"&&!assets.has(component.ui))assets.set(component.ui,await assetSource(project,component.ui));}
     const defaults = transform(asset.transform);
     const raymarched = asset.kind === "raymarched-terrain" ? raymarchedSettings(asset.raymarched_terrain) : undefined;
     const material=materialSettings(asset.terrain_paint?{terrain_paint:asset.terrain_paint,shading:"smooth"}:item.material??asset.material);
     const resolved=material.asset?(await readMaterial(project,material.asset)):undefined;
     if(resolved)assets.set(resolved.path,resolved.source);
     const surface=resolved?.material??material;
+    if(surface.shader&&!assets.has(surface.shader))assets.set(surface.shader,await assetSource(project,surface.shader));
     if(material.terrain_paint&&!assets.has(material.terrain_paint))assets.set(material.terrain_paint,await assetSource(project,material.terrain_paint,TERRAIN_DATA_MAX_BYTES));
     for(const channel of materialChannels){const map=surface[`${channel}_map`];if(map&&!assets.has(map.asset))assets.set(map.asset,await assetSource(project,map.asset));}
     for(const map of materialTextures(surface)){
@@ -95,10 +103,19 @@ async function snapshot(project: ProjectSnapshot, path: string) {
       hash.update(map.asset).update(await readFile(target));
     }
     const geometry=asset.geometry as {color?:number[]}|undefined;
+    const components=authoredComponents(item.components);
+    const locomotion=components.find(component=>component.enabled&&component.type==="emergent.locomotion")?.fields.profile;
+    let kinematicLocomotion=false,physicalLocomotion:string|undefined;
+    if(typeof locomotion==="string"){
+      let kind=locomotionKinds.get(locomotion);
+      if(kind===undefined){const source=assets.get(locomotion)??await assetSource(project,locomotion);assets.set(locomotion,source);kind=String((parse(source) as {type?:string}).type??"");locomotionKinds.set(locomotion,kind);}
+      if(["drone_physics","fixed_wing_physics"].includes(kind))physicalLocomotion=kind;else kinematicLocomotion=true;
+    }
     if(raymarched) instances.push({id:item.id as string,asset:item.asset as string,parent:item.parent as string|undefined??null,name:typeof item.name==="string"?item.name:typeof asset.name==="string"?asset.name:item.id as string,defaults,transform:transform(item.transform,defaults),overridden:item.transform!==undefined,terrain:true,raymarched:true,terrainExtent:{size:raymarched.size,height:raymarched.version===1?raymarched.size*0.1875:12+raymarched.relief+raymarched.overhang},renderable:true});
     else
-    instances.push({ components:authoredComponents(item.components),objectKind:typeof asset.kind==="string"&&asset.kind.endsWith("-light")?"light":typeof asset.kind==="string"?asset.kind:undefined,light:asset.light&&typeof asset.light==="object"&&!Array.isArray(asset.light)?{...asset.light as Record<string,unknown>}:undefined,camera:asset.kind==="camera"?cameraSettings(item.camera??asset.camera):undefined,cameraOverridden:item.camera!==undefined, id: item.id, name: item.name === undefined ? (typeof asset.name === "string" && asset.name.trim() ? asset.name : item.id) : instanceName(item.name), asset: item.asset, parent: item.parent as string | undefined ?? null, defaults, transform: transform(item.transform,defaults), overridden: item.transform !== undefined, physics:physicsSettings(item.physics??asset.physics), physicsOverridden:item.physics!==undefined,particles:asset.kind==="particle-effect",structure:asset.kind==="structure",terrain:asset.kind==="terrain",terrainExtent:asset.terrain?(({size,height})=>({size,height}))(terrainSettings(asset.terrain)):undefined,renderable:Boolean(asset.geometry||asset.terrain||asset.structure),material,materialOverridden:item.material!==undefined,geometryColor:geometry?.color?.slice(0,3) });
+    instances.push({ components,kinematicLocomotion,physicalLocomotion,objectKind:typeof asset.kind==="string"&&asset.kind.endsWith("-light")?"light":typeof asset.kind==="string"?asset.kind:undefined,light:asset.light&&typeof asset.light==="object"&&!Array.isArray(asset.light)?{...asset.light as Record<string,unknown>}:undefined,camera:asset.kind==="camera"?cameraSettings(item.camera??asset.camera):undefined,cameraOverridden:item.camera!==undefined, prefabLabel:typeof item.prefab_label==="string"?item.prefab_label:undefined, classification:classification(item.classification??asset.classification), id: item.id, name: item.name === undefined ? (typeof asset.name === "string" && asset.name.trim() ? asset.name : item.id) : instanceName(item.name), asset: item.asset, parent: item.parent as string | undefined ?? null, defaults, transform: transform(item.transform,defaults), overridden: item.transform !== undefined, physics:physicsSettings(item.physics??asset.physics), physicsOverridden:item.physics!==undefined,particles:asset.kind==="particle-effect",structure:asset.kind==="structure",terrain:asset.kind==="terrain",terrainExtent:asset.terrain?(({size,height})=>({size,height}))(terrainSettings(asset.terrain)):undefined,renderable:Boolean(asset.geometry||asset.terrain||asset.structure),material,materialOverridden:item.material!==undefined,geometryColor:geometry?.color?.slice(0,3) });
   }
+  for(const file of project.files.filter(file=>file.path.endsWith(".shader.toml")))if(!assets.has(file.path))assets.set(file.path,await assetSource(project,file.path));
   // Include picker candidates too, so attaching a newly selected map cannot race its edits.
   for(const file of project.files.filter(file=>file.path.endsWith(".noise.toml")&&project.assetRoots.some(root=>file.path.startsWith(`${root}/`))))if(!assets.has(file.path))assets.set(file.path,await assetSource(project,file.path));
   for(const file of project.files.filter(file=>file.path.endsWith(".material.toml"))){const library=await readMaterial(project,file.path);assets.set(file.path,library.source);for(const channel of materialChannels){const map=library.material[`${channel}_map`];if(map&&!assets.has(map.asset))assets.set(map.asset,await assetSource(project,map.asset));}for(const map of materialTextures(library.material))hash.update(map.asset).update(await readFile(await containedFile(project.root,map.asset,16*1024*1024)));}
@@ -171,7 +188,7 @@ export function replaceInstanceTransform(source: string, id: string, value: Tran
     block = block.trimEnd() + `\n\n[entities.transform]\n${text}\n\n`;
   }
   const content = source.slice(0,start) + block + source.slice(end);
-  if (Buffer.byteLength(content) > 256 * 1024 || !isDeepStrictEqual(parse(content), expected)) throw new Error("Could not safely edit this transform. Use table-form transforms or edit the scene in source.");
+  if (Buffer.byteLength(content) > SCENE_MAX_BYTES || !isDeepStrictEqual(parse(content), expected)) throw new Error("Could not safely edit this transform. Use table-form transforms or edit the scene in source.");
   return content;
 }
 
@@ -192,12 +209,23 @@ export function replaceInstanceName(source:string,id:string,value:unknown) {
   const headerEnd=block.indexOf("\n")+1,subtable=block.slice(headerEnd).search(/^[\t ]*\[/m),topEnd=subtable<0?block.length:headerEnd+subtable;
   const top=block.slice(0,topEnd).replace(/^[\t ]*name\s*=[^\n]*(?:\n|$)/m,line=>{const note=line.match(/#.*/)?.[0];return note?`${note}\n`:"";});
   const content=source.slice(0,start)+top.slice(0,headerEnd)+`name = ${JSON.stringify(name)}\n`+top.slice(headerEnd)+block.slice(topEnd)+source.slice(end);
-  if(Buffer.byteLength(content)>256*1024 || !isDeepStrictEqual(parse(content),expected))throw new Error("Could not safely rename this instance. Edit the scene in TOML instead.");
+  if(Buffer.byteLength(content)>SCENE_MAX_BYTES || !isDeepStrictEqual(parse(content),expected))throw new Error("Could not safely rename this instance. Edit the scene in TOML instead.");
   return content;
 }
 
 export async function renameSceneInstance(project:ProjectSnapshot,path:string,id:string,revision:string,name:unknown,space:TransformSpace="local") {
   return commitPlacement(project,path,revision,space,source=>replaceInstanceName(source,id,name));
+}
+
+export async function duplicateSceneInstance(project:ProjectSnapshot,path:string,id:string,revision:string,space:TransformSpace="local") {
+  const types = await componentRegistry(project);
+  let created = "";
+  const placement = await commitPlacement(project,path,revision,space,source=>{
+    const copy = duplicateSceneObject(source,id,types,()=>`copy-${randomUUID()}`);
+    created = copy.id;
+    return copy.content;
+  });
+  return { placement, id: created };
 }
 
 const state = globalThis as typeof globalThis & { emergentScenePlacementActive?: boolean };
@@ -228,7 +256,7 @@ export function replaceInstanceParent(source:string,id:string,parent:string|null
   let top=block.slice(0,topEnd).replace(/^[\t ]*parent\s*=[^\n]*(?:\n|$)/m,line=>{const note=line.match(/#.*$/)?.[0];return note?`${note}\n`:"";});
   if(parent!==null)top=top.slice(0,headerEnd)+`parent = ${JSON.stringify(parent)}\n`+top.slice(headerEnd);
   const content=source.slice(0,start)+top+block.slice(topEnd)+source.slice(end);
-  if(Buffer.byteLength(content)>256*1024 || !isDeepStrictEqual(parse(content),expected))throw new Error("Could not safely edit this parent. Edit the scene in TOML instead.");
+  if(Buffer.byteLength(content)>SCENE_MAX_BYTES || !isDeepStrictEqual(parse(content),expected))throw new Error("Could not safely edit this parent. Edit the scene in TOML instead.");
   return content;
 }
 
@@ -273,12 +301,13 @@ export function replaceSceneSubtree(source:string,id:string) {
     content=header+content.slice(headerEnd);
   }
   sceneHierarchy(remaining.map(value=>{const node=table(value);return {id:node.id as string,parent:node.parent as string|undefined??null};}));
-  if(Buffer.byteLength(content)>256*1024||!isDeepStrictEqual(parse(content),expected))throw new Error("Could not safely delete this instance subtree. Edit the scene in source instead.");
+  if(Buffer.byteLength(content)>SCENE_MAX_BYTES||!isDeepStrictEqual(parse(content),expected))throw new Error("Could not safely delete this instance subtree. Edit the scene in source instead.");
   return content;
 }
 
 export async function deleteSceneInstance(project:ProjectSnapshot,path:string,id:string,revision:string,space:TransformSpace="local") {
-  return commitPlacement(project,path,revision,space,source=>replaceSceneSubtree(source,id));
+  await commitSceneEdit(project,path,revision,source=>replaceSceneSubtree(source,id),{removal:true});
+  return scenePlacement(project,path,space);
 }
 
 export async function reparentSceneInstance(project:ProjectSnapshot,path:string,id:string,parent:string|null,revision:string,space:TransformSpace="local") {
@@ -294,24 +323,30 @@ async function commitPlacement(project:ProjectSnapshot,path:string,revision:stri
  * The single guarded scene write: revision check, text-preserving edit, native Rust validation,
  * revision recheck, then atomic publication. `dryRun` stops after validation and publishes nothing.
  */
-export async function commitSceneEdit(project:ProjectSnapshot,path:string,revision:string,edit:(source:string)=>string|Promise<string>,options:{check?:()=>Promise<void>;dryRun?:boolean}={}) {
+export async function commitSceneEdit(project:ProjectSnapshot,path:string,revision:string,edit:(source:string)=>string|Promise<string>,options:{check?:()=>Promise<void>;dryRun?:boolean;removal?:boolean}={}) {
   if (state.emergentScenePlacementActive) throw new Error("Another placement is being saved. Wait for it to finish.");
   state.emergentScenePlacementActive = true;
   try {
     const before = await snapshot(project,path);
     if (before.placement.revision !== revision) throw new Error("Scene or asset changed externally. Reload the inspector before saving.");
     const content = await edit(before.source);
-    await validateProjectScene(project,path,content);
+    let warning:string|null=null;
+    try { await validateProjectScene(project,path,content); }
+    catch (error) {
+      // A removal may clean up a scene that is already broken; it is refused only if it breaks a valid one.
+      if (!options.removal || await validateProjectScene(project,path,before.source).then(()=>true,()=>false)) throw error;
+      warning=error instanceof Error?error.message:String(error);
+    }
     if ((await snapshot(project,path)).placement.revision !== revision) throw new Error("Scene or asset changed during validation. Reload the inspector before saving.");
     await options.check?.();
     if (!options.dryRun) await applyChanges(project,[{path,before:before.source,content}]);
-    return { before: before.source, content, changed: content !== before.source };
+    return { before: before.source, content, changed: content !== before.source, warning };
   } finally { state.emergentScenePlacementActive = false; }
 }
 
 
 /** Preserve unrelated scene text and prove that only the selected settings table changed. */
-function replaceInstanceSettings(source:string,id:string,section:"physics"|"material"|"camera"|"components",settings:PhysicsSettings|MaterialSettings|CameraSettings|Record<string,unknown>[]|null) {
+function replaceInstanceSettings(source:string,id:string,section:"classification"|"physics"|"material"|"camera"|"components",settings:Classification|PhysicsSettings|MaterialSettings|CameraSettings|Record<string,unknown>[]|null) {
   const expected=parse(source);if(!Array.isArray(expected.entities))throw new Error("Scene instances are missing.");
   const index=expected.entities.findIndex(entry=>table(entry).id===id);if(index<0)throw new Error("Scene instance no longer exists.");
   const item=table(expected.entities[index]);if(settings===null)delete item[section];else item[section]=parse(stringify({[section]:settings}))[section];
@@ -327,7 +362,7 @@ function replaceInstanceSettings(source:string,id:string,section:"physics"|"mate
   }}
   if(settings!==null){const addition=stringify({entities:[{[section]:settings}]}).replace(/^\[\[entities\]\]\s*\n/,"");block=block.trimEnd()+"\n"+addition+"\n";}
   const content=source.slice(0,start)+block+source.slice(end);
-  if(Buffer.byteLength(content)>256*1024||!isDeepStrictEqual(parse(content),expected))throw new Error("Could not safely edit settings. Edit the scene in TOML instead.");
+  if(Buffer.byteLength(content)>SCENE_MAX_BYTES||!isDeepStrictEqual(parse(content),expected))throw new Error("Could not safely edit settings. Edit the scene in TOML instead.");
   return content;
 }
 export function replaceInstancePhysics(source:string,id:string,value:unknown) {
@@ -373,3 +408,5 @@ export async function saveSceneComponent(project:ProjectSnapshot,path:string,id:
 export async function addedComponentType(project:ProjectSnapshot,type:string) {
  return (await componentRegistry(project)).find(entry=>entry.id===type)?.applies_to==="any";
 }
+
+export async function saveSceneClassification(project:ProjectSnapshot,path:string,id:string,revision:string,value:unknown,space:TransformSpace="local"){return commitPlacement(project,path,revision,space,source=>replaceInstanceSettings(source,id,"classification",classification(value)));}

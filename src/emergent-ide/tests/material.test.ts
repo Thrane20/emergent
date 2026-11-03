@@ -57,9 +57,9 @@ test("material map resolution accepts bounded quality choices",()=>{
 });
 
 test("diffuse images and named layers validate and survive repeated TOML edits",()=>{
- const material=materialSettings({diffuse_map:{asset:"assets/grass.PNG"},terrain_layers:[{id:"rock",name:"Rock",diffuse_map:{asset:"assets/rock.jpg",scale:0.5}},{id:"snow",name:"Snow"}],active_layer:"rock"});
- assert.equal(material.diffuse_map?.scale,1);
- for(const invalid of [{diffuse_map:{asset:"bad.svg"}},{diffuse_map:{asset:"ok.png",scale:0}},{terrain_layers:[{id:"a",name:"A"},{id:"a",name:"B"}]},{terrain_layers:[{id:"a",name:""}]},{active_layer:"missing"},{terrain_layers:Array.from({length:9},(_,id)=>({id:String(id),name:"Layer"}))}])assert.throws(()=>materialSettings(invalid));
+ const material=materialSettings({texture_tiling:[2,3],diffuse_map:{asset:"assets/grass.PNG"},terrain_layers:[{id:"rock",name:"Rock",diffuse_map:{asset:"assets/rock.jpg",scale:0.5}},{id:"snow",name:"Snow"}],active_layer:"rock"});
+ assert.equal(material.diffuse_map?.scale,1);assert.deepEqual(material.texture_tiling,[2,3]);
+ for(const invalid of [{texture_tiling:[0,1]},{texture_tiling:[1]},{texture_tiling:[1,Infinity]},{diffuse_map:{asset:"bad.svg"}},{diffuse_map:{asset:"ok.png",scale:0}},{terrain_layers:[{id:"a",name:"A"},{id:"a",name:"B"}]},{terrain_layers:[{id:"a",name:""}]},{active_layer:"missing"},{terrain_layers:Array.from({length:9},(_,id)=>({id:String(id),name:"Layer"}))}])assert.throws(()=>materialSettings(invalid));
  const source='# keep\nschema_version=1\nid="main"\n[[entities]]\nid="terrain"\nasset="assets/terrain.entity.toml"\n[entities.physics]\nbody="static"\n[[entities]]\nid="other"\nasset="assets/cube.entity.toml"\n';
  const first=replaceInstanceMaterial(source,"terrain",material),second=replaceInstanceMaterial(first,"terrain",{...material,active_layer:"snow",terrain_layers:material.terrain_layers.map(layer=>({...layer,name:layer.name+" edited"}))});
  const entries=parse(second).entities as Record<string,unknown>[];assert.equal((entries[0].material as Record<string,unknown>).active_layer,"snow");assert.equal(((entries[0].material as Record<string,unknown>).terrain_layers as unknown[]).length,2);assert.deepEqual(entries[0].physics,(parse(source).entities as Record<string,unknown>[])[0].physics);assert.deepEqual(entries[1],(parse(source).entities as Record<string,unknown>[])[1]);assert.deepEqual(parse(replaceInstanceMaterial(second,"terrain",null)),parse(source));

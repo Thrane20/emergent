@@ -1,8 +1,9 @@
+import { SCENE_MAX_BYTES, SCENE_MAX_INSTANCES } from "./scene-limits";
 import {cameraSettings,type CameraSettings} from "./camera-settings";
 import {parse} from "smol-toml";
 export type InspectionFrame = { sequence: number; command: number; tick: number; renderUs: number; encodeUs: number; width: number; height: number; workerPid: number; png: Buffer };
-export type ToolResult = {bounds?:{center:number[];radius:number};view?:{eye:number[];forward:number[];projection:"perspective"|"isometric";field_of_view_degrees:number;view_size:number};placement?:{translation:number[];rotation_degrees:number[];scale:number[]};frustum?:{id:string;segments:number[][][]};selected:string;tool:string;space:string;origin?:number[];handles:{axis:number;points:number[][]}[];markers:{id:string;point:number[]}[];transform?:{translation:number[];rotation_degrees:number[];scale:number[]};hit?:{id:string;point:number[]}};
-export type InspectionControl = {op:"preview";quality:"auto"|"full"|"half";stepHeatmap:boolean} | {op:"focus"|"align";id:string} | {op:"camera";id:string;camera:CameraSettings} | { op: "view"; yaw: number; pitch: number; distance: number; target: number[]; projection: "perspective" | "isometric"; fieldOfView: number; orthographicSize: number } | { op: "transform"; id: string; translation: number[]; rotation_degrees: number[]; scale: number[] } | {op:"reparent";id:string;parent:string|null} | {op:"pick"|"probe";x:number;y:number} | {op:"drag";token:string;x:number;y:number} | {op:"select";id:string|null;space:"local"|"global";tool:"translate"|"rotate"|"scale"} | {op:"begin";id:string;space:string;tool:string;token:string;axis:number;x:number;y:number} | {op:"finish"|"cancel";token:string};
+export type ToolResult = {bounds?:{center:number[];radius:number};view?:{eye:number[];forward:number[];projection:"perspective"|"isometric";field_of_view_degrees:number;view_size:number};placement?:{translation:number[];rotation_degrees:number[];scale:number[]};frustum?:{id:string;segments:number[][][]};audio_ranges?:{inner:number[][][];outer:number[][][]};selected:string;tool:string;space:string;origin?:number[];handles:{axis:number;points:number[][]}[];markers:{id:string;point:number[]}[];transform?:{translation:number[];rotation_degrees:number[];scale:number[]};hit?:{id:string;point:number[]}};
+export type InspectionControl = {op:"physics"|"material"|"classification";id:string} | {op:"preview";quality:"auto"|"full"|"half";stepHeatmap:boolean} | {op:"focus"|"align";id:string} | {op:"camera";id:string;camera:CameraSettings} | { op: "view"; yaw: number; pitch: number; distance: number; target: number[]; projection: "perspective" | "isometric"; fieldOfView: number; orthographicSize: number } | { op: "transform"; id: string; translation: number[]; rotation_degrees: number[]; scale: number[] } | {op:"reparent";id:string;parent:string|null} | {op:"pick"|"probe";x:number;y:number} | {op:"drag";token:string;x:number;y:number} | {op:"select";id:string|null;space:"local"|"global";tool:"translate"|"rotate"|"scale"} | {op:"begin";id:string;space:string;tool:string;token:string;axis:number;x:number;y:number} | {op:"finish"|"cancel";token:string};
 const MAX_PACKET = 4 * 1024 * 1024;
 
 export class InspectionDecoder {
@@ -19,7 +20,7 @@ export class InspectionDecoder {
       const bytes = this.buffer.subarray(12,size+12);
       this.buffer = this.buffer.subarray(size+12);
       if (kind === 1) {
-        if (bytes.length < 8 || bytes.length > 256*1024+8) throw new Error("Invalid inspection acknowledgement.");
+        if (bytes.length < 8 || bytes.length > SCENE_MAX_BYTES+8) throw new Error("Invalid inspection acknowledgement.");
         const failed=bytes.readUInt32LE(4)!==0;
         if(failed&&bytes.length>2056)throw new Error("Invalid inspection error length.");
         this.ack(bytes.readUInt32LE(0),failed?bytes.toString("utf8",8):null,!failed&&bytes.length>8?toolResult(parse(bytes.toString("utf8",8))):undefined);
@@ -44,7 +45,7 @@ export function inspectionCommand(value: unknown, seq: number): string {
   if(input.op==="preview"){
     if(!["auto","full","half"].includes(input.quality as string)||typeof input.stepHeatmap!=="boolean")throw new Error("Invalid terrain preview options.");
     fields=`op="preview",quality=${JSON.stringify(input.quality)},step_heatmap=${input.stepHeatmap}`;
-  } else if(input.op==="focus"||input.op==="align"){
+  } else if(input.op==="focus"||input.op==="align"||input.op==="physics"||input.op==="material"||input.op==="classification"){
     if(typeof input.id!=="string"||!/^[a-z0-9_.-]{1,128}$/i.test(input.id))throw new Error("Invalid scene instance ID.");
     fields=`op=${JSON.stringify(input.op)},id=${JSON.stringify(input.id)}`;
   } else if(input.op==="camera"){
@@ -82,11 +83,13 @@ export function inspectionCommand(value: unknown, seq: number): string {
 function toolResult(value:unknown):ToolResult {
   const result=value as ToolResult;
   const point=(v:unknown)=>Array.isArray(v)&&v.length===2&&v.every(n=>typeof n==="number"&&Number.isFinite(n)&&Math.abs(n)<1e6);
-  if(!result||!["translate","rotate","scale"].includes(result.tool)||!["local","global"].includes(result.space)||typeof result.selected!=="string"||result.selected.length>128||!Array.isArray(result.handles)||result.handles.length>3||!Array.isArray(result.markers)||result.markers.length>1024||result.origin&&!point(result.origin))throw new Error("Invalid tool result.");
+  if(!result||!["translate","rotate","scale"].includes(result.tool)||!["local","global"].includes(result.space)||typeof result.selected!=="string"||result.selected.length>128||!Array.isArray(result.handles)||result.handles.length>3||!Array.isArray(result.markers)||result.markers.length>SCENE_MAX_INSTANCES||result.origin&&!point(result.origin))throw new Error("Invalid tool result.");
   for(const h of result.handles)if(!Number.isInteger(h.axis)||h.axis<0||h.axis>2||!Array.isArray(h.points)||h.points.length<2||h.points.length>65||!h.points.every(point))throw new Error("Invalid gizmo projection.");
   for(const marker of result.markers)if(typeof marker.id!=="string"||marker.id.length>128||!point(marker.point))throw new Error("Invalid scene marker.");
   for(const transform of [result.transform,result.placement])if(transform)for(const key of ["translation","rotation_degrees","scale"] as const){const v=transform[key];if(!Array.isArray(v)||v.length!==3||!v.every(n=>typeof n==="number"&&Number.isFinite(n)))throw new Error("Invalid tool transform.");}
   if(result.frustum&&(typeof result.frustum.id!=="string"||result.frustum.id.length>128||!Array.isArray(result.frustum.segments)||result.frustum.segments.length>12||!result.frustum.segments.every(segment=>Array.isArray(segment)&&segment.length===2&&segment.every(point))))throw new Error("Invalid camera frustum overlay.");
+  const segments=(v:unknown)=>Array.isArray(v)&&v.length<=144&&v.every(segment=>Array.isArray(segment)&&segment.length===2&&segment.every(point));
+  if(result.audio_ranges&&(!segments(result.audio_ranges.inner)||!segments(result.audio_ranges.outer)))throw new Error("Invalid audio range overlay.");
   const vector3=(v:unknown)=>Array.isArray(v)&&v.length===3&&v.every(n=>typeof n==="number"&&Number.isFinite(n)&&Math.abs(n)<=3.4028234e38);
   if(result.bounds&&(!vector3(result.bounds.center)||!Number.isFinite(result.bounds.radius)||result.bounds.radius<0||result.bounds.radius>3.4028234e38))throw new Error("Invalid selection bounds.");
   if(result.view&&(!vector3(result.view.eye)||!vector3(result.view.forward)||Math.abs(Math.hypot(...result.view.forward)-1)>0.001||!["perspective","isometric"].includes(result.view.projection)||!Number.isFinite(result.view.field_of_view_degrees)||result.view.field_of_view_degrees<0.999||result.view.field_of_view_degrees>=179||!Number.isFinite(result.view.view_size)||result.view.view_size<0.001||result.view.view_size>1000000))throw new Error("Invalid inspection view.");

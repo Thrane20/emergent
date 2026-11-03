@@ -1,0 +1,14 @@
+schema_version = 1
+id = "physics-ground"
+name = "Static ground"
+kind = "primitive"
+[transform]
+translation = [0.0, -0.25, 0.0]
+scale = [10.0, 0.5, 10.0]
+[geometry]
+primitive = "cube"
+half_extent = 0.5
+color = [0.18, 0.22, 0.3, 1.0]
+[physics]
+body = "static"
+friction = 0.8

@@ -1,6 +1,7 @@
 "use client";
 import {useCallback,useEffect,useRef,useState} from "react";
 import type {FalBalance as Balance} from "@/lib/fal-balance-types";
+import {AIBalances} from "./ai-balances";
 export function FalBalance(){
  const [balance,setBalance]=useState<Balance|null>(null),pending=useRef<AbortController|null>(null);
  const refresh=useCallback(async(force=false)=>{
@@ -14,5 +15,5 @@ export function FalBalance(){
   return()=>{pending.current?.abort();clearTimeout(initial);clearInterval(timer);window.removeEventListener("focus",check);window.removeEventListener("fal-settings-changed",changed);document.removeEventListener("visibilitychange",check);};
  },[refresh]);
  const amount=balance?.state==="no-key"?"$0":balance?.state==="ready"?new Intl.NumberFormat("en-US",{style:"currency",currency:balance.currency,currencyDisplay:"narrowSymbol"}).format(balance.balance!):balance?"Unavailable":"…";
- return <button type="button" className="fal-balance" aria-label="fal balance" aria-busy={balance===null} title={balance?.message??"Checking fal account balance…"} onClick={()=>void refresh(true)}><span>fal</span><strong aria-live="polite">{amount}</strong>{balance?.state==="ready"&&<small>{balance.currency}</small>}</button>;
+ return <div className="account-balances"><button type="button" className="fal-balance" aria-label="fal balance" aria-busy={balance===null} title={balance?.message??"Checking fal account balance…"} onClick={()=>void refresh(true)}><span>fal</span><strong aria-live="polite">{amount}</strong>{balance?.state==="ready"&&<small>{balance.currency}</small>}</button><AIBalances/></div>;
 }

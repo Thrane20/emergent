@@ -1,5 +1,9 @@
 # First project visual run
 
+This describes one ordinary game demo. Engine/IDE contracts live in
+`src/project_host` and new-project defaults in `templates/standard`; this game is
+not an implementation reference or engine validation fixture.
+
 ## Scope
 
 Make the default `emergent-first-project` executable open a native window and

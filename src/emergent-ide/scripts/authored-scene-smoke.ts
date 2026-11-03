@@ -1,3 +1,4 @@
+import { smokeProjectRoot } from "./project-fixture";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile, unlink, writeFile } from "node:fs/promises";
@@ -6,7 +7,7 @@ import { chromium, expect } from "@playwright/test";
 
 // Uses a running IDE. Only uniquely named smoke assets are created and removed.
 async function main() {
-  const root = path.resolve(process.env.EMERGENT_PROJECT_PATH || "../../projects/first_project");
+  const root = smokeProjectRoot();
   const id = `loader-smoke-${randomUUID().slice(0,8)}`;
   const scenePath = `assets/scenes/${id}.scene.toml`;
   let assetPath: string | undefined;
@@ -14,7 +15,7 @@ async function main() {
   const browser = await chromium.launch({ channel:process.env.PLAYWRIGHT_CHANNEL || "chrome",headless:true });
   try {
     const page = await browser.newPage({viewport:{width:1440,height:1000}});
-    await page.goto(process.env.EMERGENT_IDE_BASE_URL || "http://localhost:3000");
+    await page.goto(process.env.EMERGENT_IDE_BASE_URL || "http://localhost:3001");
     await page.getByLabel("Scene viewer",{exact:true}).selectOption(scenePath);
     await page.getByRole("button",{name:"Add asset",exact:false}).click();
     const modal = page.getByRole("dialog");

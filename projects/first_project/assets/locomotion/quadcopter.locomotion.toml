@@ -1,0 +1,11 @@
+schema_version = 1
+id = "quadcopter"
+name = "Quadcopter"
+kind = "locomotion"
+description = "A camera drone: tilts up to 30° to move, holds altitude, hovers in place and yaws to face its travel."
+type = "drone"
+max_speed = 12.0
+max_climb = 4.0
+max_tilt = 30.0
+yaw_rate = 200.0
+response = 0.6

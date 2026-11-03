@@ -1,0 +1,44 @@
+schema_version = 1
+id = "skirmisher"
+name = "Skirmisher"
+kind = "brain"
+description = "Harasses from range: kites the nearest enemy, swings round to its flank when the squad is strong, and regroups when cut off."
+
+[[nodes]]
+id = "root"
+type = "priority"
+
+[[nodes]]
+id = "regroup"
+parent = "root"
+type = "regroup"
+group = "skirmishers"
+radius = 10.0
+
+[[nodes]]
+id = "choose"
+parent = "root"
+type = "selector"
+
+[[nodes]]
+id = "strong"
+parent = "choose"
+type = "neighbours_at_least"
+group = "skirmishers"
+radius = 8.0
+count = 3
+
+[[nodes]]
+id = "flank"
+parent = "strong"
+type = "flank"
+group = "enemies"
+offset = 5.0
+
+[[nodes]]
+id = "harass"
+parent = "choose"
+type = "kite"
+group = "enemies"
+min_distance = 5.0
+max_distance = 9.0

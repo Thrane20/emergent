@@ -1,11 +1,21 @@
 # Emergent plan
 
-Last updated: **2026-10-30**. This is the live work queue. Keep it short: move a
+Last updated: **2026-11-03**. This is the live work queue. Keep it short: move a
 finished item into [docs/implementation-status.md](docs/implementation-status.md) in
 the same change that finishes it. Long-range goals and stage gates are in
 [GOALS.MD](GOALS.MD); the documentation map is in [docs/README.md](docs/README.md).
 
 ## Now
+
+Object Builder’s carousel, attribute cards (collapsed AI chat at the bottom, with a taller preview), draft AI conversation, local/global part controls, primitive mesh dimensions, size baking, orthographic X/Y/Z viewer framing, line editing, midpoint multi-selection drag and compact context actions, same-parent grouping, delete/duplicate shortcuts and separate save/placement workflow are delivered; [evidence and remaining validation](docs/platform/object-builder-ui.md).
+
+- **Object classification follow-ups.** Stable 32-slot layers/tags, inspector authoring and runtime mask matching are delivered. The object inspector now uses compact cards and a fixed searchable Add component action above Statements, styled through the primary theme colour (purple in Charcoal, with cyan secondary accents). Next: explicit collision-group and camera/brain filtering integration. [Design](docs/design/object-labels.md).
+
+- **Shader editor follow-ups.** SHADER-1 supplies bounded graph assets, native materials, AI draft generation and three starter effects. SHADER-2 replaces the node list with a wired node canvas (palette, drag-to-connect, saved card positions) and adds the shared shader carousel, blank creation, example loading, fixed preview/scrolling controls, graph zoom/fit, and MCP discovery and editing (`list_shader_nodes`, `describe`, `create_shader`, `edit_shader`, shader refs in `set_material`). Next: texture/normal and vector parameters, impact/gameplay inputs, depth/refraction, matching animated shadows, and measured pipeline sharing. [Design](docs/design/shader-editor.md).
+
+- **Physics authoring follow-up.** Collider/body attribute edits now update the retained inspection world and outline without restarting its worker. Empty model-part roots now fit their collider to descendant geometry, and kinematic locomotion defaults to a Static collider in the inspector. Validation currently re-reads the saved scene; narrow parsing if measured edit latency warrants it.
+
+- **First-person follow-ups.** FPS-1 supplies captured mouse look, camera-relative WASD, supporting-contact jumps, a reusable rig and collision walk fixture. Next: hands-on sensitivity/capture calibration, capsule/stair and moving-platform policies. [Design](docs/design/first-person-controller.md).
 
 - **Bounded meshed-density comparison.** GPU pass profiling and native offscreen
   camera routes are delivered. Compare a mesh extracted from the same field with
@@ -14,26 +24,59 @@ the same change that finishes it. Long-range goals and stage gates are in
   an implementation. Keep gameplay and full resource budgets open.
   [Detailed checklist](docs/plans/terrain.md#current-priority--terrain-performance-v1).
 - **Project MCP server: MCP-3 (build and run).** MCP-1 (read) and MCP-2 (edits)
-  are delivered. Next: `create_asset` from templates, `validate` / `run` /
+  are delivered, including the embedded chat adapter for configured AI providers
+  ([evidence](docs/platform/embedded-mcp-chat.md)). Next: `create_asset` from templates, `validate` / `run` /
   `run_status`, and the IDE selection as a resource, so that "this" or "the selected
   cube" resolves to a ref. [Design](docs/design/project-mcp-server.md).
 
-- **Brains: follow-ups.** Editor, runtime, preview and starter brains are delivered.
-  Next: MCP brain tools (`list_brain_nodes`, edit by node ID), a neighbour grid before
-  flocks above ~300 agents (0.53 ms/tick at 256, quadratic), and the planned nodes that
-  need physics queries. [Design](docs/design/brain-editor.md).
+- **Locomotion: physics flight.** FLIGHT-0 baseline/contract and FLIGHT-1 reusable
+  PID and FLIGHT-2 physical body boundary are delivered: **3/8** gates. Next is
+  FLIGHT-3: the powered 3D pilot (cascaded control, actuator limits, persistent
+  flight goals and hold). The boundary profile is loadable but unpowered. [Stage gates](docs/plans/physics-locomotion.md).
+  Wheel rig delivered (wheels steer and roll from the car's activity); brake lights wait for runtime material overrides.
+  Physical fixed wing FW-1/2/3 delivered (take-off, climb, holds, manual/aerobatics, circuit and PID-power landing on a map zone; editor Circuit preview with phases, Take off/Land brain nodes, MCP preview; ~1 µs per aircraft per tick). Airports (AIR-1/2) delivered: `aeroway` tags on scene-map items (runway, taxiway, holding position, stand, tower), a control tower sequencing arrivals (circuit capacity, holding stack, base-turn spacing, landing clearance, go-around re-sequencing) and departures (taxi, hold short, line up, centreline take-off), right/left circuits, Depart/Arrive brain nodes and Airport map tools. AIR-3a delivered: scene `[wind]`, air-relative flight with crabbed crosswind approaches, towers landing into the wind, and a scene-map airport overlay (landing direction, circuit legs, join point, holding fix, wind) with wind controls and MCP `set_wind`. Next: AIR-3b propeller/control-surface visuals, gusts, live traffic on the map. [Design](docs/design/fixed-wing-physics.md), [airports](docs/design/airport-operations.md).
+  Other types remain queued: reversing, guided missile,
+  bomb drop, helicopter and legged/IK. [Current design](docs/design/locomotion.md).
+- **Brains: follow-ups.** Editor, runtime, preview, starter brains, MCP authoring
+  tools, AI creation directly from an empty draft, duplicate catalogue ID validation
+  and opt-in altitude arrival completion are delivered. Next: a neighbour grid before
+  flocks above ~300 agents (0.53 ms/tick at 256, quadratic), and the remaining planned nodes
+  (pathfinding, obstacle avoidance, terrain blocking sight). [Design](docs/design/brain-editor.md).
+- **Models with movable parts (MODEL-1): follow-ups.** Engine import and the Model Parts
+  editor are delivered. Next: one live fal split (Tripo Segment and Hi3D) to confirm the
+  real output shape, exact triangle clipping for plane cuts, and sharing one texture
+  across a part set instead of embedding a copy in each part. [Plan](docs/plans/model-parts.md).
+- **Projects: follow-ups.** PROJ-1 (new/open/duplicate/save), PROJ-01 (engine
+  host and standard template) and PROJ-02 (independent games, explicit project
+  selection and engine-owned validation fixtures) are delivered. Next: a versioned
+  host contract. Game-specific demo wiring belongs in its own project.
+  [Plan](docs/plans/projects.md).
 - **Object components: follow-ups.** Slices 1–4 are delivered (light, controller,
   spin, follow, project types, input). Next: move the spin/bounce/avoidance wiring for
   `main` and the `bda577fe…` scene onto authored components once those scenes' current
   edits are settled; asset-level component defaults; live component push to inspection.
   [Design](docs/design/object-components.md).
 
+- **Audio (AUDIO-1): follow-ups.** AUDIO-1a–1e are delivered (engine, clips, streaming,
+  scene components, play on signal, reverb, ducking, limiter, `/audio` editor, fal
+  generation and the MCP `generate_audio` tool). Open: occlusion and reverb zones, music
+  transitions/crossfades, and a voice picker that lists ElevenLabs account voices.
+  [Plan](docs/plans/audio.md).
+
+- **Scene map (MAP): follow-ups.** MAP-1 (engine: waypoint, zone and metadata components,
+  zone costs and layers, map queries, A* routes, 4,096-instance scenes) and MAP-2 (the
+  `/map` top-down editor) are delivered. Next MAP-3: brain nodes (in zone, avoid costly
+  zones, follow waypoint path), an MCP `query_map` tool, zones and links in the 3D viewer,
+  and faster validation near the instance limit (the IDE runs the game's debug build).
+  [Design](docs/design/scene-map-editor.md).
+
 ## Known issues
 
-- `first_project` test `authored_offender_bounces_about_four_metres_above_ground`
-  fails: it measures 3.34 m against an expected 4 ± 0.2 m. It is tied to the
-  authored main scene, so decide whether the scene or the test is wrong. This
-  failure also stops `cargo test --workspace` before later targets run.
+- **Model Parts box cuts:** rectangle drawing, eight-corner resizing and Save To Object Library (stable prefab, library tile and whole-object placement) are delivered. Cuts remove surfaces and leave open edges; caps and large-model interaction timing remain unverified/out of scope. [Cut evidence](docs/platform/model-box-cut.md), [library evidence](docs/platform/model-parts-library.md).
+
+- **IDE test flake (2026-11-03):** `ui-assets.test.ts` ("UI saves and AI edits validate natively…") fails only in the parallel `pnpm test` run: its staged statement check reports `first-person.scene.toml` missing from the stage folder. It passes alone, alongside the other Cargo-backed tests, and with `--test-concurrency=1`; reverting the plugin snapshot change did not affect it. Cause not found.
+- **Vercel AI Gateway:** provider selection, live model discovery and manual header balance refresh are delivered. The configured key authenticated for read-only credits; Claude Sonnet 4.6 was reported `plan_restricted` despite a positive balance. Authenticated generation and paid-tier entitlement remain unresolved. OpenAI/Anthropic remaining credit is not exposed by the configured inference keys; the header links to billing. [Gateway evidence](docs/platform/vercel-ai-gateway.md), [balance evidence](docs/platform/ai-balances.md).
+
 - Player settings (`/player`, `player.settings.toml`) are not consumed at runtime.
   Either wire resolution/fps/AA into the native run, or label the page as planned.
 - No evidence record exists yet for scene lighting/skyboxes.
@@ -57,13 +100,28 @@ foundation gates in [GOALS.MD](GOALS.MD) that block the developer-framework proo
    responsiveness (GLB packing, paint, save, upload and collider activation).
 4. Interactive play / pause / single-step with backlog reset, in the engine and IDE
    (Stage 2, Stage 3A).
-5. Authored composition: nested reusable entities, authored behaviour links, type
-   registry and schema/graph exports with structured diagnostics (Stage 2A).
+5. Authored composition follow-ups: recursive prefab composition, linked instance
+   updates/overrides, authored behaviour-port links and schema/graph exports with
+   structured diagnostics (Stage 2A). Named snapshot prefabs, drag/keyboard authoring and runtime label lookup
+   are delivered, with sidebar cards, collapsed read-only project files, persistent header drop target, prefab-origin icons, searchable Add Asset prefab placement and consistent empty optional wheel-list validation; [design](docs/design/prefabs.md).
 6. Broader Stage 0 budgets: target hardware, workload sizes and frame/memory budgets, so
    that performance claims have something to be measured against.
 
 Project MCP server, after MCP-3: MCP-4 (cost-confirmed generators), then play-session
 control once engine pause/step exists.
+
+UI Designer UI-1 is implemented, including generation from a new unsaved starter UI,
+automatic opening of the generated asset, chat visibility/drafting and MCP UI
+discovery, widget catalogue, guarded create/edit, layout inspection and live refresh; see
+the [delivery ledger](docs/implementation-status.md).
+UI rendering now supports screen overlays and world-space panels, grid spans and
+content auto sizing. Next: pointer/ray picking, action dispatch and value binding,
+then focus/navigation, text input and richer fonts. [Design](docs/design/ui-designer.md).
+
+Scene object duplication is delivered: D or the row Duplicate button copies a subtree,
+selects it and advances the name suffix. [Validation](docs/platform/object-duplication-macos.md).
+
+- **Plugins (PLUG-1…5)** — static-crate plugins that register components, brain nodes and locomotion types, then packaging/install. Design: [docs/design/plugins.md](docs/design/plugins.md). PLUG-1…3 delivered (code seam, brain/locomotion hooks, in-project plugin folders); next PLUG-4 package and install.
 
 ## Backlog
 
@@ -80,4 +138,6 @@ Grouped by area. Each item is open; see the linked plan or design for scope.
   text-to-reference-image for Object Creator, model placement in scenes.
 - **Platform** — Windows/Linux native runs, multi-output build and packaging,
   minimum OS policy.
-- **Audio, input mapping, UI runtime** — not started; see the capability catalogue.
+- **Audio** — AUDIO-1 in progress (see Now). **Input mapping** — not started; see the capability catalogue.
+- **UI** — pointer input/action binding and later navigation/text entry remain open;
+  asset authoring (UI-1) is implemented. [Design](docs/design/ui-designer.md).

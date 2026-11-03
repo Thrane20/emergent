@@ -31,3 +31,7 @@ No frame-time budget or physics benchmark established. Windows/Linux native exec
 remains unverified. Kinematic bodies, public force/query/event APIs and other shapes
 are outside PH-1. The top IDE Run button still launches the project entry scene;
 use --run-scene to run the separate physics demo.
+
+### Empty model-part root fitting (2026-11-03)
+
+The BehaviourTest DroneUAV prefab has an empty root and one GLB child. Native scene loading now computes the root box from descendant geometry in root-local space when auto-fit is requested. A focused native test covers a nested pivot, dynamic root, no-geometry refusal, and a Static collider with kinematic drone locomotion. All 33 `authored_scene` tests passed with `--features physics`; Clippy passed with an existing unused `TerrainMaterial.layers` warning. The IDE scene-placement suite (8 tests), targeted ESLint, and a clean scoped TypeScript check passed. A read-only `--candidate` validation of the actual BehaviourTest scene with Static physics on DroneUAV passed without changing the project. The same candidate with Dynamic physics is correctly rejected because its `DroneLevel1` profile is kinematic (`type = "drone"`). The inspector now defaults to Static for that profile.

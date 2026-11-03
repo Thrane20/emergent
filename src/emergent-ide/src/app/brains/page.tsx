@@ -1,10 +1,10 @@
 import {BrainEditor} from "@/components/brain-editor";
 import {readPublicAISettings} from "@/lib/ai-settings";
 import {listBrains,readBrain} from "@/lib/brain-assets";
-import {readProjectSnapshot} from "@/lib/project";
+import {readProjectForPage} from "@/lib/project-page";
 export const instant=false;
 export default async function BrainsPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
-  const [project,aiSettings,params]=await Promise.all([readProjectSnapshot(),readPublicAISettings(),searchParams]);
+  const [project,aiSettings,params]=await Promise.all([readProjectForPage(),readPublicAISettings(),searchParams]);
   const brains=listBrains(project),asset=typeof params.asset==="string"?params.asset:brains.find(brain=>!brain.error)?.path;
   let initial;try{initial=asset?readBrain(project,asset):undefined;}catch{initial=undefined;}
   const scenePath=typeof params.scene==="string"&&project.files.some(file=>file.path===params.scene&&file.path.endsWith(".scene.toml"))?params.scene:project.entryScene;

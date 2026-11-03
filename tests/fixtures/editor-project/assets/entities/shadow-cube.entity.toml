@@ -1,0 +1,13 @@
+schema_version = 1
+id = "shadow-cube"
+name = "Shadow caster"
+kind = "primitive"
+[transform]
+translation = [0.0, 1.4, 0.0]
+[geometry]
+primitive = "cube"
+half_extent = 0.6
+color = [0.1, 0.65, 0.9, 1.0]
+[material]
+cast_shadows = true
+receive_shadows = true

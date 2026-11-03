@@ -61,6 +61,24 @@ depends_on = []
 summary = "Versioned project metadata, asset roots, and selected OS output declarations."
 
 [[capabilities]]
+id = "project.host"
+category = "tooling"
+name = "Shared game project host"
+status = "preview"
+owner = "project_host"
+depends_on = ["project.manifest"]
+summary = "Engine-owned ProjectGame/main entry point supplies CLI catalogues, validation, previews, inspection and native Run for independent games. New-project source lives in templates/standard; native titles/logs use the loaded manifest name. Engine/template workspace validation and fixtures do not require a sample game. Formal host protocol versioning remains planned."
+
+[[capabilities]]
+id = "tools.project-workspace"
+category = "tooling"
+name = "Project creation and selection"
+status = "preview"
+owner = "ide"
+depends_on = ["project.host"]
+summary = "Explicit New/Open/recent project selection, template-based creation, duplication and project-scoped git snapshots. No implicit sample/template fallback; project pages show the chooser until selected. New games get independent Cargo workspaces, current template code, engine dependency paths and lockfile seed; EMERGENT_PROJECT_PATH pins selection."
+
+[[capabilities]]
 id = "render.native-surface"
 category = "render-foundation"
 name = "Native window and GPU surface"
@@ -220,7 +238,7 @@ name = "Materials and shaders"
 status = "preview"
 owner = "render"
 depends_on = ["geometry.meshes"]
-summary = "MaterialDefinition/Material: flat, smooth and unlit shading; linear albedo/specular/emission, shininess and noise-driven bump. Per-channel noise filters bake once into renderer-owned RGBA16Float volumes at selectable 32/64/128 resolution with a bounded bake budget; object-space bump gradients and radial sphere normals; dedicated Material Generator and schema-1 shared .material.toml library assets selected by objects. Nested material references are rejected. PBR and shader graphs remain planned."
+summary = "MaterialDefinition/Material: flat, smooth and unlit shading; linear albedo/specular/emission, shininess and noise-driven bump. Per-channel noise filters bake once into renderer-owned RGBA16Float volumes at selectable 32/64/128 resolution with a bounded bake budget; object-space bump gradients and radial sphere normals; dedicated Material Generator and schema-1 shared .material.toml library assets selected by objects. Nested material references are rejected. Bounded surface shader graphs are a separate preview capability; PBR remains planned."
 
 [[capabilities]]
 id = "texture.resources"
@@ -316,28 +334,28 @@ summary = "Font assets, shaping, layout, and screen-space or world-space text."
 id = "audio.mixer"
 category = "audio"
 name = "Audio devices and mixer"
-status = "planned"
+status = "preview"
 owner = "audio"
 depends_on = []
-summary = "Output devices, mixer buses, volume policy, effects sends, and bounded voices."
+summary = "Default output device through cpal (macOS verified), lock-free allocation-free mixer, sfx/music/voice/ui bus gains, music ducking under speech, a send reverb, an output limiter, 32 real voices with quietest-first virtualisation. Device selection and per-bus effects remain planned."
 
 [[capabilities]]
 id = "audio.clips-streams"
 category = "audio"
 name = "Audio clips and streams"
-status = "planned"
+status = "preview"
 owner = "audio"
 depends_on = ["audio.mixer", "assets.pipeline"]
-summary = "Decoded clips, streamed music, playback handles, looping, and transitions."
+summary = "Schema-1 .audio.toml clip assets (WAV, MP3, OGG Vorbis, FLAC; mono or stereo; trim, gain, loop points), decoded on a background loader thread; one-shot and looping playback with typed SoundId handles; fades; long clips (music by default) stream from disk on a decoder thread. The IDE /audio editor imports, trims, loops and previews clips and generates sound effects, music and speech with fal (also through MCP generate_audio). Music transitions remain planned."
 
 [[capabilities]]
 id = "audio.spatial"
 category = "audio"
 name = "Spatial audio"
-status = "planned"
+status = "preview"
 owner = "audio"
 depends_on = ["audio.mixer", "world.transforms-3d"]
-summary = "Sources, listeners, attenuation, panning, Doppler, and occlusion hooks."
+summary = "emergent.audio_source and emergent.audio_listener components (active camera listens by default), inverse/linear distance falloff, equal-power panning, Doppler from fixed-tick motion with teleport rejection. Brains can trigger clips by signal. The scene viewer draws a selected source's range. Occlusion and reverb zones remain planned."
 
 [[capabilities]]
 id = "behaviour.brains"
@@ -347,6 +365,51 @@ status = "preview"
 owner = "brain"
 depends_on = ["runtime.fixed-step", "world.transforms-3d"]
 summary = "Saved trees of steering nodes (seek/flee, wander, patrol, flocking, formation, avoidance, evaluation and composition) attached with emergent.brain, evaluated deterministically each fixed tick against committed positions; groups via emergent.group; editor preview through the same runtime. Neighbour queries are linear; line of sight, obstacles and pathfinding are planned."
+
+[[capabilities]]
+id = "behaviour.locomotion"
+category = "simulation"
+name = "Locomotion"
+status = "preview"
+owner = "locomotion"
+depends_on = ["behaviour.brains", "runtime.fixed-step"]
+summary = "Profiles that carry out brain intent within physical limits: slide, wheeled (bicycle model), multirotor drone, fixed wing, ballistic and rocket, with published activity (steer, throttle, brake, bank, rotor, thrust, fuel). Kinematic models; legged/IK, rotorcraft, guided missiles and boats are planned."
+
+[[capabilities]]
+id = "control.pid"
+category = "simulation"
+name = "Fixed-step PID control"
+status = "preview"
+owner = "control"
+depends_on = []
+summary = "Reusable scalar control::Pid: validated configuration, explicit simulation duration, bounded integral/output, filtered derivative-on-measurement, caller feedforward and previous achieved actuator feedback, reset and P/I/D telemetry. Stepping, resetting and error paths allocate nothing. Full physics-driven drone pilot, wind and contact landing remain planned."
+
+[[capabilities]]
+id = "physics.locomotion-boundary"
+category = "simulation"
+name = "Physical locomotion boundary"
+status = "preview"
+owner = "locomotion"
+depends_on = ["physics.world", "behaviour.locomotion"]
+summary = "Unpowered drone_physics profile requires a dynamic PhysicsBody and physics feature. External force/torque commands drive it; committed PhysicsBodyState includes measured motion, mass, effective gravity and reconstruction revision. Mode-aware scene/runtime validation and reset handling preserve physics pose ownership. Catalogue status boundary is disabled in the editor; powered pilot, preview, wind and contact landing remain planned."
+
+[[capabilities]]
+id = "physics.fixed-wing"
+category = "simulation"
+name = "Physical fixed-wing aircraft"
+status = "preview"
+owner = "locomotion"
+depends_on = ["physics.locomotion-boundary", "navigation.paths"]
+summary = "fixed_wing_physics profiles fly a dynamic box body by forces and torques only: lift from lift-off speed and angle of attack with stall, parasitic and induced drag, spooled thrust, control-surface authority by dynamic pressure, and a wheel model (rolling resistance, brakes, tyre grip, nosewheel steering) on a frictionless collider. FlightGoal: Park, TakeOff, Hold (compass heading/altitude/speed), FlyTo, Taxi, Manual sticks (max bank 0 = aerobatics) and Land on a rectangular scene-map zone via a left-hand circuit, final with fixed nose-up attitude and PID power on a 3° glide path, flare, rollout and go-around. FlightTelemetry per tick; Take off and Land brain nodes; brain movement adapts to FlyTo/Park. Editor and MCP preview fly a Circuit course and report phases and touchdown; about 1 µs per aircraft per tick (release, physics included). Wind, crosswind landings and right-hand circuits remain planned."
+
+[[capabilities]]
+id = "navigation.airports"
+category = "simulation"
+name = "Airports and control tower"
+status = "preview"
+owner = "locomotion"
+depends_on = ["physics.fixed-wing", "navigation.paths"]
+summary = "Airports are scene-map items tagged aeroway=aerodrome|runway|taxiway|holding_position|parking_position|tower|holding_fix (OpenStreetMap values); runways take circuit=left|right, direction and active tags. FlightGoal::Arrive/Depart (and the Depart airport / Arrive at airport brain nodes) hand physical aircraft to a tower that sequences arrivals (four in the circuit, the rest stacked over a holding fix, base-turn spacing by remaining approach distance, landing clearance only on a clear runway, go-arounds re-sequenced), releases departures from the holding position, routes taxiing over the taxiway network and assigns free stands. Scene-map Airport tools place tagged items. Scene [wind] (speed, from) drives air-relative flight with crabbed crosswind approaches; towers land into the wind with tailwind hysteresis; the scene map overlays the landing direction, circuit legs, join point, holding fix and wind. Gusts, several active runways, live traffic on the map and ground collision avoidance remain planned."
 
 [[capabilities]]
 id = "input.actions"
@@ -364,25 +427,34 @@ name = "Physics and collision"
 status = "preview"
 owner = "physics"
 depends_on = ["world.transforms-3d", "ecs.schedules"]
-summary = "Optional physics feature: Rapier static/dynamic bodies, gravity, per-fixed-tick force application, fitted/explicit box colliders, static terrain heightfield colliders and fixed-tick contacts. IDE instance controls, terrain enablement/type selection and paused box collider outlines. A character-controller drive (horizontal velocity, upright, grounded jump) and linear-velocity read are available. Queries, other shapes, triggers and joints remain planned."
+summary = "Optional physics feature: Rapier static/dynamic bodies, gravity, per-fixed-tick force and torque application, fitted/explicit box colliders, static terrain heightfield colliders and fixed-tick contacts. IDE instance controls, terrain enablement/type selection and paused box collider outlines. Physics attributes update the retained inspection worker without restarting it. A character-controller drive (horizontal velocity, upright, grounded jump), linear-velocity, angular-velocity and reconstruction-aware committed body-state reads are available. Queries, other shapes, triggers and joints remain planned."
 
 [[capabilities]]
 id = "navigation.paths"
 category = "simulation"
 name = "Navigation and pathfinding"
-status = "planned"
+status = "preview"
 owner = "navigation"
 depends_on = ["world.transforms-3d"]
-summary = "Navmeshes, path queries, steering, spatial queries, and dynamic obstacle updates."
+summary = "Scene map (MAP-1): waypoint networks with A* routes weighted by zone travel costs, circle and rotated-rectangle zones with layers and blocked areas, name/value metadata queries, a grid index refreshed each tick. Navmeshes and brain path nodes remain planned."
+
+[[capabilities]]
+id = "ui.assets"
+category = "ui"
+name = "UI assets and designer"
+status = "preview"
+owner = "ui"
+depends_on = ["project.manifest"]
+summary = "Schema-1 UI assets, bounded widget/tree validation, anchored and stacked layout, catalogue export, and the /ui designer with project library and Rust-validated saves/AI edits. MCP supports durable-ref discovery, widget catalogue, guarded create/edit, paged layout inspection and undo. Includes nested layouts, grid spans and auto content sizing; screen/world rendering is delivered in ui.runtime. Interaction remains planned. See docs/platform/ui-runtime-macos.md."
 
 [[capabilities]]
 id = "ui.runtime"
 category = "ui"
 name = "Runtime UI"
-status = "planned"
+status = "preview"
 owner = "ui"
-depends_on = ["render.2d", "input.actions", "render.text"]
-summary = "Layout, styling, widgets, HUDs, focus, navigation, and accessibility hooks."
+depends_on = ["ui.assets", "geometry.meshes"]
+summary = "Authored-state UI rendering through emergent.ui entities: screen overlays composited after the scene without depth, and unlit world panels with entity transforms and scene depth. Prepared RGBA surfaces include a built-in uppercase ASCII bitmap font and widget visuals. Scene placement buttons and generic host integration work for every project. Static prepared surfaces; pointer/ray input, action/value binding, focus, text editing and font shaping remain planned."
 
 [[capabilities]]
 id = "assets.pipeline"
@@ -400,7 +472,7 @@ name = "Authored scenes and entities"
 status = "preview"
 owner = "project"
 depends_on = ["project.manifest", "world.entity-hierarchy", "behavior.typed-graph"]
-summary = "Schema-1 primitive/light/empty-node assets and explicit scene instances with transform and local display-name overrides, durable IDs, validated hierarchy and fresh SlotMap instantiation. Nested compositions, authored behaviour links and type-registry exports remain planned."
+summary = "Schema-1 primitive/light/empty-node assets and explicit scene instances with transform and local display-name overrides, durable IDs, validated hierarchy and fresh SlotMap instantiation. Named single-root prefabs support validated subtree capture, fresh-ID snapshot placement, per-instance brain bindings and reusable runtime spawning. Recursive/linked prefab composition and authored behaviour-port links remain planned."
 
 [[capabilities]]
 id = "game.save-replay"
@@ -482,6 +554,15 @@ status = "preview"
 owner = "ide"
 depends_on = ["project.manifest", "world.transforms-3d"]
 summary = "Immediate intention checks and explicit AI implementation using inspected project/foundation reuse, staged Cargo checks, bounded project-only writes, backups, and independent follow-up checks. Compilation is distinct from runtime verification."
+
+[[capabilities]]
+id = "tools.mcp-chat"
+category = "tooling"
+name = "Embedded MCP project chat"
+status = "preview"
+owner = "ide"
+depends_on = ["project.manifest", "tools.statement-implementation"]
+summary = "Project chat connects to the existing MCP server in process. Claude Messages and OpenAI Responses (direct or through Vercel AI Gateway) receive MCP tool schemas/instructions and scoped project resources; sequential tool calls retain native validation, revision checks and undo. Bounded to 24 model turns and 32 calls, with project binding checks, partial-completion receipts and a checked file-change handoff before any MCP edit. Local provider stand-ins and integration tests verified; paid model quality and browser behaviour unverified."
 
 [[capabilities]]
 id = "tools.project-mode"
@@ -577,7 +658,7 @@ name = "Diffuse image textures and terrain material palette"
 status = "preview"
 owner = "render"
 depends_on = ["geometry.meshes", "project.manifest"]
-summary = "PNG/JPEG diffuse_map references, bounded native decoding, sRGB colour sampling, gamma-correct mipmaps and object-space triplanar repeat. Live image swatches and project import; terrain instances retain up to eight named layers with one active whole-surface material. Legacy image palettes remain supported. New terrain paint sidecars blend up to four complete library materials through RGBA weights, with soft manual brushes and height-based river-bed/ground/mountain/summit transitions. Terrain images share a 1024-pixel array and noise maps are capped at 64 cubed per layer. The IDE preview shows diffuse colours/images; native inspection renders all channels. Slope rules, alpha cutouts, shared texture caching and UV authoring remain future work."
+summary = "PNG/JPEG diffuse_map references, bounded native decoding, sRGB colour sampling, gamma-correct mipmaps, per-material X/Y texture tiling and object-space triplanar repeat. Live image swatches and project import; terrain instances retain up to eight named layers with one active whole-surface material. Legacy image palettes remain supported. New terrain paint sidecars blend up to four complete library materials through RGBA weights, with soft manual brushes and height-based river-bed/ground/mountain/summit transitions. Terrain images share a 1024-pixel array and noise maps are capped at 64 cubed per layer. The IDE preview shows diffuse colours/images; native inspection renders all channels. Slope rules, alpha cutouts, shared texture caching and UV authoring remain future work."
 
 
 [[capabilities]]
@@ -615,3 +696,57 @@ status = "available"
 owner = "scene"
 depends_on = ["project.manifest", "lighting.sources", "render.depth-geometry"]
 summary = "Optional scene EnvironmentDefinition resolves bounded project PNG/JPEG 2:1 equirectangular panoramas. Global linear ambient colour/intensity, solid background colour, skybox rotation and brightness persist in [environment]. GeometryRenderer uploads one optional panorama outside the frame loop and draws a fullscreen background before geometry, with perspective/orthographic rays independent of camera translation. Eight authored lights plus scene ambient are supported. Lighting page includes native scene preview, guarded validated saves, scene selection and project skybox swatches. Image Generator shares import, explicit candidate promotion, relabel and deletion with a Skybox category; default fal FLUX Schnell requests 1024x512, custom models require an advertised 2:1 size. LDR backgrounds only; HDR, image-based illumination, reflection probes and seamless AI output are not provided."
+
+[[capabilities]]
+id = "assets.prefabs"
+category = "assets"
+name = "Named prefab object graphs"
+status = "preview"
+owner = "project"
+depends_on = ["assets.authored-worlds", "world.entity-hierarchy"]
+summary = "Project-scoped schema-1 single-root prefab assets reuse authored entities and components. IDE drag-to-capture and a scrollable table with drag/keyboard scene placement preserve local hierarchy and remap internal entity links, including shared brains through validated instance bindings. Rust PrefabDefinition loads by path or unique exact label and spawns repeated independently named graphs with fresh World SlotMap handles and a local member map. Bounds: 1024 members, 256 KiB. No automatic propagation to placed copies, recursive prefabs, or audio implementation."
+
+[[capabilities]]
+id = "ui.layouts"
+category = "ui"
+name = "Nested grid and linear UI layouts"
+status = "preview"
+owner = "ui"
+depends_on = ["ui.assets"]
+summary = "Horizontal, Vertical and Grid containers, plus panel layout modes, nest through existing validated UI parent links. Width/height in px or percentages, uniform padding, gaps, main/cross alignment and cross stretch. Grid uses 1–64 columns and equal cells. Native and browser geometry share golden fixtures; legacy stacks are retained. Includes ordered non-overlapping column/row spans (at most 512 rows), auto content dimensions, and native screen/world rendering; flex growth remains planned."
+
+[[capabilities]]
+id = "input.first-person"
+category = "input"
+name = "First-person controller"
+status = "preview"
+owner = "runtime"
+depends_on = []
+summary = "Active-camera relative mouse look, native click capture and Escape/focus release, camera-relative WASD and supporting-contact jumps through existing dynamic box physics. Standard template includes a player prefab and collision walk scene. Hardware calibration, capsule/stair and platform policies remain open."
+
+[[capabilities]]
+id = "render.shader-graphs"
+category = "render"
+name = "Surface shader assets and editor"
+status = "preview"
+owner = "render"
+depends_on = ["material.resources"]
+summary = "Schema-1 project .shader.toml scalar DAGs compile to native WGSL on resource preparation: up to 32 nodes and 16 scalar parameters, time/position/UV/Fresnel/noise/math, colour/emission/opacity/normal-direction displacement. Materials reference shaders and named overrides. IDE wired node canvas (drag-to-connect sockets, saved card positions, auto-layout), library, undo, orbitable animated preview, AI draft edits using configured providers, guarded native-validated saves and material creation; MCP list_shader_nodes/describe/create_shader/edit_shader. Force-field/water/dissolve templates and a native showcase ship in the standard template. Material selection updates retained inspection in place. Transparent objects sort by origin with depth writes off. Arbitrary WGSL, textures in graphs, normal outputs, depth/refraction, animated shadow casting, impact inputs and gameplay parameter bindings remain open; displacement does not alter collision."
+
+[[capabilities]]
+id = "world.object-classification"
+category = "world"
+name = "Object layers and tags"
+status = "preview"
+owner = "world"
+depends_on = ["world.entity-hierarchy"]
+summary = "ObjectClassification component stores a single layer index and u32 tag mask on existing entities. Project asset-root object-labels.toml configures up to 32 stable slots per list; blank slots stay reserved. Inspector offers layer/tag dropdowns, a multi-select tag dialog and fixed-slot configuration, with guarded native validation and live retained-inspection writes. Asset defaults and scene/prefab overrides persist. Undefined slots fail loading. Collision matrices, camera masks and automatic brain filtering are not connected."
+
+[[capabilities]]
+id = "tools.model-box-cut"
+category = "tooling"
+name = "Model Parts box surface subtraction"
+status = "preview"
+owner = "ide"
+depends_on = ["project.manifest", "assets.authored-worlds"]
+summary = "View-aligned rectangle creates an oriented box with depth equal to width; eight projected 3D corner handles, orbit-relative resizing, keyboard steps and numeric local centre/size controls precede explicit Cut. Intersected part surfaces are clipped against six box planes with UV/normal interpolation, no unused output vertices and unchanged surviving IDs/pivots/materials. Fully removed parts reparent children coherently; whole-model removal is refused. Bounded to native per-part geometry limits, with staged native save validation and save/reopen browser evidence. Save To Object Library also publishes a stable hierarchy prefab, listed beside structures and reopened in Model Parts or placed through shared prefab placement. Open edges remain uncapped; solid booleans and measured large-model latency are not provided. See docs/platform/model-box-cut.md."

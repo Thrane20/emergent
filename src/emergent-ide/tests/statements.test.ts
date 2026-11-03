@@ -56,6 +56,7 @@ test("reuse search discovers an existing project spin helper and the linked foun
   assert.ok(context.search.some((hit) => hit.includes("src/spin.rs") && hit.includes("rotate_z")));
   assert.ok(context.files.get("foundation/src/world.rs")?.includes("set_local_transform"));
   assert.ok(context.files.get("foundation/src/engine.rs")?.includes("fixed_delta"));
+  assert.ok(context.files.get("foundation/src/ui.rs")?.includes("widget_catalogue"));
 });
 
 test("candidate compilation happens away from live source, and compilation failure changes nothing", async (t) => {

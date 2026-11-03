@@ -1,0 +1,7 @@
+schema_version = 1
+id = "template.plugin"
+name = "Plugin template"
+version = "0.1.0"
+description = "Starting point for a new plugin: one example component."
+crate = "emergent-plugin-template"
+asset_roots = ["assets"]

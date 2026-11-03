@@ -48,12 +48,52 @@ pub struct ProjectManifest {
     pub generated_code: PathBuf,
     pub asset_roots: Vec<PathBuf>,
     pub outputs: Vec<ProjectOutput>,
+    /// Plugins this project uses, each a folder holding a `plugin.toml`.
+    #[serde(default)]
+    pub plugins: Vec<ProjectPlugin>,
+}
+
+/// A `[[plugins]]` entry in `emergent.toml`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ProjectPlugin {
+    pub id: String,
+    /// Project-relative plugin folder, conventionally `plugins/<id>`.
+    pub path: PathBuf,
+}
+
+pub const PLUGIN_SCHEMA_VERSION: u32 = 1;
+
+/// A plugin's `plugin.toml`: identity, version and what it contributes.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct PluginManifest {
+    pub schema_version: u32,
+    /// Durable identity and component-ID prefix, e.g. `acme.beans`.
+    pub id: String,
+    pub name: String,
+    /// Semver `major.minor.patch`.
+    pub version: String,
+    #[serde(default)]
+    pub description: String,
+    /// Cargo package of the plugin's code; absent for an asset-only plugin.
+    #[serde(rename = "crate")]
+    pub crate_name: Option<String>,
+    /// Asset folders relative to the plugin folder.
+    #[serde(default)]
+    pub asset_roots: Vec<PathBuf>,
+    /// Project-relative plugin folder (from the project's `[[plugins]]` entry).
+    #[serde(skip)]
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
 pub struct Project {
     root: PathBuf,
     manifest: ProjectManifest,
+    plugins: Vec<PluginManifest>,
+    /// The project's asset roots followed by each plugin's, project-relative.
+    asset_roots: Vec<PathBuf>,
 }
 
 impl Project {
@@ -76,7 +116,27 @@ impl Project {
                 message: error.to_string(),
             })?;
         validate_manifest(&root, &manifest)?;
-        Ok(Self { root, manifest })
+        let plugins = load_plugins(&root, &manifest.plugins)?;
+        let mut asset_roots = manifest.asset_roots.clone();
+        for plugin in &plugins {
+            asset_roots.extend(plugin.asset_roots.iter().map(|r| plugin.path.join(r)));
+        }
+        Ok(Self {
+            root,
+            manifest,
+            plugins,
+            asset_roots,
+        })
+    }
+
+    /// Validated manifests of the plugins listed in `emergent.toml`, in listed order.
+    pub fn plugins(&self) -> &[PluginManifest] {
+        &self.plugins
+    }
+
+    /// Every folder assets may load from: the project's roots, then plugin roots.
+    pub fn asset_roots(&self) -> &[PathBuf] {
+        &self.asset_roots
     }
 
     pub fn root(&self) -> &Path {
@@ -99,7 +159,6 @@ impl Project {
         let relative = relative.as_ref();
         validate_relative_path("asset", relative)?;
         if !self
-            .manifest
             .asset_roots
             .iter()
             .any(|root| relative.starts_with(root))
@@ -139,6 +198,7 @@ pub enum ProjectError {
     PathEscapesProject { field: &'static str, path: PathBuf },
     OutsideAssetRoots(PathBuf),
     DuplicateOutputId(String),
+    Plugin { id: String, message: String },
     NoAssetRoots,
     NoEnabledOutputs,
 }
@@ -180,6 +240,7 @@ impl fmt::Display for ProjectError {
                 path.display()
             ),
             Self::DuplicateOutputId(id) => write!(formatter, "duplicate output id '{id}'"),
+            Self::Plugin { id, message } => write!(formatter, "plugin '{id}': {message}"),
             Self::NoAssetRoots => {
                 formatter.write_str("project must declare at least one asset root")
             }
@@ -240,6 +301,80 @@ fn validate_manifest(root: &Path, manifest: &ProjectManifest) -> Result<(), Proj
         return Err(ProjectError::NoEnabledOutputs);
     }
     Ok(())
+}
+
+fn load_plugins(
+    root: &Path,
+    entries: &[ProjectPlugin],
+) -> Result<Vec<PluginManifest>, ProjectError> {
+    let mut plugins: Vec<PluginManifest> = Vec::with_capacity(entries.len());
+    for entry in entries {
+        let fail = |message: String| ProjectError::Plugin {
+            id: entry.id.clone(),
+            message,
+        };
+        if !crate::plugin::valid_id(&entry.id) {
+            return Err(fail(
+                "id must look like publisher.name (lowercase, not emergent or project)".into(),
+            ));
+        }
+        if plugins.iter().any(|plugin| plugin.id == entry.id) {
+            return Err(fail("is listed twice".into()));
+        }
+        validate_declared_path(root, "plugin folder", &entry.path, true)?;
+        let manifest_path = root.join(&entry.path).join("plugin.toml");
+        let source = fs::read_to_string(&manifest_path).map_err(|error| ProjectError::Io {
+            path: manifest_path.clone(),
+            message: error.to_string(),
+        })?;
+        let mut plugin =
+            toml::from_str::<PluginManifest>(&source).map_err(|error| ProjectError::Parse {
+                path: manifest_path,
+                message: error.to_string(),
+            })?;
+        if plugin.schema_version != PLUGIN_SCHEMA_VERSION {
+            return Err(fail(format!(
+                "plugin.toml schema version {} is unsupported; this engine supports {PLUGIN_SCHEMA_VERSION}",
+                plugin.schema_version
+            )));
+        }
+        if plugin.id != entry.id {
+            return Err(fail(format!("plugin.toml declares id '{}'", plugin.id)));
+        }
+        if plugin.name.trim().is_empty() {
+            return Err(fail("plugin.toml needs a name".into()));
+        }
+        let semver = plugin.version.split('.').collect::<Vec<_>>();
+        if semver.len() != 3
+            || !semver
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+        {
+            return Err(fail(format!(
+                "version '{}' must be major.minor.patch",
+                plugin.version
+            )));
+        }
+        if plugin.crate_name.as_deref().is_some_and(|name| {
+            name.is_empty()
+                || !name.bytes().all(|b| {
+                    b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'_')
+                })
+        }) {
+            return Err(fail("crate must be a lowercase Cargo package name".into()));
+        }
+        for asset_root in &plugin.asset_roots {
+            validate_declared_path(
+                root,
+                "plugin asset root",
+                &entry.path.join(asset_root),
+                true,
+            )?;
+        }
+        plugin.path = entry.path.clone();
+        plugins.push(plugin);
+    }
+    Ok(plugins)
 }
 
 fn validate_identifier(field: &'static str, value: &str) -> Result<(), ProjectError> {

@@ -16,6 +16,7 @@
 # next.js
 /.next/
 /.next-charcoal-dev/
+/.next-ui-build/
 /out/
 
 # production
@@ -41,3 +42,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+/.next-prefab-build/
+/.next-ui-layout-build/
+
+/.next-shader-dev/
+/.next-shader-build/

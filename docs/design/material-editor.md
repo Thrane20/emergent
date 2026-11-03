@@ -62,10 +62,10 @@ between a constant factor of one and the noise sample. Bump strength and its map
 strength multiply the sampled height. Missing albedo uses existing geometry colours.
 Unlit surfaces use albedo and emission, with lighting/specular/bump inactive.
 
-Try `assets/scenes/materials.scene.toml` in first_project, or run:
+Run the engine-owned material regression against fixed assets under `tests/fixtures`:
 
 ```sh
-cargo run --release -p emergent-first-project -- --run-scene assets/scenes/materials.scene.toml
+cargo run --release --features graphics --example material_smoke
 ```
 
 The public `MaterialDefinition::constant()` constructor is file-system independent;

@@ -1,3 +1,4 @@
+import { smokeProjectRoot } from "./project-fixture";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -7,7 +8,7 @@ import { parse } from "smol-toml";
 import { DEFAULT_TERRAIN, TERRAIN_PRESETS } from "../src/lib/terrain";
 
 async function main(){
- const base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3000",root=path.resolve(process.env.EMERGENT_PROJECT_PATH||"../../projects/first_project");
+ const base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3001",root=smokeProjectRoot();
  const projectId=parse(await readFile(path.join(root,"emergent.toml"),"utf8")).id;
  const browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||"chrome",headless:true});
  try{

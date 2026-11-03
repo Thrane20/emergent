@@ -1,3 +1,4 @@
+import { smokeProjectRoot } from "./project-fixture";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {readFile,writeFile,unlink} from "node:fs/promises";
@@ -6,8 +7,8 @@ import {chromium,expect,request} from "@playwright/test";
 import {parse} from "smol-toml";
 
 async function main(){
- const base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3001",root=path.resolve(process.env.EMERGENT_PROJECT_PATH||"../../projects/first_project");
- const scene=`assets/scenes/material-smoke-${randomUUID().slice(0,8)}.scene.toml`,asset="assets/entities/material-sphere.entity.toml",noise="assets/filters/material-grain.noise.toml",projectId="emergent.first-project";
+ const base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3001",root=smokeProjectRoot();
+ const scene=`assets/scenes/material-smoke-${randomUUID().slice(0,8)}.scene.toml`,asset="assets/entities/material-sphere.entity.toml",noise="assets/filters/material-grain.noise.toml",projectId=String(parse(await readFile(path.join(root,"emergent.toml"),"utf8")).id);
  const original=await readFile(path.join(root,asset),"utf8");
  const browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||"chrome",headless:true});
  const api=await request.newContext({baseURL:base,timeout:120000});let session:string|null=null,libraryPath:string|null=null;

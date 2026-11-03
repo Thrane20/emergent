@@ -13,6 +13,42 @@ tween, and generated/edited terrain drafts also guard rail navigation so unsaved
 work can be retained. `npx tsx scripts/editor-navigation-smoke.ts` checks all
 destinations and draft guards against port 3002 without saving project files.
 
+## UI Designer (UI-1)
+
+Open **UI Designer** in the shared rail (`/ui`) to author game UI assets. The library
+is scoped to the linked project. Create a blank UI or open the Options sample; add
+panels, labels, buttons, toggles, sliders, steppers, text boxes and dividers. Select
+widgets in the outline or preview, drag/resize them, or edit anchored pixel/percentage
+rectangles and stacked layouts in the inspector. Give controls dotted action labels
+and optional value names for future game bindings.
+
+**Save UI** validates through the linked game's Rust host before writing
+`assets/ui/<id>.ui.toml`. Revision checks preserve newer external edits. After saving,
+the embedded chat can edit that UI using the engine's widget catalogue; generated UI
+assets also pass native validation before publication.
+
+Build with AI accepts multiline drafts even on a new or unsaved UI. Save the UI
+before sending; the draft stays with that UI through the first save. The centre
+workspace scrolls on shorter screens so the full chat stays reachable, and its
+prompt box can be resized vertically for longer instructions.
+
+Screen preview is SVG with shared Rust/TS layout fixtures and approximate monospace
+glyphs. World preview is a perspective illustration. In-game rendering, placement,
+pointer interaction and action dispatch remain UI-2/3; see the
+[design](../../docs/design/ui-designer.md) and [evidence](../../docs/platform/ui-designer-macos.md).
+
+Validation (from this directory):
+
+```sh
+pnpm test
+EMERGENT_NEXT_DIST_DIR=.next-ui-build pnpm build
+pnpm test:ui-designer
+```
+
+The designer smoke starts its own production server on port 3001, writes only to a
+temporary copy of the standard template, mocks chat/provider traffic, and stops the
+server and removes the temporary project when finished. It requires installed Chrome.
+
 ## Appearance
 
 Open **Settings → Appearance** to switch between **Charcoal · soft depth** and
@@ -60,6 +96,12 @@ such as `instance:main/pyramid`, `asset:pyramid` or `scene:main`, then edits it.
   render) and `history`.
 - **Edit:** `set_transform`, `rename`, `reparent`, `delete`, `place_asset`,
   `set_material`, `set_physics`, `set_camera`, `set_environment`, `assign_ids` and `undo`.
+- **UI authoring:** `list_ui_widgets`, `create_ui`, `edit_ui`, `preview_ui`.
+  UI assets are discoverable with `find` / `list` (`kind: "ui"`), and `describe`
+  returns the node tree, action labels and revision. Edits add/update/remove/move/
+  reorder widgets by node ID; only panels hold children and the root stays in place.
+  Preview returns paged canvas rectangles in pixels after Rust validation, with
+  `offset` and `limit` (up to 200). It does not render UI in game.
 
 Edits need the `revision` from `describe`, run the same Rust validation as the
 inspector, accept `dryRun`, and are journalled for `undo`. An open IDE page refreshes
@@ -75,17 +117,91 @@ a per-install token from `.data/mcp-token`; the bridge creates the token on firs
   using the absolute repository path. Interactive Codex asks before write tools; for
   non-interactive `codex exec`, set `mcp_servers.emergent.default_tools_approval_mode = "approve"`.
 
-Smoke tests: `pnpm test:mcp-edit` runs every edit tool against a copy at
+Smoke tests: `pnpm test:mcp-edit` runs scene and behaviour edits against a copy at
 `target/mcp-smoke/game`, which has its own Cargo target. `scripts/mcp-live-smoke.mts`
 checks live IDE updates in Chrome against an isolated dev server; see its header.
+`pnpm exec tsx --conditions=react-server --test tests/mcp-ui.test.ts` exercises UI
+tools through the authenticated HTTP endpoint and embedded adapter using a temporary
+standard-template project. `pnpm test:ui-designer` also checks external MCP edits
+refresh the UI library/editor and preserve unsaved local drafts.
 
 `EMERGENT_IDE_URL` overrides the default `http://localhost:3000`, for example
 `http://[::1]:3001` for a test server. Avoid `127.0.0.1` when VS Code is forwarding
 that port.
 
 Settings → **AI provider** chooses whether the IDE's own chat, Statements and
-Implement use **Claude** (Anthropic Messages API, default model `claude-opus-5-5`) or
-**Codex** (OpenAI Responses). Each provider keeps its own model, URL and key.
+Implement use **Claude** (Anthropic Messages API, default model `claude-opus-5-5`),
+**Codex** (OpenAI Responses), **Vercel AI Gateway** (Responses-compatible API), or a
+local **Ollama** (Responses API at `http://localhost:<port>/v1`, default port 11434).
+Each provider keeps its own model, URL and key.
+
+Ollama needs no key: choose a port, check the live status line (it lists the models
+installed on that port), pick a model and click **Activate Ollama**; **Deactivate**
+turns it off. The status check and all requests use `localhost`, so an SSH tunnel bound
+to `::1` is what the IDE talks to.
+
+For Vercel, select **Vercel AI Gateway**, paste your Gateway API key, choose a model,
+and click **Save and use Vercel AI Gateway**. The default URL is
+`https://ai-gateway.vercel.sh/v1`. The model catalogue loads current language models
+advertising tool use and structured output from Vercel's public `/v1/models` endpoint;
+**Refresh models** reloads it without sending your key. You can also enter a
+`creator/model` ID, including a custom model, directly. The initial model is
+`anthropic/claude-sonnet-4.6`. Save a different model to use it for subsequent AI
+requests without restarting the IDE. In-flight tool conversations retain their
+starting model. Account access, credits and individual model capabilities still
+apply; catalogue inclusion does not prove that a paid request will succeed.
+Keys use the existing server-only `.data/ai-provider.json` store (owner-only file
+permissions; masked hints in the UI), outside game projects. This is local file
+storage, not an encrypted credential vault. Existing Claude/Codex settings are kept.
+See [research and validation](../../docs/platform/vercel-ai-gateway.md).
+
+Configured AI providers appear in every shared top bar beside the fal balance.
+The small **Refresh AI balances** icon is the only trigger for Gateway balance
+requests: no AI balance polling occurs on load, navigation, focus or a timer.
+Before refresh, Vercel displays a dash; afterwards it shows available USD credit
+and the check time in its tooltip. OpenAI and Anthropic show **Billing ↗** because
+their configured inference keys do not expose a supported remaining-credit API.
+Those links open the provider billing page; spend/usage is not reported as credit.
+Changing provider credentials clears the displayed snapshot without querying the
+provider. The fal badge retains its existing independent refresh behavior.
+See [AI balance evidence](../../docs/platform/ai-balances.md).
+
+Embedded project chat uses these providers with a local MCP client. Tool definitions
+and instructions come from the same server used by external clients; no public MCP
+URL or additional key is needed. The assistant can inspect the project, edit scenes
+and behaviours, read resources and view scene renders. Calls run sequentially, with
+at most 24 model turns / 32 tool calls per request. Switching projects stops the
+conversation. Successful edits include change IDs and remain reported if a later
+step fails; each can be undone through MCP. Multi-step requests are not atomic.
+This applies to project chat; scoped editor AI and Statement requests keep their
+existing structured-output contracts.
+
+## Model Parts: cut with a box
+
+In **Model Parts** (`/models`), open a generated model and click **Cut with box**.
+Drag a rectangle over the viewport. The box starts aligned to that view, through
+the model's centre, with depth equal to the rectangle's width.
+
+Drag any of its eight corner handles to resize it. Orbit around the model to adjust
+depth from another view; the box keeps its original orientation. Arrow keys resize
+a focused handle in the current view plane (Shift gives a smaller step). The local
+centre and size fields provide exact adjustment. **Redraw box** starts another
+rectangle; **Cancel box cut** or Escape discards the draft without changing geometry.
+
+Click **Cut** to remove surfaces inside the box from every intersected part, then
+**Save To Object Library** to keep the edit. The boundary clips triangles while retaining texture
+coordinates and normals. Fully removed parts are dropped and their children reattach
+to a surviving ancestor. Removing the entire model is refused. Cuts leave open edges;
+they do not fill the hole with new faces. Existing part IDs, pivots and materials stay
+intact. See [validation](../../docs/platform/model-box-cut.md).
+
+**Save To Object Library** also publishes the complete part hierarchy as a reusable
+prefab in the project's Object Library (`/object-builder`), alongside Object Builder
+objects. Repeated saves update the same entry. Click its tile to reopen Model Parts;
+right-click it and choose **Add to scene** to place the whole object, including child
+parts and their pivots. Saving does not insert it into a scene automatically. Existing
+part sets enter the library the next time you save them. See
+[save/library validation](../../docs/platform/model-parts-library.md).
 
 ## Run
 
@@ -93,7 +209,9 @@ Implement use **Claude** (Anthropic Messages API, default model `claude-opus-5-5
 pnpm dev
 ```
 
-By default it opens this repository’s `projects/first_project`. To inspect another local project:
+With no saved selection, the IDE shows **Open or create a project**. New games are
+created from `templates/standard`; the template is not opened for editing. The
+selected project is remembered in the private IDE workspace. To pin a local project:
 
 ```sh
 EMERGENT_PROJECT_PATH=/absolute/path/to/game pnpm dev
@@ -133,7 +251,7 @@ The IDE discovers the manifest, authored assets, game-owned Rust, and generated 
 
 The full-width lower chat dock offers a Scope selector: Game uses the linked project, Scene uses the active scene, and Object uses the selected instance or object asset. Conversations and unsent drafts stay separate for each context. Context paths remain part of the request data without being shown as badges.
 
-The `/settings` page configures the initial OpenAI/Codex provider, including an editable API base URL, model, and API key. Credentials are stored in the server-only, Git-ignored `.data/ai-provider.json` file with owner-only permissions and are never returned to the browser. Set `EMERGENT_IDE_DATA_DIR` to keep this state elsewhere.
+The `/settings` page configures Claude, Codex, Vercel AI Gateway and local Ollama, including an editable API base URL, model, and API key. Credentials are stored in the server-only, Git-ignored `.data/ai-provider.json` file with owner-only permissions and are never returned to the browser. Set `EMERGENT_IDE_DATA_DIR` to keep this state elsewhere.
 
 Chat requests now call the configured provider through the server-side Responses API. Each request receives bounded context resolved from the live project graph for the selected project, file, or durable authored entity plus the recent scoped conversation. Edit requests now produce structured replacement files, inspect existing project/foundation code for reuse, validate the candidate with Cargo and native scene loading in a temporary copy, then publish guarded changes. Questions can return an answer with no file changes. Applied edits refresh the project graph and paused Scene inspection. Failures and concurrent edits are reported without publishing the candidate.
 
@@ -157,10 +275,9 @@ and AI evidence do not establish runtime behaviour; use tests and native Run for
 that. The current isolated compiler supports independent Cargo manifests with a
 local Emergent path dependency; workspace-inherited manifests are not yet supported.
 
-The spinning-cube reference in `first_project` was generated through this action:
-it reuses engine transforms and fixed timing with project-owned `src/spin.rs`,
-rotates at 15°/second, and preserves translation and scale. Its native scene is
-wired to render the cube. Load remains a tick-zero still; Run shows the motion.
+Project-specific intentions can generate game-owned behaviour using engine
+transforms and fixed timing. Shared components and tooling belong to the engine,
+not a sample game. Inspection remains at tick zero; Run executes the game.
 
 The IDE does not interpret authored scenes, package outputs, or retain runtime SlotMap handles. Runtime GLB importing, textures, and general model materials remain separate engine work.
 
@@ -400,10 +517,16 @@ Chat reuses a suitable cube asset or creates one, adds a distinct UUID-backed ro
 instance at [0,0,0], validates and saves the change, and reloads paused inspection.
 Existing instances stay intact. Requests carry the active scene even in Game scope.
 
-Chat shares the statement implementation's bounds: project Rust and asset TOML,
+For supported scene/behaviour operations, chat uses the MCP tools and their revision
+checks, native validation and undo journal. For new code or asset types without an
+MCP authoring tool, `implement_project_code` hands the original request to the checked
+file workflow. This handoff can run only before any MCP edit in that request.
+
+The file workflow shares the statement implementation's bounds: project Rust and asset TOML,
 eight replacements / 256 KiB total, inspected-source conflict checks, journalled
-publication and rollback. Engine source, dependency/manifests, deletion and shell
-commands are outside this first slice. At most 127 scenes are validated; at most
+publication and rollback. Engine source, dependency/manifests, file deletion and shell
+commands are outside the file workflow. MCP does support scene-instance deletion.
+At most 127 scenes are validated; at most
 16 supplied new authored UUIDs per request. Only successful host publication is
 reported as applied. Questions do not trigger file publication.
 
@@ -595,6 +718,41 @@ build the IDE first. It spends no fal credits and leaves user game assets intact
 Provider schema: https://fal.ai/models/fal-ai/flux/schnell/api.
 
 
+### Audio
+
+Open `/audio` or choose **Audio** in the project rail. The **Audio library** carousel shows
+the project's `.audio.toml` clips (each tile draws the waveform the engine plays, coloured by
+category and cached per clip version; a spark marks generated ones; **＋ New
+clip** opens Generate). **Import file…** adds a WAV, MP3, OGG Vorbis or FLAC file (format
+sniffed from its bytes, 50 MiB max) under `assets/audio/<id>/`. Select a clip to see its
+waveform: drag the white handles to trim and the teal handles to set loop points (arrow
+keys move a focused handle; Shift for bigger steps), set gain (**N** normalises the peak
+to -1 dBFS), fades and category, and press **Play** to preview. **Save clip** validates
+and decodes through the game binary (`--inspect-audio`) before writing; the audio file is
+never rewritten. **Playback** chooses whether a clip streams from disk (Auto streams music)
+or loads whole. **Add sound point** places a Point playing the clip in a scene.
+
+**Generate** makes sound effects, music or speech with fal (default ElevenLabs models;
+any compatible catalogue model can be chosen). Each candidate is one paid request; listen,
+then **Keep** saves it as a clip with its prompt and model under `[generation]`. Voice
+suggestions come from the chosen model (ElevenLabs presets, MiniMax voice IDs). The MCP
+`generate_audio` tool does the same in one call; it requires `confirm_paid: true`.
+`tsx scripts/audio-smoke.ts` drives the editor against a running IDE on port 3001 (no paid
+calls).
+
+### Scene map
+
+Open `/map` or choose **Scene map** in the rail: the current scene from above, with object
+outlines drawn by the engine (`--map-layout`). Drag empty space to pan and scroll to change
+height. Pick a tool and click the map: **Waypoint**, **Waypoint path** (click points, Enter
+to finish; they're linked and grouped), **Link** (click two waypoints), **Circle zone**
+(drag the radius) and **Rectangle zone** (drag corners). **Select** moves items and Delete
+removes them. The inspector edits names, zone shape, travel cost, blocked and layers,
+waypoint links and metadata pairs. Edits go straight into the scene and **Undo** reverts
+the last one. Games query the result with `World::zones_at`, `cost_at`, `segment_cost`,
+`items_where`, `nearest_waypoint` and `waypoint_path`.
+`scripts/map-smoke.ts` drives it against a scratch project (`MAP_SMOKE_PROJECT`).
+
 ### Tween Editor
 
 Open `/tweens` or choose **Tween Editor** (∿) in the project rail. Select one of
@@ -704,7 +862,7 @@ project contains larger heightfield sidecars.
 
 ### Material Generator and terrain painting
 
-Open **Material Generator** from the project toolbar, terrain page or an object's Material section. All surface controls now live here: diffuse image/import/repeat, shading, shadow flags, albedo/specular/emission, shininess, bump, noise maps and map strength/resolution. Save a named material to the project library. Objects choose that material from their Material dropdown. Opening an existing inline material copies its settings into a new library entry; existing assets are not automatically migrated. Shared edits apply to every reference when inspection reloads.
+Open **Material Generator** from the project toolbar, terrain page or an object's Material section. All surface controls now live here: diffuse image/import/repeat and X/Y tiling, shading, shadow flags, albedo/specular/emission, shininess, bump, noise maps and map strength/resolution. Save a named material to the project library. Objects choose that material from their Material dropdown. Opening an existing inline material copies its settings into a new library entry; existing assets are not automatically migrated. Shared edits apply to every reference when inspection reloads.
 
 In **Terrain Builder**, generate or open a terrain, then enable material painting. Add up to four library slots (River bed, Ground, Mountain, Summit). **Apply height painting** replaces coverage using ordered transitions and a blend width in metres above the terrain base. These are height bands; the lowest band does not detect river topology. Sculpting preserves coverage until the height process is reapplied.
 
@@ -820,3 +978,42 @@ only preview rendering, not authored terrain detail or scene Run resolution.
 that exhaust their iteration budget. Disable it to return to normal materials.
 The caption's capture time includes GPU completion/readback; PNG time also includes
 upscaling when needed. See [performance evidence](../../docs/benchmarks/terrain-performance/README.md).
+
+### Prefabs
+
+Drag a parent from the scene graph onto the **Prefabs** capture area. A prefab
+is constructed immediately using the object's current name and complete subtree;
+the original stays in the scene. The section lists names and part counts in a
+scrollable table. Drag a row onto the scene root/empty graph space to instantiate,
+or onto an existing object to parent the new instance beneath it. Use the scene
+row's existing rename action to rename an instance. There is no save button or
+prefab dropdown.
+
+Keyboard: select a scene object, focus the capture area and press Enter. Enter on
+a prefab row instantiates it at the scene root. The viewport placement picker
+also accepts prefabs. Copies get fresh IDs and internal references. Definitions
+are snapshots; defaults/media remain shared. Rust can resolve a unique exact
+label with `PrefabDefinition::load_named(&project, "Drone")` and spawn repeatedly
+from the result. Duplicate/missing labels are errors; explicit path loading is
+still supported. See [the engine contract](../../docs/design/prefabs.md).
+
+Browser regression: `EMERGENT_NEXT_DIST_DIR=.next-prefab-build npm run build`, then
+`npm run test:prefabs`. It uses a disposable standard-template project on port
+3001 and closes its server and native inspection afterwards.
+
+### Nested UI layouts
+
+The UI Designer offers Horizontal layout, Vertical layout and Grid layout in the
+Layout palette. Select a layout before adding children (including other layouts),
+then use Width/Height, Padding, Gap, Main alignment and Cross alignment in the
+inspector. Grid columns controls equal-sized cells; Column span / Row span reserve multiple cells, and Width/Height accept auto for content sizing. Move into and outline arrows
+support reparenting/reordering; flow layouts own child positions, while resizing
+still edits width/height. Legacy stacked panels are unchanged. Saved UIs can be added to the current scene with Add screen overlay or Add world panel. Both render in the shared native host; pointer interaction and value/action binding remain planned. Browser regression: build with
+`EMERGENT_NEXT_DIST_DIR=.next-ui-layout-build npm run build`, then run
+`npx tsx scripts/ui-layout-smoke.ts` (disposable project, port 3001).
+
+UI surface settings live in the scene's `emergent.ui` component. Screen dimensions
+are pixels (zero fills the viewport); world dimensions are metres and follow the
+entity transform. The prepared surface includes authored widget state and a
+built-in uppercase bitmap font. Reload the scene after asset edits. See
+[the native UI contract](../../docs/platform/ui-runtime-macos.md).

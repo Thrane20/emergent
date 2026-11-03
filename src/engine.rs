@@ -36,7 +36,6 @@ pub enum EngineError {
     AlreadyStarted,
     NotStarted,
     World(WorldError),
-    #[cfg(feature = "physics")]
     Physics(crate::PhysicsError),
 }
 
@@ -48,7 +47,6 @@ impl fmt::Display for EngineError {
             Self::ZeroStepLimit => formatter.write_str("max steps per frame must be non-zero"),
             Self::AlreadyStarted => formatter.write_str("engine is already started"),
             Self::NotStarted => formatter.write_str("engine has not been started"),
-            #[cfg(feature = "physics")]
             Self::Physics(error) => write!(formatter, "physics error: {error}"),
             Self::World(error) => write!(formatter, "world integrity error: {error}"),
         }
@@ -121,6 +119,8 @@ pub struct EngineContext<'a> {
     pub fixed_delta: Duration,
     /// Keyboard state for this tick.
     pub input: crate::Input,
+    /// Present when the host opened an audio output (or a game installed one).
+    pub audio: Option<&'a mut crate::AudioWorld>,
     exit_requested: &'a mut bool,
 }
 
@@ -145,6 +145,8 @@ pub struct Engine {
     accumulator: Duration,
     keys: crate::KeySet,
     input: crate::Input,
+    mouse_motion: crate::Vec2,
+    audio: Option<crate::AudioWorld>,
 }
 
 impl Engine {
@@ -166,7 +168,18 @@ impl Engine {
             accumulator: Duration::ZERO,
             keys: crate::KeySet::EMPTY,
             input: crate::Input::default(),
+            mouse_motion: crate::Vec2::ZERO,
+            audio: None,
         })
+    }
+
+    /// Installs the audio world; scene audio components play through it from the next tick.
+    pub fn set_audio(&mut self, audio: crate::AudioWorld) {
+        self.audio = Some(audio);
+    }
+
+    pub fn audio_mut(&mut self) -> Option<&mut crate::AudioWorld> {
+        self.audio.as_mut()
     }
 
     pub fn world(&self) -> &World {
@@ -193,6 +206,25 @@ impl Engine {
     /// tick snapshots them, so presses are seen exactly once even during catch-up.
     pub fn set_keys(&mut self, keys: crate::KeySet) {
         self.keys = keys;
+    }
+
+    /// Queues raw relative pixels for the next fixed tick. Rejects nonfinite/overflow input.
+    pub fn add_mouse_motion(&mut self, delta: crate::Vec2) -> bool {
+        let sum = self.mouse_motion + delta;
+        if !delta.is_finite() || !sum.is_finite() {
+            return false;
+        }
+        self.mouse_motion = sum;
+        true
+    }
+
+    /// Clears pending/held input when focus or pointer capture is lost.
+    pub fn clear_input(&mut self) {
+        self.keys = crate::KeySet::EMPTY;
+        self.input = crate::Input::default();
+        self.mouse_motion = crate::Vec2::ZERO;
+        self.world.insert_resource(self.input);
+        self.world.insert_resource(crate::MouseMotion::default());
     }
 
     /// Starts a game so an external platform loop can advance it frame by frame.
@@ -299,6 +331,9 @@ impl Engine {
     }
 
     fn update_once<G: Game>(&mut self, game: &mut G) -> Result<(), EngineError> {
+        let motion = std::mem::replace(&mut self.mouse_motion, crate::Vec2::ZERO);
+        self.world
+            .insert_resource(crate::MouseMotion { delta: motion });
         self.input = self.input.advance(self.keys);
         self.world.insert_resource(self.input);
         self.world.insert_resource(SimulationTime {
@@ -324,7 +359,9 @@ impl Engine {
                 .step_physics(self.config.fixed_timestep)
                 .map_err(EngineError::Physics)?;
             self.world.propagate_transforms();
+            crate::locomotion::observe_physics(&mut self.world)?;
         }
+        crate::map::refresh(&mut self.world);
         self.world
             .run_component_schedule(&mut self.schedules.post_fixed)?;
         {
@@ -334,6 +371,10 @@ impl Engine {
         self.world
             .step_particles(self.config.fixed_timestep.as_secs_f32())
             .map_err(EngineError::Particles)?;
+        if let Some(audio) = self.audio.as_mut() {
+            crate::audio::sync_scene(&mut self.world, audio);
+            audio.update(&self.world, self.config.fixed_timestep);
+        }
         self.tick = self.tick.saturating_add(1);
         Ok(())
     }
@@ -344,6 +385,7 @@ impl Engine {
             tick: self.tick,
             fixed_delta: self.config.fixed_timestep,
             input: self.input,
+            audio: self.audio.as_mut(),
             exit_requested: &mut self.exit_requested,
         }
     }

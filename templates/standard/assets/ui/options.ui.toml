@@ -1,0 +1,128 @@
+schema_version = 1
+id = "options"
+name = "Options"
+kind = "ui"
+description = "Console options screen: tab list on the left, graphics settings on the right."
+canvas = [640, 480]
+
+[[nodes]]
+id = "root"
+type = "panel"
+fill = [0.012, 0.016, 0.024]
+padding = 10
+
+[[nodes]]
+id = "tabs"
+type = "panel"
+parent = "root"
+w = "30%"
+fill = [0.03, 0.036, 0.045]
+border = [0.8, 0.82, 0.85]
+border_width = 2
+padding = 6
+stack = true
+gap = 4
+
+[[nodes]]
+id = "title"
+type = "label"
+parent = "tabs"
+text = "OPTIONS"
+colour = [0.0, 0.0, 0.0]
+fill = [0.85, 0.87, 0.9]
+h = "28px"
+
+[[nodes]]
+id = "tab_graphics"
+type = "button"
+parent = "tabs"
+text = "GRAPHICS"
+action = "options.tab.graphics"
+selected = true
+
+[[nodes]]
+id = "tab_audio"
+type = "button"
+parent = "tabs"
+text = "AUDIO"
+action = "options.tab.audio"
+
+[[nodes]]
+id = "tab_keyboard"
+type = "button"
+parent = "tabs"
+text = "KEYBOARD"
+action = "options.tab.keyboard"
+
+[[nodes]]
+id = "page"
+type = "panel"
+parent = "root"
+anchor = "top_right"
+w = "70%-8px"
+fill = [0.02, 0.026, 0.036]
+padding = 6
+stack = true
+gap = 4
+
+[[nodes]]
+id = "heading"
+type = "label"
+parent = "page"
+text = "GRAPHICS"
+align = "center"
+fill = [0.08, 0.09, 0.1]
+
+[[nodes]]
+id = "lights"
+type = "stepper"
+parent = "page"
+text = "Lights"
+action = "graphics.lights"
+value = "lights"
+options = "Low,Medium,High,Ultra"
+index = 2
+
+[[nodes]]
+id = "shadows"
+type = "stepper"
+parent = "page"
+text = "Main Shadow"
+action = "graphics.shadows"
+value = "shadows"
+options = "Low,Medium,High,Ultra"
+index = 3
+
+[[nodes]]
+id = "screen_glow"
+type = "toggle"
+parent = "page"
+text = "Screen Glow"
+action = "graphics.screen_glow"
+value = "screen_glow"
+checked = true
+
+[[nodes]]
+id = "bloom"
+type = "slider"
+parent = "page"
+text = "Bloom"
+action = "graphics.bloom"
+value = "bloom"
+default = 0.5
+
+[[nodes]]
+id = "rule"
+type = "divider"
+parent = "page"
+h = "6px"
+
+[[nodes]]
+id = "apply"
+type = "button"
+parent = "page"
+text = "APPLY"
+action = "graphics.apply"
+anchor = "top_right"
+w = "50%"
+h = "28px"

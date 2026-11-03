@@ -8,13 +8,14 @@ import { parse, stringify } from "smol-toml";
 import { componentTypes, type ComponentType } from "./components";
 import { projectScenes } from "./project-scenes";
 import type { ProjectSnapshot } from "./project";
+import { sharedTargetDir } from "./workspace";
 
 const execute = promisify(execFile);
 const state = globalThis as typeof globalThis & { emergentScenePreviewActive?: boolean };
 
 /** Runs one of the linked game binary's tool commands and returns its stdout. */
 export async function gameTool(project:ProjectSnapshot,args:string[],maxBuffer=1024*1024) {
-  try {return (await execute("cargo",["run","--quiet","--manifest-path",path.join(project.root,"Cargo.toml"),"--",...args],{cwd:project.root,shell:false,timeout:120000,maxBuffer,windowsHide:true})).stdout;}
+  try {return (await execute("cargo",["run","--quiet","--manifest-path",path.join(project.root,"Cargo.toml"),"--target-dir",sharedTargetDir,"--",...args],{cwd:project.root,shell:false,timeout:120000,maxBuffer,windowsHide:true})).stdout;}
   catch(error){const message=error&&typeof error==="object"&&"stderr"in error?String(error.stderr).trim().slice(-6000):"Rust scene tool failed.";throw new Error(message);}
 }
 const registries=new Map<string,{stamp:string;types:Promise<ComponentType[]>}>();
@@ -54,7 +55,7 @@ export async function validateProjectScene(project: ProjectSnapshot, scenePath: 
     const candidate = path.join(directory, "candidate.scene.toml");
     await writeFile(candidate, source);
     try {
-      await execute("cargo", ["run", "--quiet", "--manifest-path", path.join(project.root, "Cargo.toml"), "--", "--validate-scene", scenePath, "--candidate", candidate], {
+      await execute("cargo", ["run", "--quiet", "--manifest-path", path.join(project.root, "Cargo.toml"), "--target-dir", sharedTargetDir, "--", "--validate-scene", scenePath, "--candidate", candidate], {
         cwd: project.root, shell: false, timeout: 120_000, maxBuffer: 1024 * 1024, killSignal: "SIGTERM", windowsHide: true,
       });
     } catch (error) {
@@ -73,7 +74,7 @@ export async function renderProjectScene(project: ProjectSnapshot, scenePath: st
     directory = await mkdtemp(path.join(os.tmpdir(), "emergent-scene-preview-"));
     const output = path.join(directory, "frame.png");
     try {
-      await execute("cargo", ["run", "--quiet", "--manifest-path", path.join(project.root, "Cargo.toml"), "--", "--preview-scene", scenePath, "--preview-output", output], {
+      await execute("cargo", ["run", "--quiet", "--manifest-path", path.join(project.root, "Cargo.toml"), "--target-dir", sharedTargetDir, "--", "--preview-scene", scenePath, "--preview-output", output], {
         cwd: project.root, shell: false, timeout: 120_000, maxBuffer: 1024 * 1024,
         killSignal: "SIGTERM", windowsHide: true,
       });

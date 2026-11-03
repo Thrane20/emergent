@@ -11,6 +11,6 @@ export function ThemeSettings(){
  }
  return <section className="settings-panel" id="appearance">
   <div className="settings-panel-head"><div><span className="eyebrow">MAKE IT YOURS</span><h2>Appearance</h2></div><span className="local-only">THIS BROWSER</span></div>
-  <div className="settings-form theme-settings"><label className="settings-field"><span>IDE theme</span><select ref={select} aria-label="IDE theme" defaultValue={DEFAULT_THEME} onChange={event=>change(event.target.value as Theme)}><option value="charcoal">Charcoal · soft depth</option><option value="green">Emergent green · original</option></select></label></div>
+  <div className="settings-form theme-settings"><label className="settings-field"><span>IDE theme</span><select ref={select} aria-label="IDE theme" defaultValue={DEFAULT_THEME} onChange={event=>change(event.target.value as Theme)}><option value="charcoal">Charcoal · purple & cyan</option><option value="green">Emergent green · original</option></select></label></div>
  </section>;
 }

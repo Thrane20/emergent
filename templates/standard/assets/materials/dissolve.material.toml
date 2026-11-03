@@ -1,0 +1,8 @@
+schema_version = 1
+id = "shader-dissolve"
+name = "Dissolve"
+
+[material]
+shader = "assets/shaders/dissolve.shader.toml"
+cast_shadows = false
+shading = "smooth"

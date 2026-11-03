@@ -1,0 +1,192 @@
+schema_version = 1
+id = "water"
+name = "Stylised water"
+transparent = true
+
+[[parameters]]
+id = "red"
+name = "Red"
+default = 0.05
+min = 0
+max = 1
+
+[[parameters]]
+id = "green"
+name = "Green"
+default = 0.6
+min = 0
+max = 1
+
+[[parameters]]
+id = "blue"
+name = "Blue"
+default = 1
+min = 0
+max = 1
+
+[[parameters]]
+id = "frequency"
+name = "Wave frequency"
+default = 3
+min = 0.1
+max = 20
+
+[[parameters]]
+id = "speed"
+name = "Wave speed"
+default = 1.5
+min = 0
+max = 10
+
+[[parameters]]
+id = "height"
+name = "Wave height (m)"
+default = 0.12
+min = 0
+max = 1
+
+[[parameters]]
+id = "opacity"
+name = "Opacity"
+default = 0.75
+min = 0
+max = 1
+
+[[nodes]]
+id = "zero"
+op = "constant"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "one"
+op = "constant"
+inputs = []
+value = 1
+
+[[nodes]]
+id = "time"
+op = "time"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "red"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "red"
+
+[[nodes]]
+id = "green"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "green"
+
+[[nodes]]
+id = "blue"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "blue"
+
+[[nodes]]
+id = "x"
+op = "position_x"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "z"
+op = "position_z"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "frequency"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "frequency"
+
+[[nodes]]
+id = "speed"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "speed"
+
+[[nodes]]
+id = "height"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "height"
+
+[[nodes]]
+id = "phase"
+op = "multiply"
+inputs = [ "time", "speed" ]
+value = 0
+
+[[nodes]]
+id = "x-frequency"
+op = "multiply"
+inputs = [ "x", "frequency" ]
+value = 0
+
+[[nodes]]
+id = "z-frequency"
+op = "multiply"
+inputs = [ "z", "frequency" ]
+value = 0
+
+[[nodes]]
+id = "x-phase"
+op = "add"
+inputs = [ "x-frequency", "phase" ]
+value = 0
+
+[[nodes]]
+id = "z-phase"
+op = "add"
+inputs = [ "z-frequency", "phase" ]
+value = 0
+
+[[nodes]]
+id = "wave-x"
+op = "sine"
+inputs = [ "x-phase" ]
+value = 0
+
+[[nodes]]
+id = "wave-z"
+op = "sine"
+inputs = [ "z-phase" ]
+value = 0
+
+[[nodes]]
+id = "waves"
+op = "add"
+inputs = [ "wave-x", "wave-z" ]
+value = 0
+
+[[nodes]]
+id = "displace"
+op = "multiply"
+inputs = [ "waves", "height" ]
+value = 0
+
+[[nodes]]
+id = "opacity"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "opacity"
+
+[outputs]
+color = [ "red", "green", "blue" ]
+emission = "zero"
+opacity = "opacity"
+displacement = "displace"

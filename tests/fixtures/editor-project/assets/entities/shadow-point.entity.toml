@@ -1,0 +1,12 @@
+schema_version = 1
+id = "shadow-point"
+name = "Shadow lamp"
+kind = "point-light"
+[transform]
+translation = [2.0, 4.0, 2.0]
+[light]
+type = "point"
+color = [1.0, 0.95, 0.85]
+intensity = 4.0
+range = 16.0
+casts_shadows = true

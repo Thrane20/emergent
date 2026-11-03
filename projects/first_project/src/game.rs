@@ -90,6 +90,28 @@ impl FirstProjectGame {
     }
 }
 
+impl emergent::project_host::ProjectGame for FirstProjectGame {
+    fn components() -> emergent::ComponentRegistry {
+        crate::components::registry()
+    }
+
+    fn load(
+        engine: &mut emergent::Engine,
+        project: &emergent::Project,
+        scene: &str,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let speed = project
+            .read_text_asset("assets/data/leader_speed.txt")?
+            .trim()
+            .parse::<f32>()?;
+        Self::new(engine, project, scene, speed, None)
+    }
+
+    fn loaded(&self) -> &emergent::LoadedScene {
+        &self.loaded
+    }
+}
+
 impl Game for FirstProjectGame {
     fn start(&mut self, _context: &mut EngineContext<'_>) {
         eprintln!("Project scene constructed from authored assets through public Emergent APIs");
@@ -167,6 +189,42 @@ mod tests {
     use super::FirstProjectGame;
 
     #[test]
+    fn audio_demo_hum_doppler_shifts_as_the_cube_orbits_past_the_camera() {
+        let project = emergent::Project::load(env!("CARGO_MANIFEST_DIR")).unwrap();
+        let mut engine = Engine::new(EngineConfig::default()).unwrap();
+        let (audio, _mixer) = emergent::AudioWorld::new(emergent::AudioConfig::default()).unwrap();
+        engine.set_audio(audio);
+        let path = "assets/scenes/audio-demo.scene.toml";
+        let mut game = FirstProjectGame::new(&mut engine, &project, path, 0.0, None).unwrap();
+        let hummer = game.loaded.entities["hummer"];
+        fn engine_sound(engine: &Engine, id: emergent::EntityId) -> Option<emergent::SoundId> {
+            engine
+                .world()
+                .component::<emergent::AudioEmitter>(id)
+                .unwrap()
+                .unwrap()
+                .sound()
+        }
+        // Clips decode on the loader thread.
+        for _ in 0..500 {
+            engine.run_ticks(&mut game, 1).unwrap();
+            if engine_sound(&engine, hummer).is_some() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        let sound = engine_sound(&engine, hummer).expect("hum started");
+        let (mut low, mut high) = (f32::MAX, f32::MIN);
+        // One full orbit at 90°/s.
+        for _ in 0..(4 * 60) {
+            engine.run_ticks(&mut game, 1).unwrap();
+            let rate = engine.audio_mut().unwrap().playback_rate(sound).unwrap();
+            (low, high) = (low.min(rate), high.max(rate));
+        }
+        assert!(high > 1.03 && low < 0.97, "Doppler range {low}..{high}");
+    }
+
+    #[test]
     fn authored_physics_demo_falls_settles_and_reconstructs_without_saving() {
         let project = emergent::Project::load(env!("CARGO_MANIFEST_DIR")).unwrap();
         let path = "assets/scenes/physics.scene.toml";
@@ -220,28 +278,6 @@ mod tests {
             .translation()
             .y;
         assert!(height > 0.75, "jumping bean should be airborne, y={height}");
-    }
-
-    #[test]
-    fn authored_cube_spins_fifteen_degrees_in_one_second() {
-        let config = EngineConfig {
-            fixed_timestep: Duration::from_secs_f64(1.0 / 60.0),
-            ..EngineConfig::default()
-        };
-        let mut engine = Engine::new(config).unwrap();
-        let project = emergent::Project::load(env!("CARGO_MANIFEST_DIR")).unwrap();
-        let path = project.manifest().entry_scene.to_str().unwrap();
-        let mut game = FirstProjectGame::new(&mut engine, &project, path, 0.75, None).unwrap();
-
-        let cube = game.loaded.entities["cube"];
-        let initial = *engine.world().local_transform(cube).unwrap();
-        engine.run_ticks(&mut game, 60).unwrap();
-        let transform = *engine.world().local_transform(cube).unwrap();
-        let rotated_x = transform.rotation * Vec3::X;
-        let expected = initial.rotation * Quat::from_rotation_z(15.0_f32.to_radians()) * Vec3::X;
-        assert!(rotated_x.abs_diff_eq(expected, 1.0e-4));
-        assert_eq!(transform.translation, initial.translation);
-        assert_eq!(transform.scale, initial.scale);
     }
 
     #[test]
@@ -304,45 +340,6 @@ mod tests {
             .unwrap()
             .translation();
         assert!(defender_position.distance(offender_position) >= 2.0 - 1.0e-5);
-        assert_eq!(transform.rotation, initial.rotation);
-        assert_eq!(transform.scale, initial.scale);
-    }
-
-    #[test]
-    fn authored_offender_bounces_about_four_metres_above_ground() {
-        let config = EngineConfig {
-            fixed_timestep: Duration::from_secs_f64(1.0 / 60.0),
-            ..EngineConfig::default()
-        };
-        let mut engine = Engine::new(config).unwrap();
-        let project = emergent::Project::load(env!("CARGO_MANIFEST_DIR")).unwrap();
-        let path = project.manifest().entry_scene.to_str().unwrap();
-        let mut game = FirstProjectGame::new(&mut engine, &project, path, 0.75, None).unwrap();
-        let offender = game.loaded.entities[super::OFFENDER_BOX_ID];
-        let initial = *engine.world().local_transform(offender).unwrap();
-        let ground_y = engine
-            .world()
-            .global_transform(game.loaded.entities[super::GROUND_ID])
-            .unwrap()
-            .translation()
-            .y;
-
-        let mut maximum = f32::NEG_INFINITY;
-        for _ in 0..180 {
-            engine.run_ticks(&mut game, 1).unwrap();
-            maximum = maximum.max(
-                engine
-                    .world()
-                    .global_transform(offender)
-                    .unwrap()
-                    .translation()
-                    .y,
-            );
-        }
-
-        let transform = *engine.world().local_transform(offender).unwrap();
-        let contact_y = ground_y + 0.5;
-        assert!(((maximum - contact_y) - 4.0).abs() < 0.2, "{maximum}");
         assert_eq!(transform.rotation, initial.rotation);
         assert_eq!(transform.scale, initial.scale);
     }

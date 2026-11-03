@@ -4,7 +4,12 @@ import type { PhysicsSettings, SceneInstance } from "@/lib/scene-placement";
 
 const defaults:PhysicsSettings={enabled:false,body:"dynamic",gravity_scale:1,mass:1,friction:0.5,restitution:0,collider:{shape:"box"}};
 export function PhysicsInspector({instance,disabled,onApply,onDirty,onBusy}:{instance:SceneInstance;disabled:boolean;onApply:(value:PhysicsSettings|null)=>Promise<void>;onDirty:(dirty:boolean)=>void;onBusy:(busy:boolean)=>void}) {
-  const initial:PhysicsSettings=instance.physics??(instance.terrain?{...defaults,body:"static",collider:{shape:"terrain"}}:defaults);
+  const locomotion=instance.kinematicLocomotion;
+  const source=instance.physics??(instance.terrain?{...defaults,body:"static",collider:{shape:"terrain"}}:defaults);
+  const physical=instance.physicalLocomotion;
+  // Physical locomotion flies a dynamic body; a fixed wing's wheels are modelled, so its contact friction is 0.
+  const forPhysical=(value:PhysicsSettings):PhysicsSettings=>({...value,body:"dynamic",...(physical==="fixed_wing_physics"?{friction:0,collider:{...value.collider,shape:"box" as const}}:{})});
+  const initial:PhysicsSettings=locomotion&&!source.enabled&&!instance.physicsOverridden?{...source,body:"static"}:physical&&!source.enabled?forPhysical(source):source;
   const save=useLiveInspector(initial,next=>{
     for(const [key,min,max] of [["gravity_scale",0,100],["mass",0.0001,1000000],["friction",0,10],["restitution",0,1]] as const){const n=next[key];if(!Number.isFinite(n)||n<min||n>max)throw new Error(`Enter a valid ${key.replaceAll("_"," ")}.`);}
     for(const key of ["center","half_extents"] as const){const v=next.collider[key];if(v?.some(n=>!Number.isFinite(n)||Math.abs(n)>1000000||(key==="half_extents"&&n<0.0001)))throw new Error("Enter valid collider dimensions.");}
@@ -16,9 +21,11 @@ export function PhysicsInspector({instance,disabled,onApply,onDirty,onBusy}:{ins
     <h3>Physics</h3>
     <form onSubmit={event=>{event.preventDefault();}}>
       <fieldset disabled={blocked}>
-        <label className="uniform-scale"><input type="checkbox" checked={draft.enabled} onChange={event=>setDraft({...draft,enabled:event.target.checked})}/>Physics enabled</label>
+        <label className="uniform-scale"><input type="checkbox" checked={draft.enabled} onChange={event=>setDraft(physical&&event.target.checked?forPhysical({...draft,enabled:true}):{...draft,enabled:event.target.checked})}/>Physics enabled</label>
         {draft.enabled&&<>
           <label>Body<select disabled={draft.collider.shape==="terrain"} aria-label="Physics body" value={draft.body} onChange={event=>setDraft({...draft,body:event.target.value as PhysicsSettings["body"]})}><option value="dynamic">Dynamic — gravity and contacts</option><option value="static">Static — immovable collider</option></select></label>
+          {physical&&<p className="transform-note">This object uses {physical==="fixed_wing_physics"?"a physical fixed-wing":"a physical drone"} locomotion profile, which needs a Dynamic body{physical==="fixed_wing_physics"?" with a box collider and friction 0 (the pilot models the wheels)":""}.</p>}
+          {locomotion&&<p className="transform-note">This object uses kinematic locomotion. Its collider starts Static and follows that movement; Dynamic requires a physical locomotion profile.</p>}
           {draft.body==="dynamic"&&instance.parent&&<p className="transform-error">Move this instance to the scene root before enabling dynamic physics.</p>}
           {([["gravity_scale","Gravity scale",0,100],["mass","Mass (kg)",0.0001,1000000],["friction","Friction",0,10],["restitution","Bounce",0,1]] as const).map(([key,label,min,max])=><label key={key}>{label}<input aria-label={label} type="number" min={min} max={max} step="any" required value={Number.isNaN(draft[key])?"":draft[key]} onChange={event=>setDraft({...draft,[key]:event.target.valueAsNumber})}/></label>)}
           <label>Collider<select aria-label="Collider type" value={draft.collider.shape} onChange={event=>setDraft({...draft,body:event.target.value==="terrain"?"static":draft.body,collider:{shape:event.target.value as "box"|"terrain"}})}><option value="box">Box</option>{instance.terrain&&<option value="terrain">Terrain — follows surface</option>}</select></label>

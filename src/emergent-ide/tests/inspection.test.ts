@@ -92,3 +92,8 @@ test("tool results are bounded and malformed gizmo controls cannot cross the pro
 });
 
 test("terrain-sized inspection orbits remain bounded",()=>{const camera={projection:"isometric",fieldOfView:45,orthographicSize:200};assert.match(inspectionCommand({op:"view",yaw:0,pitch:0,distance:200,target:[0,0,0],...camera},1),/view_size=200/);assert.throws(()=>inspectionCommand({op:"view",yaw:0,pitch:0,distance:30001,target:[0,0,0],...camera},1),/bounds/);});
+
+test("physics attribute updates target an existing inspection instance",()=>{
+ assert.equal(inspectionCommand({op:"physics",id:"ground"},42),'request={seq=42, op="physics",id="ground"}\n');
+ assert.throws(()=>inspectionCommand({op:"physics",id:'bad"'},42));
+});

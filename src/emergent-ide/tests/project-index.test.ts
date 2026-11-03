@@ -12,6 +12,16 @@ function snapshot(files: Record<string, string>): ProjectSnapshot {
 
 const cube = 'schema_version = 1\nid = "cube"\nname = "Cube"\nkind = "primitive"\n[transform]\ntranslation = [0, 1, 0]\n';
 const lamp = 'schema_version = 1\nid = "lamp"\nname = "Lamp"\nkind = "light"\n';
+
+test("literal-quoted template IDs are indexed without missing-id repairs", async () => {
+  const index = await projectIndex(snapshot({
+    "assets/entities/cube.entity.toml": "schema_version=1\nid='cube'\nname='Cube'\nkind='primitive'\n",
+    "assets/scenes/main.scene.toml": "schema_version=1\nid='main'\n[[entities]]\nid='one'\nasset='assets/entities/cube.entity.toml'\n",
+  }));
+  assert.equal(index.assets[0].ref, "asset:cube");
+  assert.equal(index.scenes[0].ref, "scene:main");
+  assert.deepEqual(index.diagnostics, []);
+});
 const scene = `schema_version = 1
 id = "main"
 name = "Main"
@@ -60,6 +70,17 @@ test("duplicate names stay distinct candidates; exact names outrank substrings",
   assert.equal(findEntries(index, "light", { type: "asset" })[0].entry.ref, "asset:lamp");
   assert.deepEqual(findEntries(index, "  "), []);
   assert.ok(findEntries(index, "cube", { limit: 100 }).length <= 20);
+});
+
+test("UI assets are discoverable by durable ID and diagnose missing/duplicate identity", async () => {
+  const ui = 'schema_version=1\nid="options"\nname="Options"\nkind="ui"\ncanvas=[640,480]\n';
+  const index = await projectIndex(snapshot({ "assets/ui/options.ui.toml": ui }));
+  assert.equal(findEntries(index, "Options", { type: "asset" })[0].entry.ref, "asset:options");
+  assert.equal(resolveRef(index, "asset:options").type, "asset");
+  assert.equal(index.assets[0].kind, "ui");
+  const broken = await projectIndex(snapshot({ "assets/ui/options.ui.toml": ui, "assets/ui/copy.ui.toml": ui, "assets/ui/missing.ui.toml": 'schema_version=1\nname="Missing"\n' }));
+  assert.throws(() => resolveRef(broken, "asset:options"), /ambiguous/);
+  assert.ok(broken.diagnostics.some(item => item.code === "missing-id"));
 });
 
 test("stale, malformed and duplicated refs fail instead of resolving to another object", async () => {

@@ -162,3 +162,45 @@ These are single dev-server samples, not budgets.
   by Codex's non-interactive approval policy. With
   `mcp_servers.emergent.default_tools_approval_mode="approve"` it renamed the instance
   (change `074530e1…`), confirmed in the file. Interactive Codex asks before write tools.
+
+# Behaviour authoring over MCP (2026-11-01)
+
+## Delivered
+
+- **Index**: `*.brain.toml` and `*.locomotion.toml` are assets (`asset:<id>`, kinds `brain`
+  and `locomotion`), so `find`, `list` and `describe` cover them.
+- **describe**: instances list their components (brain/profile paths shown as refs);
+  brains return their node tree, profiles their type and fields, both with a revision and
+  a `usedBy` list across scenes.
+- **Read tools**: `list_brain_nodes`, `list_locomotion_types` (also the
+  `emergent://behaviour` resource), `preview_brain` (runs the engine; returns centroid,
+  speed, spread, distance to targets and closest pair at five samples) and
+  `preview_locomotion` (distance, top speed, height range, steer/bank/pitch extremes,
+  braking, final state).
+- **Write tools**: `create_brain` (nodes parent-first), `edit_brain` (add, update,
+  remove, move, reorder by node id; revision-guarded) and `write_locomotion` (create, or
+  change name, type, fields). Each is validated by the engine (`--validate-brain` /
+  `--validate-locomotion`) before writing, supports `dryRun`, is journalled for `history`
+  and `undo` (undoing a create removes the file), and refreshes the open IDE.
+- **set_component** accepts asset refs for brains, stacks and profiles and instance refs
+  for targets; scene files keep paths and instance IDs.
+- **Instructions** describe components, brains (channels, per-channel Priority, stacks,
+  signals), locomotion and the one-mover / one-rotator rules.
+
+## Validation
+
+- `pnpm test`: 155 pass (tool list and read/write annotations updated).
+- `pnpm test:mcp-edit` (real Rust validation on a copy of first_project): catalogues;
+  find and describe a brain; dry-run, invalid (engine-rejected) and real `create_brain`;
+  stale-revision refusal; `edit_brain` add/update/remove; `preview_brain`;
+  `write_locomotion` create, planned-type refusal, update with a field reset;
+  `preview_locomotion` (horizontal 6 m/s cap, √(6²+4²) overall with climb; reset tilt back
+  to 30°); `set_component` by refs (brain + stack, locomotion) stored as paths and shown as
+  refs; `usedBy`; history order; five undos restore the brain and scene; a sixth removes
+  the created brain.
+- **Live Claude Code** (`claude -p`, strict MCP config, Emergent tools only), asked in
+  plain English for a patrol drone on the pyramid at 6 m that wanders within 10 m and faces
+  the key light, previewing first: it created a drone profile and a brain (Priority over
+  Altitude → Blend(Wander, Stay within) and Look at), previewed both (held 6 m, 3.7–4.8 m/s,
+  7.3–8.7 m from start), attached Locomotion and Brain by ref with face-movement off, and
+  noted the duplicate "Key light" name in another scene. The scene validated.

@@ -10,6 +10,9 @@ export async function POST(request:Request) {
 export async function PUT(request:Request) {
   try {sameOrigin(request);const body=await request.json();const project=await inspectionProject(body.projectId);if(typeof body.id!=="string")throw new Error("Session ID is required.");return Response.json(await inspectionSessions.command(project,body.id,body.command));}catch(error){return failure(error);}
 }
+export async function PATCH(request:Request) {
+  try {sameOrigin(request);const body=await request.json();const project=await inspectionProject(body.projectId);if(typeof body.id!=="string")throw new Error("Session ID is required.");await inspectionSessions.park(project,body.id);return Response.json({ok:true});}catch(error){return failure(error);}
+}
 export async function DELETE(request:Request) {
   try {sameOrigin(request);const body=await request.json();const project=await inspectionProject(body.projectId);if(typeof body.id!=="string")throw new Error("Session ID is required.");return Response.json(await inspectionSessions.stop(project,body.id));}catch(error){return failure(error);}
 }

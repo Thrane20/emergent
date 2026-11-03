@@ -1,0 +1,178 @@
+schema_version = 1
+id = "force-field"
+name = "Force field"
+transparent = true
+
+[[parameters]]
+id = "red"
+name = "Red"
+default = 0.05
+min = 0
+max = 1
+
+[[parameters]]
+id = "green"
+name = "Green"
+default = 0.6
+min = 0
+max = 1
+
+[[parameters]]
+id = "blue"
+name = "Blue"
+default = 1
+min = 0
+max = 1
+
+[[parameters]]
+id = "strength"
+name = "Glow strength"
+default = 1
+min = 0
+max = 10
+
+[[parameters]]
+id = "speed"
+name = "Pulse speed"
+default = 2
+min = 0
+max = 10
+
+[[parameters]]
+id = "opacity"
+name = "Base opacity"
+default = 0.15
+min = 0
+max = 1
+
+[[nodes]]
+id = "zero"
+op = "constant"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "one"
+op = "constant"
+inputs = []
+value = 1
+
+[[nodes]]
+id = "time"
+op = "time"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "red"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "red"
+
+[[nodes]]
+id = "green"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "green"
+
+[[nodes]]
+id = "blue"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "blue"
+
+[[nodes]]
+id = "rim"
+op = "fresnel"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "strength"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "strength"
+
+[[nodes]]
+id = "speed"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "speed"
+
+[[nodes]]
+id = "opacity"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "opacity"
+
+[[nodes]]
+id = "phase"
+op = "multiply"
+inputs = [ "time", "speed" ]
+value = 0
+
+[[nodes]]
+id = "pulse"
+op = "sine"
+inputs = [ "phase" ]
+value = 0
+
+[[nodes]]
+id = "pulse-amplitude"
+op = "constant"
+inputs = []
+value = 0.375
+
+[[nodes]]
+id = "pulse-scaled"
+op = "multiply"
+inputs = [ "pulse", "pulse-amplitude" ]
+value = 0
+
+[[nodes]]
+id = "pulse-offset"
+op = "constant"
+inputs = []
+value = 0.625
+
+[[nodes]]
+id = "pulse-bias"
+op = "add"
+inputs = [ "pulse-scaled", "pulse-offset" ]
+value = 0
+
+[[nodes]]
+id = "glow"
+op = "multiply"
+inputs = [ "rim", "strength" ]
+value = 0
+
+[[nodes]]
+id = "glow-pulse"
+op = "multiply"
+inputs = [ "glow", "pulse-bias" ]
+value = 0
+
+[[nodes]]
+id = "alpha"
+op = "add"
+inputs = [ "opacity", "rim" ]
+value = 0
+
+[[nodes]]
+id = "alpha-pulse"
+op = "multiply"
+inputs = [ "alpha", "pulse-bias" ]
+value = 0
+
+[outputs]
+color = [ "red", "green", "blue" ]
+emission = "glow-pulse"
+opacity = "alpha-pulse"
+displacement = "zero"

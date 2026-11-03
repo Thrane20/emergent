@@ -25,9 +25,29 @@ Calls for the same body during a tick are summed; forces are cleared between ste
 so submit a force again on each tick it should remain active. Use force for sustained
 acceleration and add an impulse API separately if one-shot velocity changes are needed.
 
+`World::add_torque(entity, torque)` now supplies world-space N·m with the same
+per-fixed-step accumulation/reset semantics. It changes angular acceleration rather
+than prescribing a pose. `World::angular_velocity(entity)` reads committed
+world-space radians/s, or `None` before the body's first physics step. Body/scale
+reconstruction resets angular motion as well as linear motion; reads are backend
+snapshots until the next fixed reconciliation. Stale/wrong-world handles are
+rejected; removed-body commands cannot affect a replacement key. The flight pilot
+must handle reconstruction explicitly. [Flight-control contract](flight-control.md),
+[validation](../platform/flight-control-macos.md).
+
+`World::physics_body_state(entity)` adds a reconstruction-aware observation of
+committed pose, linear/angular velocity, actual mass and effective gravity. It is
+`None` before initialization or when current settings/pose no longer match the
+committed body. A successful reconstruction changes its world-local revision,
+which is change bookkeeping for the same EntityId, never serialized identity.
+The shared `PHYSICS_GRAVITY` constant supplies backend gravity; body observations
+include the per-body gravity scale. `drone_physics` is an explicitly unpowered,
+loadable locomotion boundary that requires this dynamic-body owner. It does not
+execute flight goals or drive the transform. [FLIGHT-2 validation](../platform/physics-locomotion-boundary-macos.md).
+
 Authored settings: enabled, body (static/dynamic), gravity_scale, mass, friction,
 restitution and collider (shape=box, center, half_extents). Missing bounds are fitted
-once from geometry; zero-thickness planes get a minimum collision thickness.
+once from local geometry, or from descendant geometry when the parent has none; zero-thickness planes get a minimum collision thickness. Descendant bounds are transformed into the parent's local space during scene validation, before runtime construction. Truly empty groups still require explicit half_extents.
 Explicit dimensions must be positive/finite. Disabled overrides remove defaults.
 
 Expected first workload: tens to hundreds of boxes. No performance target claimed.
@@ -42,7 +62,7 @@ https://github.com/avianphysics/avian and https://github.com/jrouwe/JoltPhysics.
 
 ## Use
 
-The reference project already enables physics. Load `assets/scenes/physics.scene.toml`
+The standard template enables physics through the engine host. Load `assets/scenes/first-person.scene.toml`
 in the IDE and Inspect to see a paused cube and collider outlines. Select an
 instance to edit Physics settings beneath Transform. Apply physics writes a complete
 instance override and reconstructs inspection. Asset defaults can be edited in TOML.
@@ -50,7 +70,7 @@ instance override and reconstructs inspection. Asset defaults can be edited in T
 Run the independent demo from the repository root:
 
 ```sh
-cargo run --release -p emergent-first-project -- --run-scene assets/scenes/physics.scene.toml
+cargo run --release -p emergent-standard-template -- --run-scene assets/scenes/first-person.scene.toml
 ```
 
 The IDE Run button launches the scene selected in the scene dropdown, using
@@ -80,3 +100,9 @@ physics. Static ground also needs a collider; dynamic objects collide with the b
 not with the detailed render mesh. Auto-fit planes receive finite collision thickness.
 
 Observed validation: [PH-1 macOS evidence](../platform/physics-foundation-macos.md).
+
+### Live inspection attributes
+
+Physics saves use the existing revision-guarded scene write, then send a `physics` command containing the authored instance ID to the retained worker. The worker validates the saved scene through the same project registry and resolves that ID to its existing SlotMap handle. Only that entity's PhysicsBody and retained collider outlines change. Removing an override restores the validated asset default; disabling physics removes the component and outline. Inspection stays at tick zero; orbit, selection, geometry and unrelated entities survive. Errors leave the saved scene available and report live application failure without an automatic worker restart. Validation currently parses the whole scene on edits (off the simulation hot path); narrow it if measured latency warrants it. This does not hot-edit a separate native Run process.
+
+Model-parts prefabs use an empty root with renderable children. The Physics inspector defaults to a Static collider when an object has a kinematic locomotion profile; Static colliders follow authored movement. Dynamic bodies require a physical locomotion profile and remain incompatible with the kinematic drone profile.

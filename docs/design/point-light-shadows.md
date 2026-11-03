@@ -42,7 +42,9 @@ and Receive shadows controls apply to directional and point shadows alike.
 Select **Point shadows — lamp and cube** for a contained demo, or run:
 
 ```sh
-cargo run --release -p emergent-first-project -- --run-scene assets/scenes/point-shadows.scene.toml
+# Prepare the engine-owned disposable fixture from src/emergent-ide:
+# npx tsx scripts/mcp-smoke-project.mts
+cargo run --release --manifest-path target/mcp-smoke/game/Cargo.toml -- --run-scene assets/scenes/point-shadows.scene.toml
 ```
 
 Moving the light updates all six frusta each rendered frame. Rotating a point light

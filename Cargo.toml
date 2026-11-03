@@ -6,20 +6,25 @@ description = "The foundation of the Emergent game engine"
 license = "MIT OR Apache-2.0"
 
 [workspace]
-members = ["projects/first_project"]
+members = ["templates/standard", "templates/plugin"]
+exclude = ["projects/first_project"]
 resolver = "2"
 
 [features]
 default = []
 density-mesh = ["dep:fast-surface-nets"]
 physics = ["dep:rapier3d"]
-graphics = ["dep:half", "dep:bytemuck", "dep:pollster", "dep:wgpu", "dep:winit"]
+# The project host (the IDE contract) lives behind `graphics`; it decodes and plays audio,
+# so every project gets audio without listing the feature itself.
+graphics = ["dep:half", "dep:bytemuck", "dep:pollster", "dep:wgpu", "dep:winit", "dep:png", "audio"]
+audio = ["dep:cpal", "dep:symphonia"]
 
 [dependencies]
 fast-surface-nets = { version = "=0.2.1", optional = true }
 bevy_ecs = { version = "0.20.0", default-features = false, features = ["std"] }
 bytemuck = { version = "1.25.2", features = ["derive"], optional = true }
 glam = "0.34.1"
+gltf = { version = "=1.4.1", default-features = false, features = ["utils"] }
 half = { version = "2.7.1", optional = true }
 noise = { version = "=0.9.0", default-features = false }
 rapier3d = { version = "=0.36.1", optional = true }
@@ -29,10 +34,17 @@ slotmap = "1.1.1"
 toml = "1.1.8"
 wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "gles", "vulkan", "wgsl"], optional = true }
 winit = { version = "0.30.13", optional = true }
+png = { version = "0.18", optional = true }
 image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+cpal = { version = "=0.18.2", optional = true }
+symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "mp3", "ogg", "vorbis", "flac"], optional = true }
 
 [dev-dependencies]
 hecs = "0.11.2"
+
+[[example]]
+name = "flight_baseline"
+required-features = ["physics"]
 
 [[example]]
 name = "terrain_live_preview"

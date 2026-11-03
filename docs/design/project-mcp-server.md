@@ -19,6 +19,9 @@ ordinary reviewable files.
 **An MCP endpoint inside the IDE server process** (`/api/mcp`, Streamable HTTP),
 plus a thin stdio bridge (`pnpm mcp:stdio`) for clients that only launch processes.
 
+Embedded chat connects to this same server with an in-memory MCP client; see
+[embedded adapter](embedded-mcp-chat.md) for provider loops and validation boundaries.
+
 Several things already live in that one Node process, held in `globalThis`:
 
 - the persistent inspection worker (`InspectionSessions`)
@@ -102,6 +105,7 @@ resource `emergent://selection`.
 | `set_material` / `set_physics` / `set_camera` / `set_environment` | Component edits | existing `saveScene*`, lighting settings |
 | `create_asset` | New asset from a catalogue template | `asset-catalog` templates |
 | `edit_toml` | Validated whole-file edit (escape hatch) | `saveTomlDocument` |
+| `list_ui_widgets` / `create_ui` / `edit_ui` / `preview_ui` (implemented) | Native widget catalogue, authored UI tree edits and paged canvas rectangles; no in-game rendering | UI Designer document/layout helpers, Rust `--validate-ui`, shared asset publication/undo |
 | `validate` / `run` / `run_status` | Check, launch or stop the game and read bounded logs | `--validate-scenes`, `projectRunManager` |
 | `undo` | Revert the last MCP change if its revision still matches | new MCP change journal |
 

@@ -247,8 +247,9 @@ impl StructureDefinition {
                     "Part transforms must be finite with nonzero scale.",
                 ));
             }
-            if !(3..=4096).contains(&p.mesh.vertices.len())
-                || !(1..=8192).contains(&p.mesh.faces.len())
+            if !(p.mesh.vertices.is_empty() && p.mesh.faces.is_empty())
+                && (!(3..=4096).contains(&p.mesh.vertices.len())
+                    || !(1..=8192).contains(&p.mesh.faces.len()))
                 || p.mesh
                     .vertices
                     .iter()

@@ -24,7 +24,7 @@ export const brainRevision = (source: string) => createHash("sha256").update(sou
 
 export function listBrains(project: ProjectSnapshot): BrainSummary[] {
   return project.files.filter(file => file.path.endsWith(".brain.toml") && project.assetRoots.some(root => file.path.startsWith(`${root}/`))).map(file => {
-    try { const brain = parseBrain(file.content ?? ""); return { path: file.path, id: brain.id, name: brain.name, description: brain.description, nodes: brain.nodes.length }; }
+    try { const brain = parseBrain(file.content ?? ""); return { path: file.path, id: brain.id, name: brain.name, description: brain.description, nodes: brain.nodes.length, tree: brain.nodes.map(({ id, parent, type }) => ({ id, parent, type })) }; }
     catch (error) { return { path: file.path, id: "", name: file.name, description: "", nodes: 0, error: error instanceof Error ? error.message : "Invalid brain." }; }
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -62,7 +62,7 @@ export async function saveBrain(project: ProjectSnapshot, input: { path?: string
   return { path: target, revision: brainRevision(content), brain };
 }
 
-export type PreviewOptions = { agents: number; targets: number; targetSpeed: number; seconds: number; agentGroup: string; targetGroup: string; maxSpeed: number; seed: number };
+export type PreviewOptions = { agents: number; targets: number; obstacles: number; targetSpeed: number; seconds: number; agentGroup: string; targetGroup: string; maxSpeed: number; seed: number };
 const groupName = (value: unknown, fallback: string) => typeof value === "string" && /^[\w .-]{1,64}$/.test(value) ? value.trim() : fallback;
 
 /** Runs the (unsaved) brain in the Rust runtime and returns the raw trace text. */
@@ -71,7 +71,7 @@ export async function previewBrain(project: ProjectSnapshot, brainPath: string |
   const target = brainPath ?? `${BRAIN_DIRECTORY}/${brain.id}.brain.toml`;
   const clamp = (value: unknown, min: number, max: number, fallback: number) => typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
   const args = [
-    `agents=${Math.round(clamp(options.agents, 1, 256, 20))}`, `targets=${Math.round(clamp(options.targets, 0, 32, 1))}`, `target_speed=${clamp(options.targetSpeed, 0, 20, 3)}`,
+    `agents=${Math.round(clamp(options.agents, 1, 256, 20))}`, `targets=${Math.round(clamp(options.targets, 0, 32, 1))}`, `obstacles=${Math.round(clamp(options.obstacles, 0, 64, 0))}`, `target_speed=${clamp(options.targetSpeed, 0, 20, 3)}`,
     `seconds=${clamp(options.seconds, 1, 30, 20)}`, `max_speed=${clamp(options.maxSpeed, 0.1, 50, 3)}`, `seed=${Math.round(clamp(options.seed, 1, 1e9, 1))}`,
     `agent_group=${groupName(options.agentGroup, "agents")}`, `target_group=${groupName(options.targetGroup, "target")}`,
   ];

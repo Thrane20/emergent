@@ -10,6 +10,7 @@ import {projectImages} from "./image-library";
 import {readProjectSnapshot,type ProjectSnapshot} from "./project";
 import {foundationRoot} from "./project-code-context";
 import {applyChanges,checkCandidate} from "./statement-files";
+import {SCENE_MAX_BYTES} from "./scene-limits";
 
 async function skyboxStamp(project:ProjectSnapshot,settings:LightingSettings){
  if(!settings.skybox)return "";
@@ -18,7 +19,7 @@ async function skyboxStamp(project:ProjectSnapshot,settings:LightingSettings){
 }
 export async function readSceneLighting(project:ProjectSnapshot,path:string){
  if(!projectScenes(project).some(scene=>scene.path===path))throw new Error("Choose a scene from this project.");
- const source=await readFile(await containedFile(project.root,path,256*1024),"utf8"),settings=lightingSettings(parse(source).environment);
+ const source=await readFile(await containedFile(project.root,path,SCENE_MAX_BYTES),"utf8"),settings=lightingSettings(parse(source).environment);
  const revision=createHash("sha256").update(source).update(await skyboxStamp(project,settings)).digest("hex");
  return {path,source,settings,revision};
 }
@@ -28,7 +29,7 @@ export function replaceSceneLighting(source:string,value:unknown){
  let content:string;
  if(header){const start=header.index,end=source.slice(start+header[0].length).search(/^\s*\[/m),finish=end<0?source.length:start+header[0].length+end;content=source.slice(0,start)+table+"\n"+source.slice(finish);}
  else{if(before.environment!==undefined)throw new Error("Use the TOML editor to convert inline environment settings into an [environment] table.");content=source.trimEnd()+"\n\n"+table;}
- if(Buffer.byteLength(content)>256*1024||!isDeepStrictEqual(parse(content),parse(stringify(expected))))throw new Error("Could not safely update scene lighting. Use the TOML editor.");
+ if(Buffer.byteLength(content)>SCENE_MAX_BYTES||!isDeepStrictEqual(parse(content),parse(stringify(expected))))throw new Error("Could not safely update scene lighting. Use the TOML editor.");
  return content;
 }
 const state=globalThis as typeof globalThis&{emergentScenePlacementActive?:boolean};
@@ -43,4 +44,25 @@ export async function saveSceneLighting(project:ProjectSnapshot,input:{path:stri
   if((await readSceneLighting(fresh,input.path)).revision!==current.revision||await skyboxStamp(fresh,settings)!==stamp)throw new Error("Scene or skybox changed during validation. Reload before saving.");
   await applyChanges(project,[change]);const saved=await readSceneLighting(fresh,input.path);return {path:saved.path,settings:saved.settings,revision:saved.revision};
  }finally{state.emergentScenePlacementActive=false;}
+}
+
+/** Scene wind: metres per second, blowing from a compass bearing (0 = from −Z/north). */
+export type SceneWind={speed:number;from:number};
+export function sceneWind(value:unknown):SceneWind|null{
+ if(value===undefined||value===null)return null;
+ const v=value as Partial<SceneWind>;
+ if(typeof v!=="object"||Array.isArray(v)||Object.keys(v).some(k=>k!=="speed"&&k!=="from")||typeof v.speed!=="number"||!Number.isFinite(v.speed)||v.speed<0||v.speed>100||(v.from!==undefined&&(typeof v.from!=="number"||!Number.isFinite(v.from)||v.from<0||v.from>360)))throw new Error("Wind needs a speed of 0–100 m/s and a from-bearing of 0–360°.");
+ return {speed:v.speed,from:v.from??0};
+}
+/** Sets (or with null removes) the scene's top-level [wind] table, keeping everything else byte-for-byte. */
+export function replaceSceneWind(source:string,value:SceneWind|null){
+ const before=parse(source) as Record<string,unknown>,expected={...before};
+ if(value)expected.wind={speed:value.speed,from:value.from};else delete expected.wind;
+ const header=/^\[wind\][ \t]*(?:#[^\r\n]*)?\r?$/m.exec(source);
+ const table=value?stringify({wind:{speed:value.speed,from:value.from}})+"\n":"";
+ let content:string;
+ if(header){const start=header.index,end=source.slice(start+header[0].length).search(/^\s*\[/m),finish=end<0?source.length:start+header[0].length+end;content=source.slice(0,start)+table+source.slice(finish);}
+ else{if(before.wind!==undefined)throw new Error("Use the TOML editor to convert inline wind settings into a [wind] table.");content=value?source.trimEnd()+"\n\n"+table:source;}
+ if(Buffer.byteLength(content)>SCENE_MAX_BYTES||!isDeepStrictEqual(parse(content),parse(stringify(expected))))throw new Error("Could not safely update the scene's wind. Use the TOML editor.");
+ return content;
 }

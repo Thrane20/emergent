@@ -15,14 +15,16 @@ type Props = {
   projectId: string;
   projectName: string;
   scene?: { path: string; name: string };
-  object?: { scope: string; name: string };
+  object?: { scope: string; name: string; draftKey?: string };
   aiSettings: PublicAISettings;
   disabled: boolean;
+  allowDraftWhileDisabled?: boolean;
+  requestContext?: string;
   onBusy: (busy:boolean)=>void;
   onApplied: ()=>void;
 };
 
-export function ProjectChat({ projectId, projectName, scene, object, aiSettings, disabled, onBusy, onApplied }: Props) {
+export function ProjectChat({ projectId, projectName, scene, object, aiSettings, disabled, allowDraftWhileDisabled = false, requestContext, onBusy, onApplied }: Props) {
   const [scopeKind, setScopeKind] = useState<"game" | "scene" | "object">("object");
   const [drafts, setDrafts] = useState<Record<string,string>>({});
   const [expanded, setExpanded] = useState(true);
@@ -33,8 +35,9 @@ export function ProjectChat({ projectId, projectName, scene, object, aiSettings,
   const activeScope = kind === "object" && object ? object.scope : kind === "scene" && scene ? `file:${scene.path}` : `project:${projectId}`;
   const scopeLabel = kind === "object" && object ? object.name : kind === "scene" && scene ? scene.name : projectName;
   const thread = messages[activeScope] ?? [];
-  const draft = drafts[activeScope] ?? "";
-  const setDraft = (text:string) => setDrafts(current=>({...current,[activeScope]:text}));
+  const draftScope = kind === "object" && object?.draftKey ? object.draftKey : activeScope;
+  const draft = drafts[draftScope] ?? "";
+  const setDraft = (text:string) => setDrafts(current=>({...current,[draftScope]:text}));
 
   const submit = async (event?: FormEvent) => {
     event?.preventDefault();
@@ -71,7 +74,7 @@ export function ProjectChat({ projectId, projectName, scene, object, aiSettings,
           projectId,
           scope: requestScope,
           scenePath: scene?.path,
-          message: text,
+          message: requestContext && kind === "object" ? `${requestContext}\n\n${text}` : text,
           history: requestHistory.map(({ role, text: historyText }) => ({ role, text: historyText })),
         }),
       });
@@ -128,7 +131,7 @@ export function ProjectChat({ projectId, projectName, scene, object, aiSettings,
             : thread.map((message) => <div className={`chat-message ${message.role} ${message.state ?? ""}`} key={message.id}><b>{message.role === "user" ? "You" : "Emergent"}</b><p>{message.text}</p></div>)}
         </div>
         <form className="chat-composer" onSubmit={submit}>
-          <textarea disabled={disabled || sending} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={`Describe what to build for ${scopeLabel}…`} rows={2} />
+          <textarea disabled={sending || disabled && !allowDraftWhileDisabled} value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={onKeyDown} placeholder={`Describe what to build for ${scopeLabel}…`} rows={2} />
           <button type="submit" disabled={!draft.trim() || sending || disabled} title="Send request to Codex">{sending ? "…" : "↑"}</button>
         </form>
       </>}

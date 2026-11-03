@@ -9,7 +9,7 @@ import {chromium,expect} from "@playwright/test";
 import {DEFAULT_TERRAIN} from "../src/lib/terrain";
 async function main(){
  const root=path.resolve("../.."),temporary=await mkdtemp(path.join(os.tmpdir(),"emergent-texture-ui-")),project=path.join(temporary,"project"),port=process.env.EMERGENT_TEXTURE_TEST_PORT??"3001",base=`http://localhost:${port}`;
- await cp(path.join(root,"projects/first_project"),project,{recursive:true,filter:source=>!["target",".git","node_modules","dist"].includes(path.basename(source))});
+ await cp(path.join(root,"templates/standard"),project,{recursive:true,filter:source=>!["target",".git","node_modules","dist"].includes(path.basename(source))});
  const cargo=parse(await readFile(path.join(project,"Cargo.toml"),"utf8"));(cargo.package as Record<string,unknown>).name=`emergent-texture-smoke-${randomUUID().slice(0,8)}`;(cargo.dependencies as Record<string,unknown>).emergent={path:root,features:["graphics","physics"]};cargo.workspace={};await writeFile(path.join(project,"Cargo.toml"),stringify(cargo));await cp(path.join(root,"Cargo.lock"),path.join(project,"Cargo.lock"));
  const scene="assets/scenes/texture-smoke.scene.toml",projectId=parse(await readFile(path.join(project,"emergent.toml"),"utf8")).id;
  await mkdir(path.join(project,"assets/scenes"),{recursive:true});

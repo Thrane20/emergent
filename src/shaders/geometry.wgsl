@@ -1,6 +1,7 @@
 struct MaterialUniform {
     albedo: vec4<f32>, specular: vec4<f32>, emission: vec4<f32>, params: vec4<f32>,
     map_strength: vec4<f32>, bounds_min: vec4<f32>, bounds_size: vec4<f32>, camera: vec4<f32>, diffuse:vec4<f32>,
+    texture_tiling:vec4<f32>, shader_time:vec4<f32>, shader_parameters:array<vec4<f32>,4>,
 };
 struct ObjectUniform { model: mat4x4<f32>, model_view_projection: mat4x4<f32>, normal_matrix: mat4x4<f32>, material: MaterialUniform, };
 struct FrameUniform { light_view_projection: mat4x4<f32>, shadow_enabled: u32, _padding: vec3<u32>, point_view_projections: array<mat4x4<f32>, 12>, };
@@ -26,16 +27,27 @@ fn noise_sample(uv:vec3<f32>,layer:i32)->vec4<f32>{
     let p=(clamp(uv,vec3<f32>(0.0),vec3<f32>(1.0))*(side-1.0)+vec3<f32>(0.5))/side;
     return textureSampleLevel(material_noise,material_sampler,vec3<f32>(p.xy,(p.z+f32(layer))/object.material.diffuse.z),0.0);
 }
-struct VertexInput { @location(0) position: vec3<f32>, @location(1) color: vec4<f32>, @location(2) normal: vec3<f32>, };
-struct VertexOutput { @builtin(position) clip_position: vec4<f32>, @location(0) color: vec4<f32>, @location(1) world_position: vec3<f32>, @location(2) normal: vec3<f32>, @location(3) shadow_position: vec4<f32>, @location(4) local_position: vec3<f32>, @location(5) local_normal:vec3<f32>, };
+struct VertexInput { @location(0) position: vec3<f32>, @location(1) color: vec4<f32>, @location(2) normal: vec3<f32>, @location(3) uv: vec2<f32>, };
+struct VertexOutput { @builtin(position) clip_position: vec4<f32>, @location(0) color: vec4<f32>, @location(1) world_position: vec3<f32>, @location(2) normal: vec3<f32>, @location(3) shadow_position: vec4<f32>, @location(4) local_position: vec3<f32>, @location(5) local_normal:vec3<f32>, @location(6) uv: vec2<f32>, };
 
+struct SurfaceGraph { color:vec3<f32>, emission:f32, opacity:f32, displacement:f32, };
+fn surface_noise(x:f32)->f32 {
+    let i=floor(x);let f=fract(x);let u=f*f*(3.0-2.0*f);
+    return mix(fract(sin(i*127.1)*43758.5453),fract(sin((i+1.0)*127.1)*43758.5453),u);
+}
+fn surface_smooth(a:f32,b:f32,x:f32)->f32 { let t=clamp((x-a)/max(b-a,0.0001),0.0,1.0);return t*t*(3.0-2.0*t); }
+// SURFACE_GRAPH_BEGIN
+fn surface_graph(p:vec3<f32>,uv:vec2<f32>,facing:f32)->SurfaceGraph { return SurfaceGraph(vec3<f32>(1.0),0.0,1.0,0.0); }
+// SURFACE_GRAPH_END
 @vertex fn vertex_main(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
-    let world = object.model * vec4<f32>(input.position, 1.0);
-    output.clip_position = object.model_view_projection * vec4<f32>(input.position, 1.0);
+    let position = input.position; // SURFACE_VERTEX
+    let world = object.model * vec4<f32>(position, 1.0);
+    output.clip_position = object.model_view_projection * vec4<f32>(position, 1.0);
     output.color = input.color;
     output.local_position = input.position;
     output.local_normal = input.normal;
+    output.uv = input.uv;
     output.world_position = world.xyz;
     output.normal = normalize((object.normal_matrix * vec4<f32>(input.normal, 0.0)).xyz);
     output.shadow_position = frame.light_view_projection * world;
@@ -79,20 +91,29 @@ fn shade(input: VertexOutput, material:MaterialUniform, layer:i32) -> vec4<f32> 
     let uv = (input.local_position - material.bounds_min.xyz) / material.bounds_size.xyz;
     let noise = noise_sample(uv,layer);
     let masks = mix(vec4<f32>(1.0), noise, material.map_strength);
+    var alpha = input.color.a;
     var albedo = select(input.color.rgb, material.albedo.rgb, material.albedo.w > 0.5) * masks.r;
     let p=input.local_position*material.diffuse.y;
     let dx=dpdx(p);let dy=dpdy(p);
-    if material.diffuse.x>0.5 {
+    let tiled_uv=input.uv*material.texture_tiling.xy;
+    let uv_dx=dpdx(tiled_uv);let uv_dy=dpdy(tiled_uv);
+    if material.diffuse.x>1.5 {
+        let image=textureSampleGrad(diffuse_texture,diffuse_sampler,tiled_uv,layer,uv_dx,uv_dy);
+        albedo*=image.rgb;alpha*=image.a;
+    } else if material.diffuse.x>0.5 {
         let axes=pow(abs(normalize(input.local_normal)),vec3<f32>(4.0));
         let weights=axes/max(axes.x+axes.y+axes.z,0.0001);
-        let image=textureSampleGrad(diffuse_texture,diffuse_sampler,p.yz,layer,dx.yz,dy.yz).rgb*weights.x
-            +textureSampleGrad(diffuse_texture,diffuse_sampler,p.xz,layer,dx.xz,dy.xz).rgb*weights.y
-            +textureSampleGrad(diffuse_texture,diffuse_sampler,p.xy,layer,dx.xy,dy.xy).rgb*weights.z;
+        let tiling=material.texture_tiling.xy;
+        let image=textureSampleGrad(diffuse_texture,diffuse_sampler,p.yz*tiling,layer,dx.yz*tiling,dy.yz*tiling).rgb*weights.x
+            +textureSampleGrad(diffuse_texture,diffuse_sampler,p.xz*tiling,layer,dx.xz*tiling,dy.xz*tiling).rgb*weights.y
+            +textureSampleGrad(diffuse_texture,diffuse_sampler,p.xy*tiling,layer,dx.xy*tiling,dy.xy*tiling).rgb*weights.z;
         albedo*=image;
     }
-    let emission = material.emission.rgb * material.emission.w * masks.b;
+    if alpha<0.001 {discard;}
+    var emission = material.emission.rgb * material.emission.w * masks.b;
+    // SURFACE_FRAGMENT
     let specular = material.specular.rgb * masks.g;
-    if material.params.y > 0.5 || light_buffer.count == 0u { return vec4<f32>(albedo + emission, input.color.a); }
+    if material.params.y > 0.5 || light_buffer.count == 0u { return vec4<f32>(albedo + emission, alpha); }
     var surface_normal = normalize(input.normal);
     if material.bounds_min.w > 0.5 { surface_normal = normalize(cross(dpdx(input.world_position),dpdy(input.world_position))); if dot(surface_normal,input.normal)<0.0 {surface_normal = -surface_normal;} }
     if material.map_strength.a > 0.0 && material.params.x > 0.0 {
@@ -136,7 +157,7 @@ fn shade(input: VertexOutput, material:MaterialUniform, layer:i32) -> vec4<f32> 
             highlights += radiance * highlight(surface_normal, incoming, view, material.specular.w) * attenuation;
         }
     }
-    return vec4<f32>(albedo * illumination + specular * highlights + emission, input.color.a);
+    return vec4<f32>(albedo * illumination + specular * highlights + emission, alpha);
 }
 
 @fragment fn fragment_main(input:VertexOutput)->@location(0) vec4<f32>{

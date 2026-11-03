@@ -1,0 +1,16 @@
+# Expected rects [x, y, w, h] for templates/standard/assets/ui/options.ui.toml, worked out by hand.
+# Shared by tests/ui.rs and src/emergent-ide/tests/ui.test.ts so Rust and the IDE preview lay out alike.
+root = [0, 0, 640, 480]
+tabs = [10, 10, 186, 460]
+title = [16, 16, 174, 28]
+tab_graphics = [16, 48, 174, 24]
+tab_audio = [16, 76, 174, 24]
+tab_keyboard = [16, 104, 174, 24]
+page = [204, 10, 426, 460]
+heading = [210, 16, 414, 24]
+lights = [210, 44, 414, 24]
+shadows = [210, 72, 414, 24]
+screen_glow = [210, 100, 414, 24]
+bloom = [210, 128, 414, 24]
+rule = [210, 156, 414, 6]
+apply = [417, 166, 207, 28]

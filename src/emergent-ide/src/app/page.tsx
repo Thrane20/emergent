@@ -1,6 +1,6 @@
 import { ProjectStudio } from "@/components/project-studio";
 import { readPublicAISettings } from "@/lib/ai-settings";
-import { readProjectSnapshot } from "@/lib/project";
+import { readProjectForPage } from "@/lib/project-page";
 
 // Project manifests and asset references are intentionally read from the
 // selected local game project when the IDE route is requested.
@@ -8,7 +8,7 @@ export const instant = false;
 
 export default async function Home({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}) {
   const [project, aiSettings] = await Promise.all([
-    readProjectSnapshot(),
+    readProjectForPage(),
     readPublicAISettings(),
   ]);
   const params=await searchParams;

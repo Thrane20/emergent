@@ -1,3 +1,4 @@
+import { smokeProjectRoot } from "./project-fixture";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile, unlink, writeFile } from "node:fs/promises";
@@ -7,12 +8,12 @@ import { parse } from "smol-toml";
 import { assetContents, assetTemplate } from "../src/lib/asset-catalog";
 
 async function main() {
-  const root = path.resolve(process.env.EMERGENT_PROJECT_PATH || "../../projects/first_project");
+  const root = smokeProjectRoot();
   const id = `placement-smoke-${randomUUID().slice(0,8)}`;
   const asset = `assets/entities/${id}.entity.toml`, scene = `assets/scenes/${id}.scene.toml`;
   const assetText = assetContents(assetTemplate("object.cube")!,id);
   const source = `# preserve scene comment\nschema_version=1\nid="${id}"\n[[entities]]\nid="first"\nasset="${asset}"\n[[entities]]\nid="second"\nasset="${asset}"\n[entities.transform]\ntranslation=[-2,0,0]\n`;
-  const base = process.env.EMERGENT_IDE_BASE_URL || "http://localhost:3000";
+  const base = process.env.EMERGENT_IDE_BASE_URL || "http://localhost:3001";
   const browser = await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL || "chrome",headless:true});
   try {
     await writeFile(path.join(root,asset),assetText,{flag:"wx"});

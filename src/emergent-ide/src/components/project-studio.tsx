@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import { AddAssetModal } from "@/components/add-asset-modal";
 import { PlaceHereModal } from "@/components/place-here-modal";
 import { NewSceneModal } from "@/components/new-scene-modal";
+import { ProjectSwitcher } from "@/components/project-switcher";
 import { ProjectChat } from "@/components/project-chat";
 import { ProjectRunControl } from "@/components/project-run-control";
 import { StatementsPanel } from "@/components/statements-panel";
@@ -16,6 +17,8 @@ import { MaterialInspector } from "@/components/material-inspector";
 import type { MaterialSettings } from "@/lib/material-settings";
 import { PhysicsInspector } from "@/components/physics-inspector";
 import {CameraInspector} from "@/components/camera-inspector";
+import {ObjectLabelInspector} from "./object-label-inspector";
+import type {Classification} from "@/lib/object-labels";
 import {ComponentsInspector} from "@/components/components-inspector";
 import type {ComponentPatch,ComponentType} from "@/lib/components";
 import {cameraAssetSettings,replaceCameraAsset,type CameraSettings} from "@/lib/camera-settings";
@@ -24,6 +27,8 @@ import { TransformInspector } from "@/components/transform-inspector";
 import { InspectionViewport } from "@/components/inspection-viewport";
 import { useSceneInspection } from "@/hooks/use-scene-inspection";
 import type { SceneInstance, ScenePlacement, TransformSpace, TransformValues } from "@/lib/scene-placement";
+import { PrefabControls } from "@/components/prefab-controls";
+import {ObjectIcon} from "./object-icon";
 import { SceneGraph } from "@/components/scene-graph";
 import { NoiseInspector } from "@/components/noise-inspector";
 import { TomlEditor } from "@/components/toml-editor";
@@ -57,7 +62,8 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
   const [space,setSpace]=useState<TransformSpace>("local");
   const [tomlDirty,setTomlDirty]=useState(false),[inspectorBusy,setTomlBusy]=useState(false),[tomlEpoch,setTomlEpoch]=useState(0),[tomlScope,setTomlScope]=useState("scene");
   const [chatBusy, setChatBusy] = useState(false);
-  const tomlBusy = inspectorBusy || chatBusy;
+  const [prefabBusy, setPrefabBusy] = useState(false);
+  const tomlBusy = inspectorBusy || chatBusy || prefabBusy;
   const markTomlDirty=useCallback((dirty:boolean)=>setTomlDirty(dirty),[]);
   const markTomlBusy=useCallback((busy:boolean)=>setTomlBusy(busy),[]);
   const [readyInspection,setReadyInspection]=useState<string|null>(null);
@@ -68,6 +74,7 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
   const sceneLoading = sceneWorking || inspectionLoading;
   const [placement,setPlacement] = useState<ScenePlacement | null>(null);
   const [placementError,setPlacementError] = useState("");
+  const [componentActions,setComponentActions]=useState<HTMLDivElement|null>(null);
   const [instanceId,setInstanceId] = useState<string | null>(initialInstance??null);
   const [inspectorReload,setInspectorReload] = useState(0);
   const currentPlacement = placement?.path === activeScenePath && (placement.space??"local")===space ? placement : null;
@@ -96,10 +103,10 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
       try{change=JSON.parse((message as MessageEvent<string>).data);}catch{return;}
       const current=externalState.current;
       router.refresh();
-      if(current.busy||current.dirty){setExternalNotice(`AI changed the project (${change.summary}). Save or discard your edit, then reload.`);return;}
+      if(current.busy||current.dirty){setExternalNotice(change.source==="ide"&&!current.dirty?change.summary:`${change.source==="ide"?"Project":"AI"} changed the project (${change.summary}). Save or discard your edit, then reload.`);return;}
       setInspectorReload(value=>value+1);setTomlEpoch(value=>value+1);
       if(current.view==="scene"&&current.scene&&change.scenes.includes(current.scene)&&!change.live)restartInspection();
-      setExternalNotice(`${change.source==="ide"?"Placed":"AI"}: ${change.summary}`);
+      setExternalNotice(`${change.source==="ide"?"Project":"AI"}: ${change.summary}`);
     });
     return ()=>events.close();
   },[project.id,router,restartInspection]);
@@ -146,6 +153,19 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
     if(!canNavigate())return false;setInstanceId(instance.id);setSelectedPath(instance.asset);return true;
   }
 
+  async function instantiatePrefab(asset:string,parent:string|null,revision:string) {
+    if(!canNavigate()||!currentPlacement)throw new Error("Wait for the current edit to finish.");
+    setSceneLoading(true);setSceneError("");
+    try {
+      const response=await fetch("/api/scenes/place",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:currentPlacement.path,asset,parent,revision})});
+      const result=await response.json();if(!response.ok)throw new Error(result.error??"Could not instantiate prefab.");
+      const fresh=await fetch(`/api/scenes/placement?projectId=${encodeURIComponent(project.id)}&path=${encodeURIComponent(currentPlacement.path)}&space=${space}`,{cache:"no-store"});
+      const updated=await fresh.json();if(!fresh.ok)throw new Error(updated.error??"Could not refresh scene graph.");
+      setPlacement(updated);setInstanceId(result.ref.split("/").pop());router.refresh();
+      if(inspection?.scene===currentPlacement.path)await reloadInspection();
+    } finally {setSceneLoading(false);}
+  }
+
   async function renameInstance(id:string,name:string,revision:string){
     if(!canNavigate()||!currentPlacement)throw new Error("Wait for the current edit to finish.");
     setSceneLoading(true);
@@ -153,6 +173,20 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
       const response=await fetch("/api/scenes/placement",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:currentPlacement.path,id,name,revision,action:"rename",space})});
       const data=await response.json();if(!response.ok)throw new Error(data.error??"Rename failed.");
       setPlacement(data);router.refresh();
+    }finally{setSceneLoading(false);}
+  }
+
+  async function duplicateInstance(id:string,revision:string){
+    if(!canNavigate()||!currentPlacement)return;
+    setSceneLoading(true);setSceneError("");
+    try{
+      const response=await fetch("/api/scenes/placement",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:currentPlacement.path,id,revision,action:"duplicate",space})});
+      const data=await response.json();if(!response.ok)throw new Error(data.error??"Object could not be duplicated.");
+      setPlacement(data.placement);setInstanceId(data.id);setSelectedPath(data.placement.instances.find((item:SceneInstance)=>item.id===data.id).asset);
+      setView("scene");router.refresh();
+      if(inspection?.scene===currentPlacement.path)await reloadInspection();
+      else if(view==="scene")await loadScene(currentPlacement.path,false);
+      return data.id as string;
     }finally{setSceneLoading(false);}
   }
 
@@ -168,19 +202,6 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
       setView("scene");router.refresh();
       if(inspection?.scene===currentPlacement.path)await reloadInspection();
       else if(view==="scene")await loadScene(currentPlacement.path,false);
-      return true;
-    }finally{setSceneLoading(false);}
-  }
-
-  async function deleteProjectAsset(assetPath:string):Promise<boolean>{
-    if(assetPath===activeScenePath)throw new Error("Load a different scene before deleting the open scene.");
-    if(!canNavigate())return false;
-    setSceneLoading(true);setSceneError("");
-    try{
-      const response=await fetch("/api/assets",{method:"DELETE",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:assetPath})});
-      const result=await response.json();if(!response.ok)throw new Error(result.error??"Project asset could not be deleted.");
-      if(selected.path===assetPath){setInstanceId(null);setSelectedPath(project.files.find(file=>file.path!==assetPath)?.path??"");}
-      router.refresh();
       return true;
     }finally{setSceneLoading(false);}
   }
@@ -241,6 +262,14 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
     } finally { setSceneLoading(false); }
   }
 
+  async function applyClassification(classification:Classification){
+    if(!currentPlacement||!selectedInstance)throw Error("Select an object first.");
+    setSceneLoading(true);
+    try{
+      const r=await fetch("/api/scenes/placement",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:currentPlacement.path,id:selectedInstance.id,revision:currentPlacement.revision,action:"classification",classification,space})});const data=await r.json();if(!r.ok)throw Error(data.error);setPlacement(data);
+      if(inspection&&inspection.scene===currentPlacement.path){const update=await fetch("/api/inspection",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,id:inspection.id,command:{op:"classification",id:selectedInstance.id}})});if(!update.ok){const result=await update.json();throw Error(`Labels saved; live update failed: ${result.error}`);}}
+    }finally{setSceneLoading(false);}
+  }
   async function applyPhysics(physics:PhysicsSettings|null) {
     if(!currentPlacement||!selectedInstance)throw new Error("Select a scene instance first.");
     setSceneLoading(true);
@@ -248,8 +277,10 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
       const response=await fetch("/api/scenes/placement",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:currentPlacement.path,id:selectedInstance.id,revision:currentPlacement.revision,action:"physics",physics,space})});
       const data=await response.json();if(!response.ok)throw new Error(data.error??"Physics could not be saved.");
       setPlacement(data);router.refresh();
-      if(inspection&&inspection.scene===currentPlacement.path)await reloadInspection();
-      else await loadScene(currentPlacement.path,false);
+      if(inspection&&inspection.scene===currentPlacement.path){
+        const applied=await fetch("/api/inspection",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,id:inspection.id,command:{op:"physics",id:selectedInstance.id}})});
+        if(!applied.ok){const result=await applied.json();throw new Error(`Physics saved, but live update failed: ${result.error}. Reload the scene.`);}
+      }
     }finally{setSceneLoading(false);}
   }
 
@@ -296,8 +327,10 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
       const response=await fetch("/api/scenes/placement",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,path:currentPlacement.path,id:selectedInstance.id,revision:currentPlacement.revision,action:"material",material,space})});
       const data=await response.json();if(!response.ok)throw new Error(data.error??"Material could not be saved.");
       markTomlDirty(false);setPlacement(data);router.refresh();
-      if(inspection&&inspection.scene===currentPlacement.path)await reloadInspection();
-      else await loadScene(currentPlacement.path,false);
+      if(inspection&&inspection.scene===currentPlacement.path){
+        const applied=await fetch("/api/inspection",{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({projectId:project.id,id:inspection.id,command:{op:"material",id:selectedInstance.id}})});
+        if(!applied.ok){const result=await applied.json();throw new Error(`Material saved, but live update failed: ${result.error}. Reload the scene.`);}
+      }
     }finally{setSceneLoading(false);}
   }
 
@@ -316,7 +349,7 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
     <main className="studio-shell">
       <header className="topbar">
         <div className="brand"><span className="brand-mark">E</span><span>Emergent</span><b>IDE</b></div>
-        <div className="project-pill"><span>◫</span>{project.name}<span className="muted">LOCAL</span></div>
+        <ProjectSwitcher projectId={project.id} projectName={project.name} onBeforeOpen={canNavigate}/>
         <div className="scene-selector"><label htmlFor="scene-picker">Scene viewer</label><select id="scene-picker" value={scenes.some((scene) => scene.path === scenePath) ? scenePath : scenes[0]?.path ?? ""} onChange={(event) => { if(canNavigate()){setScenePath(event.target.value); setInstanceId(null);} }} disabled={!scenes.length || sceneLoading || tomlBusy || gizmoBusy}>{!scenes.length && <option value="">No scenes</option>}{scenes.map((scene) => <option key={scene.path} value={scene.path}>{scene.name}</option>)}</select><button onClick={() => {if(canNavigate())void loadScene();}} disabled={!scenes.length || sceneLoading || tomlBusy || gizmoBusy}>{sceneLoading ? "Loading…" : "Load"}</button><button type="button" onClick={()=>void deleteScene()} disabled={!activeScenePath || activeScenePath===project.entryScene || sceneLoading || tomlBusy || gizmoBusy} title={activeScenePath===project.entryScene?"The entry scene cannot be deleted":undefined}>Delete</button><NewSceneModal projectId={project.id} disabled={sceneLoading || tomlBusy || gizmoBusy} onBeforeOpen={canNavigate} onCreated={(path) => { setScenePath(path); setSelectedPath(path); setInstanceId(null); setSceneError(""); setView("scene"); router.refresh(); }} /></div>
         <div className="space-switch" role="group" aria-label="Transform space">{(["local","global"] as const).map(mode=><button key={mode} aria-pressed={space===mode} disabled={sceneLoading||tomlBusy||gizmoBusy} onClick={()=>{if(mode!==space&&canNavigate())setSpace(mode);}}>{capitalize(mode)}</button>)}</div>
         <div className="top-actions"><ProjectRunControl projectId={project.id} scenePath={activeScenePath} disabled={sceneLoading || tomlBusy || gizmoBusy || tomlDirty} /></div>
@@ -326,21 +359,22 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
 
       <section className="workspace">
         <div className="left-column scene-first-column">
-          <aside className="panel project-panel scene-project-panel">
+          <aside className="project-panel scene-project-panel">
+            <section className="sidebar-card scene-tree-card" aria-label="Scene graph card">
             <div className="panel-head"><h2>Scene graph</h2><button className="square-button" title="Reload project from disk" onClick={() => {if(canNavigate()){router.refresh();setInspectorReload(value=>value+1);}}}>↻</button></div>
             <label className="search"><span>⌕</span><input ref={searchRef} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Find…" /></label>
             <div className="scene-project-content">
               <div className="scene-graph-region">
               {placementError&&<p className="graph-error" role="alert">{placementError}</p>}
-              {currentPlacement?<SceneGraph key={currentPlacement.path} placement={currentPlacement} selected={instanceId} disabled={sceneLoading||tomlBusy||gizmoBusy} query={query} onSelect={selectInstance} onReparent={reparentInstance} onRename={renameInstance} onDelete={deleteSceneInstance}/>:!placementError&&<p className="empty">Loading scene graph…</p>}
-              </div>
-              <details className="project-files" open><summary>Project files</summary><div className="asset-tree project-tree">
+              {currentPlacement?<SceneGraph key={currentPlacement.path} projectId={project.id} onInstantiate={instantiatePrefab} placement={currentPlacement} selected={instanceId} disabled={sceneLoading||tomlBusy||gizmoBusy} query={query} onSelect={selectInstance} onReparent={reparentInstance} onRename={renameInstance} onDelete={deleteSceneInstance} onDuplicate={duplicateInstance}/>:!placementError&&<p className="empty">Loading scene graph…</p>}
+              </div></div></section>
+              {currentPlacement && <PrefabControls key={`prefabs:${currentPlacement.path}`} project={project} placement={currentPlacement} selected={selectedInstance} disabled={sceneLoading || tomlBusy || gizmoBusy} beforeAction={canNavigate} onBusy={setPrefabBusy} onInstantiate={instantiatePrefab} onChanged={() => router.refresh()} />}
+              <details className="project-files sidebar-card"><summary>Project files</summary><div className="asset-tree project-tree">
               {filtered.length > 0
-                ? <details open className="tree-branch tree-project"><summary>{project.name}</summary><TreeContents node={fileTree} selected={selected.path} onSelect={selectFile} onDelete={deleteProjectAsset} disabled={sceneLoading||tomlBusy||gizmoBusy} assetRoots={project.assetRoots} /></details>
+                ? <details open className="tree-branch tree-project"><summary>{project.name}</summary><TreeContents node={fileTree} selected={selected.path} onSelect={selectFile} /></details>
                 : <p className="empty">No match for “{query}”.</p>}
               </div></details>
-            </div>
-            <AddAssetModal onBeforeOpen={canNavigate} projectId={project.id} scenePath={scenes.some((scene) => scene.path === scenePath) ? scenePath : scenes[0]?.path} onCreated={(path, warning) => {
+            <AddAssetModal files={project.files} onInstantiate={currentPlacement ? asset => instantiatePrefab(asset, null, currentPlacement.revision) : undefined} onBeforeOpen={canNavigate} projectId={project.id} scenePath={scenes.some((scene) => scene.path === scenePath) ? scenePath : scenes[0]?.path} onCreated={(path, warning) => {
               setSceneError(warning ?? "");
               setQuery("");
               setSelectedPath(path);
@@ -383,19 +417,22 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
         </section>
 
         <aside className="right-column">
-          <section className="panel details-panel">
+          <section className={`panel details-panel${selectedInstance&&currentPlacement?" object-attributes":""}`}>
             {selectedNoise&&view!=="toml"?<>
               <div className="panel-head"><h2>Noise filter</h2><span className="kind-badge">FILTER</span></div>
               <NoiseInspector key={`${selected.path}:${tomlEpoch}`} projectId={project.id} path={selected.path} previewTarget={noisePreviewTarget} onDirty={markTomlDirty} onBusy={markTomlBusy} onSaved={()=>router.refresh()}/>
             </>:selectedInstance && currentPlacement ? <>
+              <ObjectLabelInspector key={`labels:${project.id}:${selectedInstance.id}`} projectId={project.id} value={selectedInstance.classification} disabled={sceneLoading||tomlBusy||gizmoBusy} onApply={applyClassification} onConfigured={async()=>{const r=await fetch(`/api/scenes/placement?projectId=${encodeURIComponent(project.id)}&path=${encodeURIComponent(currentPlacement.path)}&space=${space}`,{cache:"no-store"});const data=await r.json();if(!r.ok)throw Error(data.error);setPlacement(data);}}/>
               {selectedInstance?.particles&&<div className="terrain-edit-action"><Link className="quiet-button" href={`/particles?asset=${encodeURIComponent(selectedInstance.asset)}&scene=${encodeURIComponent(activeScenePath??project.entryScene)}`} onNavigate={event=>{if(!canNavigate())event.preventDefault();}}>Edit particle effect ↗</Link></div>}
               {selectedInstance?.structure&&<div className="terrain-edit-action"><Link className="quiet-button" href={`/object-builder?asset=${encodeURIComponent(selectedInstance.asset)}&scene=${encodeURIComponent(activeScenePath??project.entryScene)}&instance=${encodeURIComponent(selectedInstance.id)}`} onNavigate={event=>{if(!canNavigate())event.preventDefault();}}>Edit object ↗</Link></div>}
               {terrainEditHref&&<div className="terrain-edit-action"><Link className="quiet-button" href={terrainEditHref} onNavigate={event=>{event.preventDefault();if(canNavigate())router.push(`${terrainEditHref}&open=${crypto.randomUUID()}`);}}>Edit terrain ↗</Link></div>}
+              <section className="attribute-card" aria-label="Transform attributes">
               <div className="panel-head"><h2>Transform</h2><span className="kind-badge">INSTANCE</span></div>
-              <TransformInspector key={`${currentPlacement.path}:${selectedInstance.id}:${inspectorReload}:${space}:${tomlEpoch}`} instance={selectedInstance} space={space} instances={currentPlacement.instances} onReparent={parent=>reparentInstance(selectedInstance.id,parent)} live={Boolean(inspection && inspection.scene===currentPlacement.path)} disabled={sceneLoading || tomlBusy || gizmoBusy || Boolean(inspection && readyInspection!==inspection.id)} onApply={applyPlacement} onDirty={markTomlDirty} onBusy={markTomlBusy} onReload={() => setInspectorReload(value => value + 1)} />
+              <TransformInspector key={`${currentPlacement.path}:${selectedInstance.id}:${inspectorReload}:${space}:${tomlEpoch}`} instance={selectedInstance} space={space} instances={currentPlacement.instances} live={Boolean(inspection && inspection.scene===currentPlacement.path)} disabled={sceneLoading || tomlBusy || gizmoBusy || Boolean(inspection && readyInspection!==inspection.id)} onApply={applyPlacement} onDirty={markTomlDirty} onBusy={markTomlBusy} onReload={() => setInspectorReload(value => value + 1)} />
+              </section>
               {!selectedInstance.raymarched&&<PhysicsInspector key={`physics:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} instance={selectedInstance} disabled={sceneLoading || tomlBusy || gizmoBusy} onApply={applyPhysics} onDirty={markTomlDirty} onBusy={markTomlBusy}/>}
               {selectedInstance.camera&&<CameraInspector key={`camera:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} settings={selectedInstance.camera} overridden={selectedInstance.cameraOverridden} disabled={sceneLoading||tomlBusy||gizmoBusy} onApply={applyCamera} onDirty={markTomlDirty} onBusy={markTomlBusy}/>}
-              <ComponentsInspector key={`components:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} types={componentTypes} registryError={componentError} kind={selectedInstance.objectKind} authored={selectedInstance.components??[]} defaults={selectedInstance.light} variant={typeof selectedInstance.light?.type==="string"?selectedInstance.light.type:undefined} instances={currentPlacement.instances.map(item=>({id:item.id,name:item.name??item.id}))} selfId={selectedInstance.id} brains={project.files.filter(file=>file.path.endsWith(".brain.toml")).map(file=>({id:file.path,name:file.displayName??file.name.replace(/\.brain\.toml$/,"")}))} disabled={sceneLoading||tomlBusy||gizmoBusy} onApply={applyComponent} onDirty={markTomlDirty} onBusy={markTomlBusy}/>
+              <ComponentsInspector actions={componentActions} key={`components:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} types={componentTypes} registryError={componentError} kind={selectedInstance.objectKind} authored={selectedInstance.components??[]} defaults={selectedInstance.light} variant={typeof selectedInstance.light?.type==="string"?selectedInstance.light.type:undefined} instances={currentPlacement.instances.map(item=>({id:item.id,name:item.name??item.id}))} selfId={selectedInstance.id} profiles={project.files.filter(file=>file.path.endsWith(".locomotion.toml")).map(file=>({id:file.path,name:file.displayName??file.name.replace(/\.locomotion\.toml$/,"")}))} brains={project.files.filter(file=>file.path.endsWith(".brain.toml")).map(file=>({id:file.path,name:file.displayName??file.name.replace(/\.brain\.toml$/,"")}))} clips={project.files.filter(file=>file.path.endsWith(".audio.toml")).map(file=>({id:file.path,name:file.displayName??file.name.replace(/\.audio\.toml$/,"")}))} disabled={sceneLoading||tomlBusy||gizmoBusy} onApply={applyComponent} onDirty={markTomlDirty} onBusy={markTomlBusy}/>
               {selectedInstance.renderable&&!selectedInstance.raymarched&&<MaterialInspector textureAssets={project.files.filter(file=>/\.(png|jpe?g)$/i.test(file.path)&&project.assetRoots.some(root=>file.path.startsWith(`${root}/`)))} projectId={project.id} key={`material:${currentPlacement.path}:${selectedInstance.id}:${tomlEpoch}`} instance={selectedInstance} noiseAssets={project.files.filter(file=>file.path.endsWith(".noise.toml")&&project.assetRoots.some(root=>file.path.startsWith(`${root}/`)))} disabled={sceneLoading||tomlBusy||gizmoBusy} onApply={applyMaterial} onDirty={markTomlDirty} onBusy={markTomlBusy}/>}
             </> : selectedCamera ? <>
               <div className="panel-head"><h2>Camera asset</h2><span className="kind-badge">DEFAULTS</span></div>
@@ -404,6 +441,7 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
             <div className="panel-head"><div><span className="eyebrow">SELECTED</span><h2>{selected.displayName??selected.name}</h2></div><span className="kind-badge">{selected.kind}</span></div>
             </>}
           </section>
+          {selectedInstance&&currentPlacement&&<div ref={setComponentActions} className="object-component-actions" id="object-component-actions"/>}
           <StatementsPanel key={selected.path} projectId={project.id} subject={`file:${selected.path}`} subjectLabel={selectedInstance?.name??selected.displayName??selected.name} aiConfigured={aiSettings.configured} />
         </aside>
 
@@ -447,22 +485,12 @@ function buildFileTree(files: ProjectFile[]): FileTree {
   return root;
 }
 
-function TreeContents({ node, selected, onSelect, onDelete, disabled, assetRoots }: { node: FileTree; selected: string; onSelect: (file: ProjectFile) => void; onDelete:(path:string)=>Promise<boolean>; disabled:boolean; assetRoots:string[] }) {
-  const [error,setError]=useState("");
-  async function deleteAsset(file:ProjectFile){
-    if(disabled)return;
-    const name=file.displayName??file.name;
-    if(!window.confirm(`Permanently delete "${name}" from the project? Referenced assets cannot be deleted.`))return;
-    setError("");
-    try{await onDelete(file.path);}
-    catch(error){setError(error instanceof Error?error.message:"Asset deletion failed.");}
-  }
+function TreeContents({ node, selected, onSelect }: { node: FileTree; selected: string; onSelect: (file: ProjectFile) => void }) {
   const folders = [...node.folders.entries()].sort(([left], [right]) => left.localeCompare(right));
   const files = [...node.files].sort((left, right) => (left.displayName??left.name).localeCompare(right.displayName??right.name));
   return <div className="tree-children">
-    {folders.map(([name, child]) => <details open className="tree-branch" key={name}><summary>{name}</summary><TreeContents node={child} selected={selected} onSelect={onSelect} onDelete={onDelete} disabled={disabled} assetRoots={assetRoots} /></details>)}
-    {error&&<p className="graph-error" role="alert">{error}</p>}
-    {files.map((file) => <div className="tree-file-row" key={file.path}><button className={selected === file.path ? "tree-file selected" : "tree-file"} onClick={() => onSelect(file)} title={file.path}>{file.displayName??file.name}</button>{assetRoots.some(root=>file.path.startsWith(`${root}/`))&&<button type="button" className="tree-file-delete" aria-label={`Delete ${file.displayName??file.name}`} title="Delete project asset" disabled={disabled} onClick={()=>void deleteAsset(file)}>×</button>}</div>)}
+    {folders.map(([name, child]) => <details open className="tree-branch" key={name}><summary>{name}</summary><TreeContents node={child} selected={selected} onSelect={onSelect} /></details>)}
+    {files.map((file) => <div className="tree-file-row" key={file.path}><button className={selected === file.path ? "tree-file selected" : "tree-file"} onClick={() => onSelect(file)} title={file.path}>{file.path.endsWith(".prefab.toml")&&<ObjectIcon prefab/>}{file.displayName??file.name}</button></div>)}
   </div>;
 }
 

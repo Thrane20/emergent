@@ -5,7 +5,7 @@ use emergent::{
 };
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let project = Project::load(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("projects/first_project"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/editor-project"),
     )?;
     let mut renderer = pollster::block_on(GeometryRenderer::new_offscreen(256, 256))?;
     renderer.set_view(Vec3::new(3.0, 2.0, 4.0), Vec3::ZERO, Vec3::Y)?;

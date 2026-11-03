@@ -1,0 +1,19 @@
+schema_version = 1
+id = "main"
+active_camera = "camera"
+
+[[entities]]
+id = "sun"
+asset = "assets/entities/sun.entity.toml"
+
+[[entities]]
+id = "ground"
+asset = "assets/entities/ground.entity.toml"
+
+[[entities]]
+id = "cube"
+asset = "assets/entities/cube.entity.toml"
+
+[[entities]]
+id = "camera"
+asset = "assets/entities/camera.entity.toml"

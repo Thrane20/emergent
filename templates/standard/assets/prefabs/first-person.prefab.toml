@@ -1,0 +1,21 @@
+schema_version=1
+id='first-person'
+name='First-person player'
+root='player'
+[[entities]]
+id='player'
+asset='assets/entities/fps-player.entity.toml'
+[entities.transform]
+translation=[0,3,5]
+[[entities.components]]
+type='emergent.character_controller'
+speed=4
+jump_speed=5
+[[entities]]
+id='player-camera'
+parent='player'
+asset='assets/entities/fps-camera.entity.toml'
+[[entities.components]]
+type='emergent.mouse_look'
+sensitivity=0.12
+pitch_limit=85

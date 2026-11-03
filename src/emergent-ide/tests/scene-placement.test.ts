@@ -27,6 +27,17 @@ test("derived scene tree and reparenting preserve local values and reject cycles
   assert.ok(reparented.startsWith("# keep scene comment"));
 });
 
+test("scene placement distinguishes kinematic and physical locomotion for physics defaults",async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),"emergent-locomotion-inspector-"));t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(path.join(root,"assets"));
+ await writeFile(path.join(root,"assets/main.scene.toml"),"schema_version=1\nid='main'\n[[entities]]\nid='drone'\nasset='assets/drone.entity.toml'\n[[entities.components]]\ntype='emergent.locomotion'\nprofile='assets/drone.locomotion.toml'\n");
+ await writeFile(path.join(root,"assets/drone.entity.toml"),"schema_version=1\nid='drone'\nkind='entity'\n");
+ const profile=path.join(root,"assets/drone.locomotion.toml");await writeFile(profile,"type='drone'\n");
+ const project:ProjectSnapshot={root,id:"test",name:"Test",assetRoots:["assets"],entryScene:"assets/main.scene.toml",files:[],entities:[],connections:[],outputs:[]};
+ assert.equal((await scenePlacement(project,"assets/main.scene.toml")).instances[0].kinematicLocomotion,true);
+ await writeFile(profile,"type='drone_physics'\n");
+ assert.equal((await scenePlacement(project,"assets/main.scene.toml")).instances[0].kinematicLocomotion,false);
+});
+
 test("transform edits target one instance, preserve unrelated text and reset to inheritance", () => {
   const edited = replaceInstanceTransform(source,"first",values);
   assert.ok(edited.startsWith("# keep scene comment"));

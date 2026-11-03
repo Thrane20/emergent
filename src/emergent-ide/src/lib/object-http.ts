@@ -26,7 +26,7 @@ export function objectError(error: unknown) {
 }
 
 export async function artifactResponse(target: string) {
-  const type = { ".glb": "model/gltf-binary", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp" }[path.extname(target).toLowerCase()];
+  const type = { ".glb": "model/gltf-binary", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".wav": "audio/wav", ".mp3": "audio/mpeg", ".ogg": "audio/ogg", ".flac": "audio/flac" }[path.extname(target).toLowerCase()];
   if (!type) throw new ObjectCreatorError("This asset has no supported preview.");
   return new Response(new Uint8Array(await readFile(target)), { headers: { "Content-Type": type, "Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff" } });
 }

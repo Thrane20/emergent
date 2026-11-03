@@ -1,0 +1,8 @@
+schema_version = 1
+id = "chime"
+name = "Chime"
+kind = "audio"
+description = "Procedural bell, 1.2 s, for one-shot playback."
+source = "chime.wav"
+category = "sfx"
+gain_db = -3.0

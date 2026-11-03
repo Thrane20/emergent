@@ -1,0 +1,74 @@
+schema_version = 1
+id = "audio-demo"
+name = "Audio — Doppler fly-by"
+active_camera = "camera"
+
+[[entities]]
+id = "key-light"
+asset = "assets/entities/key-light.entity.toml"
+
+[[entities]]
+id = "ground"
+asset = "assets/entities/ground.entity.toml"
+
+[[entities]]
+id = "camera"
+asset = "assets/entities/7c10b616-becf-4d62-a112-ac704dad2b7c.entity.toml"
+
+[entities.transform]
+translation = [0.0, 2.0, 12.0]
+rotation_degrees = [-5.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[entities.components]]
+type = "emergent.audio_listener"
+reverb_room = 0.5
+reverb_damping = 0.4
+
+[[entities]]
+id = "pivot"
+name = "Orbit pivot"
+asset = "assets/entities/5889cf58-e1a4-4aa3-9b71-d21aad31560f.entity.toml"
+
+[entities.transform]
+translation = [0.0, 0.5, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[entities.components]]
+type = "emergent.spin"
+axis = [0.0, 1.0, 0.0]
+degrees_per_second = 90.0
+
+[[entities]]
+id = "hummer"
+name = "Humming cube"
+parent = "pivot"
+asset = "assets/entities/cube.entity.toml"
+
+[entities.transform]
+translation = [10.0, 0.0, 0.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[entities.components]]
+type = "emergent.audio_source"
+clip = "assets/audio/engine-hum/engine-hum.audio.toml"
+min_distance = 2.0
+max_distance = 60.0
+doppler = 2.0
+
+[[entities]]
+id = "chime"
+name = "Chime point"
+asset = "assets/entities/5889cf58-e1a4-4aa3-9b71-d21aad31560f.entity.toml"
+
+[entities.transform]
+translation = [-4.0, 1.0, 4.0]
+rotation_degrees = [0.0, 0.0, 0.0]
+scale = [1.0, 1.0, 1.0]
+
+[[entities.components]]
+type = "emergent.audio_source"
+clip = "assets/audio/chime/chime.audio.toml"
+mode = "one_shot"

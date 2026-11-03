@@ -11,16 +11,16 @@
   <aside class="sidebar" aria-label="Guide navigation">
     <div class="nav-label">Start here</div><a class="nav-link" href="index.html"><span class="nav-icon">◇</span>Introduction</a><a class="nav-link" href="getting-started.html"><span class="nav-icon">→</span>Getting started</a><a class="nav-link" href="hello-world.html"><span class="nav-icon">{ }</span>Hello World</a><a class="nav-link" aria-current="page" href="projects.html"><span class="nav-icon">▣</span>Game projects</a>
     <div class="nav-label">Reference</div><a class="nav-link" href="capabilities.html"><span class="nav-icon">◫</span>Capability map</a><a class="nav-link" href="api.html"><span class="nav-icon">#</span>Library and API</a><a class="nav-link" href="api.html#world"><span class="nav-icon">◎</span>World and entities</a><a class="nav-link" href="api.html#behaviours"><span class="nav-icon">↝</span>Behaviours</a><a class="nav-link" href="api.html#graphics"><span class="nav-icon">△</span>Graphics</a>
-    <p class="sidebar-note">The checked-in reference is <code>projects/first_project</code>.</p>
+    <p class="sidebar-note">New-project defaults live in <code>templates/standard</code>; shared tooling lives in <code>src/project_host</code>.</p>
   </aside>
   <div class="layout"><main class="content" id="main">
     <div class="breadcrumbs"><span>Guide</span><span>Game projects</span></div>
     <p class="eyebrow">Engine boundary · project ownership</p><h1>Build on Emergent.</h1>
     <p class="lede">A game is an independent Cargo package. It depends on Emergent's public API while owning its code, generated modules, assets, entry scene declaration, and selected platform outputs.</p>
 
-    <h2 id="run">Run the reference project</h2>
-    <div class="code-block"><div class="code-label">Terminal · repository root</div><pre>cargo run -p emergent-first-project</pre></div>
-    <p>The executable loads and validates its <code>emergent.toml</code>, reads a project-owned speed value, constructs a linked behaviour scene and point-light entity through public engine APIs, and opens a native lit preview containing moving cubes, a ground plane, and a pyramid. Use <code>-- --headless</code> for the bounded 120-tick non-windowed check or <code>-- --smoke</code> for native presentation validation.</p>
+    <h2 id="run">Create and run a project</h2>
+    <div class="code-block"><div class="code-label">Terminal · repository root</div><pre>cargo run -p emergent-standard-template</pre></div>
+    <p>Start the IDE and choose New or Open; a fresh workspace does not pick a sample game. New projects copy the current standard template and depend on the public engine. The command above runs the engine-owned template fixture. A game outside the engine workspace runs with <code>cargo run --manifest-path /path/to/game/Cargo.toml</code>. Inspection, preview, tool commands and native windows come from the engine project host.</p>
     <p>The Emergent IDE also exposes a preview <strong>Run</strong> control in its top bar. It starts the linked project's local Cargo development executable, reports build and completion state, and becomes a Stop control while the process is active. It does not yet select target outputs or provide visual project-mode pause and stepping.</p>
     <div class="callout warning"><strong>Current boundary:</strong> the manifest and schema-1 scene/entity files are validated and loaded. Primitive, light and empty hierarchy nodes are supported; nested compositions and authored behaviour links remain planned.</div>
 
@@ -47,8 +47,8 @@
     <p>Near-parallel handles are hidden; change the view to expose them. Global scale handles act along world axes about the object pivot. On a rotated object, a nonuniform world-axis scale can require shear; that edit is rejected. Use Local mode for object-axis scaling. Global rotation edits that require local shear are also rejected. The caption shows delivered fps against the 30 fps target. The current tools edit one authored instance at a time. Snapping, multi-select, plane/free handles and undo/redo remain later work.</p>
     <h2 id="scene-preview">Load a scene into the IDE</h2>
     <p>Use the top-bar <strong>Scene viewer</strong> dropdown to select a scene, then press <strong>Load</strong>. The IDE compiles and launches the linked Rust project, constructs its registered scene at tick zero, and displays a PNG captured by Emergent's wgpu renderer in the central canvas. Gameplay remains stopped. Press Load again to regenerate the frame after code changes; a failed load retains the last valid image.</p>
-    <p>The first bridge captures a fixed-camera frame rather than streaming simulation. Scenes load explicit <code>[[entities]]</code> entries with unique <code>id</code>, an <code>asset</code> path, and an optional <code>parent</code> instance ID. No builder is needed for a data-only scene. The optional <code>emergent.first-project.generated.main_scene</code> builder adds the reference motion chain. Standalone GLB previews in Object Creator use a browser viewer and do not imply that the native renderer can load GLBs.</p>
-    <div class="code-block"><div class="code-label">Terminal · repository root</div><pre>cargo run -p emergent-first-project -- --preview-scene assets/scenes/main.scene.toml --preview-output /tmp/emergent-scene.png</pre></div>
+    <p>The first bridge captures a fixed-camera frame rather than streaming simulation. Scenes load explicit <code>[[entities]]</code> entries with unique <code>id</code>, an <code>asset</code> path, and an optional <code>parent</code> instance ID. No builder is needed for a data-only scene. Game-specific builders belong to that game’s <code>ProjectGame</code> implementation; they are never required by shared IDE tools. Standalone GLB previews in Object Creator use a browser viewer and do not imply that the native renderer can load GLBs.</p>
+    <div class="code-block"><div class="code-label">Terminal · repository root</div><pre>cargo run -p emergent-standard-template -- --preview-scene assets/scenes/main.scene.toml --preview-output /tmp/emergent-scene.png</pre></div>
 
     <h2 id="noise-filters">Create and inspect noise filters</h2>
     <p>Choose <strong>Add asset → Filters → Noise function</strong>, name it and create it. Noise filters are reusable data resources, so they are listed under Project files and are not inserted as scene instances. Selecting a <code>.noise.toml</code> file opens its controls in the right inspector and a larger preview in Overview.</p>
@@ -62,7 +62,7 @@
     <div class="callout warning"><strong>Preview evidence:</strong> mocked generation, browser rendering, saving, and reopening have been tested. Live fal generation still needs a configured key. Browser GLB preview does not add runtime model importing or make the object appear in the native game on Run.</div>
 
     <h2 id="layout">Project layout</h2>
-    <div class="code-block"><div class="code-label">projects/first_project</div><pre>Cargo.toml
+    <div class="code-block"><div class="code-label">templates/standard</div><pre>Cargo.toml
 emergent.toml
 AGENTS.md
 src/
@@ -86,8 +86,8 @@ tests/</pre></div>
 
     <h2 id="manifest">Manifest contract</h2>
     <div class="code-block"><div class="code-label">emergent.toml</div><pre>schema_version = 1
-id = "emergent.first-project"
-name = "Emergent First Project"
+id = "project.my-game"
+name = "My Game"
 entry_scene = "assets/scenes/main.scene.toml"
 generated_code = "src/generated"
 asset_roots = ["assets"]

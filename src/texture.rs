@@ -32,6 +32,25 @@ fn reader(bytes: &[u8]) -> Result<image::ImageReader<Cursor<&[u8]>>, MaterialErr
     Ok(reader)
 }
 impl TextureImage {
+    pub fn from_rgba(width: u32, height: u32, rgba: Vec<u8>) -> Result<Self, MaterialError> {
+        if width == 0
+            || height == 0
+            || width > 4096
+            || height > 4096
+            || u64::from(width) * u64::from(height) > TEXTURE_MAX_PIXELS
+            || rgba.len() != width as usize * height as usize * 4
+        {
+            return Err(MaterialError(
+                "Invalid RGBA image dimensions or byte count".into(),
+            ));
+        }
+        Ok(Self {
+            width,
+            height,
+            rgba: rgba.into(),
+        })
+    }
+
     pub fn dimensions_from_bytes(bytes: &[u8]) -> Result<(u32, u32), MaterialError> {
         if bytes.is_empty() || bytes.len() > TEXTURE_MAX_BYTES {
             return Err(MaterialError(

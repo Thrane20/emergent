@@ -1,4 +1,4 @@
-// MCP-2 smoke: real edits through /api/mcp against a temporary copy of first_project, with native Rust validation.
+// MCP-2 smoke: real edits through /api/mcp against a disposable standard-template project with engine-owned fixtures, with native Rust validation.
 // The linked project, IDE data, journal and Cargo output live under target/mcp-smoke; the user's project is never touched.
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
@@ -36,7 +36,8 @@ try {
 
   const dry = await ok("set_transform", { ref: pyramid, revision, translation: [1, 2, 3], dryRun: true });
   assert.equal(dry.applied, false);
-  assert.match(dry.diff, /- translation = \[0\.07295987,-0\.20303124,-2\.5\]\n\+ translation = \[1,2,3\]/);
+  assert.match(dry.diff, /- translation = \[0, 0, -2\.5\]/);
+  assert.match(dry.diff, /\+ translation = \[1,2,3\]/);
   assert.equal(await readFile(scenePath, "utf8"), original, "dry runs write nothing");
 
   let result = await ok("set_transform", { ref: pyramid, revision, translation: [1, 2, 3] });
@@ -98,6 +99,76 @@ try {
   assert.ok((await ok("find", { query: "explosion atlas" })).matches[0].ref.startsWith("asset:"));
   await ok("undo", {});
   assert.equal((await ok("project_overview", {})).diagnostics.filter((item: { code: string }) => item.code === "missing-id").length, 1, "undo removes the created descriptor");
+
+  // Behaviour authoring: catalogues, brains, locomotion, previews, components by ref, undo.
+  const catalogue = await ok("list_brain_nodes", {});
+  assert.ok(catalogue.nodes.some((node: { type: string; category: string }) => node.type === "look_at" && node.category === "Look & aim"));
+  assert.ok((await ok("list_locomotion_types", {})).types.some((type: { type: string; status: string }) => type.type === "drone" && type.status === "available"));
+  const prey = (await ok("find", { query: "Prey", type: "asset" })).matches.find((match: { kind: string }) => match.kind === "brain");
+  assert.ok(prey?.ref.startsWith("asset:"), "brains are addressable assets");
+  const preyDetail = await ok("describe", { ref: prey.ref });
+  assert.ok(preyDetail.brain.nodes.some((node: { type: string }) => node.type === "evade") && /^[0-9a-f]{64}$/.test(preyDetail.revision));
+  const hunterNodes = [
+    { id: "root", type: "priority" },
+    { id: "watch", parent: "root", type: "look_at", fields: { group: "prey" } },
+    { id: "chase", parent: "root", type: "seek", fields: { group: "prey" } },
+  ];
+  const dryBrain = await ok("create_brain", { name: "Smoke hunter", nodes: hunterNodes, dryRun: true });
+  assert.equal(dryBrain.applied, false);
+  assert.match(dryBrain.diff, /type = "look_at"/);
+  const brokenBrain = await tool("create_brain", { name: "Broken", nodes: [{ type: "seek" }] });
+  assert.ok(brokenBrain.isError && /needs a target/.test(String(brokenBrain.value)), "the engine rejects an invalid brain");
+  const hunter = await ok("create_brain", { name: "Smoke hunter", description: "Chases prey while watching it.", nodes: hunterNodes });
+  assert.equal(hunter.applied, true);
+  const hunterFile = path.join(project, hunter.path);
+  const created = await readFile(hunterFile, "utf8");
+  let detail = await ok("describe", { ref: hunter.ref });
+  assert.deepEqual(detail.brain.nodes.map((node: { id: string }) => node.id), ["root", "watch", "chase"]);
+  assert.ok((await tool("edit_brain", { ref: hunter.ref, revision: "0".repeat(64), operations: [{ op: "remove", id: "watch" }] })).isError, "stale brain revisions are refused");
+  const edited = await ok("edit_brain", { ref: hunter.ref, revision: detail.revision, operations: [
+    { op: "add", type: "wander", parent: "root", id: "roam", fields: { weight: 0.5 } },
+    { op: "update", id: "chase", fields: { weight: 2 } },
+    { op: "remove", id: "watch" },
+  ] });
+  assert.deepEqual(edited.nodes, ["roam"]);
+  detail = await ok("describe", { ref: hunter.ref });
+  assert.deepEqual(detail.brain.nodes.map((node: { id: string }) => node.id), ["root", "chase", "roam"]);
+  assert.equal(detail.brain.nodes.find((node: { id: string }) => node.id === "chase").fields.weight, 2);
+  const preview = await ok("preview_brain", { ref: prey.ref, agents: 10, targets: 1, target_group: "predators", agent_group: "prey", seconds: 5 });
+  assert.equal(preview.samples.length, 5);
+  assert.ok(preview.samples.every((sample: { meanSpeed: number }) => Number.isFinite(sample.meanSpeed)) && preview.finalAgents.length === 10);
+
+  const drone = await ok("write_locomotion", { name: "Smoke drone", type: "drone", fields: { max_tilt: 20, max_speed: 8 } });
+  assert.equal(drone.applied, true);
+  assert.ok((await tool("write_locomotion", { name: "Nope", type: "biped_ik" })).isError, "planned types are refused");
+  const droneDetail = await ok("describe", { ref: drone.ref });
+  assert.equal(droneDetail.locomotion.fields.max_tilt, 20);
+  await ok("write_locomotion", { ref: drone.ref, revision: droneDetail.revision, fields: { max_speed: 6, max_tilt: null } });
+  const flown = await ok("preview_locomotion", { ref: drone.ref, course: "stop", seconds: 15 });
+  // max_speed caps horizontal speed (6); climbing adds up to max_climb (4): at most √(6²+4²) ≈ 7.2 m/s overall.
+  assert.ok(flown.maxSpeed <= 7.22 && flown.final.speed < 0.3 && flown.height.max > 5, JSON.stringify(flown));
+  assert.equal(flown.maxPitchDegrees, 30, "max_tilt null restored the 30° default");
+
+  // Attach by ref; the scene stores paths, describe shows refs.
+  const cube = pyramid;
+  let cubeRevision = (await ok("describe", { ref: cube })).revision as string;
+  const withBrain = await ok("set_component", { ref: cube, revision: cubeRevision, type: "emergent.brain", fields: { brain: hunter.ref, stack: [prey.ref], max_speed: 6 } });
+  cubeRevision = withBrain.revision;
+  await ok("set_component", { ref: cube, revision: cubeRevision, type: "emergent.locomotion", fields: { profile: drone.ref } });
+  const cubeDetail = await ok("describe", { ref: cube });
+  const brainComponent = cubeDetail.components.find((component: { type: string }) => component.type === "emergent.brain");
+  assert.equal(brainComponent.fields.brain, hunter.ref);
+  assert.deepEqual(brainComponent.fields.stack, [prey.ref]);
+  assert.match(await readFile(scenePath, "utf8"), new RegExp(hunter.path.replace(/[.]/g, "\\.")));
+  assert.ok((await ok("describe", { ref: drone.ref })).usedBy.some((user: { instance: string }) => user.instance === cube), "profiles list their users");
+  const behaviourHistory = (await ok("history", { limit: 7 })).changes.map((item: { tool: string }) => item.tool);
+  assert.deepEqual(behaviourHistory.slice(0, 6), ["set_component", "set_component", "update_locomotion", "create_locomotion", "edit_brain", "create_brain"]);
+  // Undo newest first: both components, the profile update and creation, then the brain edit.
+  for (let step = 0; step < 5; step++) await ok("undo", {});
+  assert.doesNotMatch(await readFile(scenePath, "utf8"), /emergent\.brain/, "the components are gone");
+  assert.equal(await readFile(hunterFile, "utf8"), created, "undo restores the brain before its edit");
+  await ok("undo", {});
+  await assert.rejects(readFile(hunterFile, "utf8"), "undoing create_brain removes the file");
   console.log("MCP edit smoke passed.");
 } finally {
   unsubscribe();

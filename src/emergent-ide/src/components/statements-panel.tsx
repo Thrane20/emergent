@@ -14,6 +14,7 @@ type Props = {
 export function StatementsPanel({ projectId, subject, subjectLabel, aiConfigured }: Props) {
   const router = useRouter();
   const [statements, setStatements] = useState<ProjectStatement[]>([]);
+  const [collapsed, setCollapsed] = useState(true);
   const [draft, setDraft] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -93,8 +94,8 @@ export function StatementsPanel({ projectId, subject, subjectLabel, aiConfigured
     finally { setImplementingId(null); }
   };
 
-  return <section className="panel statements-panel">
-    <header className="statements-head"><div><span className="eyebrow">STATEMENTS</span><h3>{subjectLabel}</h3></div><span className="statement-count">{statements.length}</span></header>
+  return <section className={`panel statements-panel${collapsed ? " collapsed" : ""}`}>
+    <header className="statements-head"><button type="button" className="statements-toggle" aria-expanded={!collapsed} onClick={() => setCollapsed((value) => !value)} title={collapsed ? "Expand statements" : "Collapse statements"}><span className="statements-chevron" aria-hidden="true">▾</span><span><span className="eyebrow">STATEMENTS</span><h3>{subjectLabel}</h3></span></button><span className="statement-count">{statements.length}</span></header>
     <div className="statement-list">
       {loading && <p className="statement-empty">Loading intentions…</p>}
       {statements.map((statement) => <article className="statement-item" key={statement.id}>

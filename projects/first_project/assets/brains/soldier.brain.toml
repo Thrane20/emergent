@@ -1,0 +1,59 @@
+schema_version = 1
+id = "soldier"
+name = "Soldier"
+kind = "brain"
+description = "Holds its post with its squad; attacks enemies that come within 12 m, and falls back to the rally point when outnumbered."
+
+[[nodes]]
+id = "root"
+type = "priority"
+label = "Survive, fight, hold"
+
+[[nodes]]
+id = "odds"
+parent = "root"
+type = "outnumbered"
+allies = "soldiers"
+enemies = "enemies"
+radius = 12.0
+ratio = 1.5
+
+[[nodes]]
+id = "fall_back"
+parent = "odds"
+type = "retreat"
+threats = "enemies"
+panic_distance = 14.0
+
+[[nodes]]
+id = "engage"
+parent = "root"
+type = "within_distance"
+group = "enemies"
+distance = 12.0
+
+[[nodes]]
+id = "fight"
+parent = "engage"
+type = "blend"
+
+[[nodes]]
+id = "attack"
+parent = "fight"
+type = "attack"
+group = "enemies"
+range = 1.5
+
+[[nodes]]
+id = "spacing"
+parent = "fight"
+type = "separation"
+group = "soldiers"
+radius = 1.5
+weight = 0.8
+
+[[nodes]]
+id = "post"
+parent = "root"
+type = "hold_ground"
+radius = 0.5

@@ -356,8 +356,22 @@ pub struct World {
     controller_query: QueryState<(&'static EntityIdentity, &'static crate::CharacterController)>,
     follow_query: QueryState<(&'static EntityIdentity, &'static crate::Follow)>,
     spin_query: QueryState<(&'static EntityIdentity, &'static crate::Spin)>,
+    camera_query: QueryState<(&'static EntityIdentity, &'static crate::FollowCamera)>,
+    mouse_look_query: QueryState<(&'static EntityIdentity, &'static crate::MouseLook)>,
+    look_query: QueryState<(&'static EntityIdentity, &'static crate::LookAt)>,
     brain_query: QueryState<(&'static EntityIdentity, &'static mut crate::BrainAgent)>,
+    audio_emitter_query: QueryState<(&'static EntityIdentity, &'static mut crate::AudioEmitter)>,
+    audio_listener_query: QueryState<(&'static EntityIdentity, &'static crate::AudioListener)>,
+    map_zone_query: QueryState<(&'static EntityIdentity, &'static crate::map::Zone)>,
+    map_waypoint_query: QueryState<(&'static EntityIdentity, &'static crate::map::Waypoint)>,
+    metadata_query:
+        QueryState<&'static EntityIdentity, bevy_ecs::query::With<crate::map::Metadata>>,
+    scene_map: Option<crate::map::SceneMap>,
     group_query: QueryState<(&'static EntityIdentity, &'static crate::Group)>,
+    obstacle_query: QueryState<(&'static EntityIdentity, &'static crate::PhysicsBody)>,
+    locomotion_query:
+        QueryState<&'static EntityIdentity, bevy_ecs::query::With<crate::LocomotionAgent>>,
+    locomotion_ids: Option<Vec<EntityId>>,
     brains: Option<crate::brain::BrainScratch>,
     motion: Option<crate::motion::MotionScratch>,
 }
@@ -378,6 +392,7 @@ impl World {
         components.insert_resource(EntityLifecycleQueue::default());
         components.insert_resource(EntityLifecycleResults::default());
         components.insert_resource(ComponentIntegrity::default());
+        components.insert_resource(crate::map::MapGeneration::default());
         let unauthorized_entity_query = components
             .query_filtered::<EcsEntity, (Without<EntityIdentity>, Without<IsResource>)>();
         #[cfg(feature = "physics")]
@@ -386,8 +401,20 @@ impl World {
         let controller_query = components.query::<(&EntityIdentity, &crate::CharacterController)>();
         let follow_query = components.query::<(&EntityIdentity, &crate::Follow)>();
         let spin_query = components.query::<(&EntityIdentity, &crate::Spin)>();
+        let camera_query = components.query::<(&EntityIdentity, &crate::FollowCamera)>();
+        let mouse_look_query = components.query::<(&EntityIdentity, &crate::MouseLook)>();
+        let look_query = components.query::<(&EntityIdentity, &crate::LookAt)>();
         let brain_query = components.query::<(&EntityIdentity, &mut crate::BrainAgent)>();
         let group_query = components.query::<(&EntityIdentity, &crate::Group)>();
+        let audio_emitter_query = components.query::<(&EntityIdentity, &mut crate::AudioEmitter)>();
+        let audio_listener_query = components.query::<(&EntityIdentity, &crate::AudioListener)>();
+        let map_zone_query = components.query::<(&EntityIdentity, &crate::map::Zone)>();
+        let map_waypoint_query = components.query::<(&EntityIdentity, &crate::map::Waypoint)>();
+        let metadata_query = components
+            .query_filtered::<&EntityIdentity, bevy_ecs::query::With<crate::map::Metadata>>();
+        let obstacle_query = components.query::<(&EntityIdentity, &crate::PhysicsBody)>();
+        let locomotion_query = components
+            .query_filtered::<&EntityIdentity, bevy_ecs::query::With<crate::LocomotionAgent>>();
         let id = NEXT_WORLD_ID.fetch_add(1, Ordering::Relaxed);
         Self {
             id,
@@ -406,8 +433,20 @@ impl World {
             controller_query,
             follow_query,
             spin_query,
+            camera_query,
+            look_query,
+            mouse_look_query,
             brain_query,
+            audio_emitter_query,
+            audio_listener_query,
+            map_zone_query,
+            map_waypoint_query,
+            metadata_query,
+            scene_map: Some(Default::default()),
             group_query,
+            obstacle_query,
+            locomotion_query,
+            locomotion_ids: Some(Vec::new()),
             brains: Some(Default::default()),
             motion: Some(Default::default()),
         }
@@ -416,6 +455,12 @@ impl World {
     /// Motion components for this tick in a buffer reused across ticks.
     pub(crate) fn take_motion_scratch(&mut self) -> crate::motion::MotionScratch {
         let mut scratch = self.motion.take().unwrap_or_default();
+        scratch.mouse_looks.clear();
+        scratch.mouse_looks.extend(
+            self.mouse_look_query
+                .iter(&self.components)
+                .map(|(id, look)| (id.id(), *look)),
+        );
         scratch.controllers.clear();
         scratch.controllers.extend(
             self.controller_query
@@ -434,6 +479,18 @@ impl World {
                 .iter(&self.components)
                 .map(|(id, spin)| (id.id(), *spin)),
         );
+        scratch.cameras.clear();
+        scratch.cameras.extend(
+            self.camera_query
+                .iter(&self.components)
+                .map(|(id, camera)| (id.id(), *camera)),
+        );
+        scratch.looks.clear();
+        scratch.looks.extend(
+            self.look_query
+                .iter(&self.components)
+                .map(|(id, look)| (id.id(), *look)),
+        );
         scratch
     }
 
@@ -451,6 +508,7 @@ impl World {
                     id,
                     position: Vec3::ZERO,
                     velocity: Vec3::ZERO,
+                    measured_velocity: None,
                     group,
                 });
             }
@@ -460,8 +518,31 @@ impl World {
         }
         for (id, agent) in self.brain_query.iter(&self.components) {
             push(&mut scratch, id.id(), None);
-            for &object in &agent.brain.objects {
-                push(&mut scratch, object, None);
+            for layer in &agent.layers {
+                for &object in &layer.brain.objects {
+                    push(&mut scratch, object, None);
+                }
+            }
+        }
+        // Box colliders block sight and give cover, collected only when a brain asks.
+        scratch.obstacles.clear();
+        let mut needs_obstacles = false;
+        for (_, agent) in self.brain_query.iter(&self.components) {
+            needs_obstacles |= agent.layers.iter().any(|layer| layer.brain.needs_obstacles);
+        }
+        if needs_obstacles {
+            let boxes: Vec<_> = self
+                .obstacle_query
+                .iter(&self.components)
+                .filter_map(|(id, body)| body.collider.as_box().map(|b| (id.id(), b)))
+                .collect();
+            // shortcut: allocates this short list per tick when sight is used; keep a buffer if profiles show it.
+            for (id, collider) in boxes {
+                if let Ok(model) = self.global_transform(id).map(|t| t.matrix()) {
+                    scratch
+                        .obstacles
+                        .extend(crate::brain::Obstacle::new(id, model, collider));
+                }
             }
         }
         // Positions after the scan: objects deleted since load drop out of the snapshot.
@@ -474,9 +555,45 @@ impl World {
             scratch.entries[i].position = self
                 .global_transform(id)
                 .map_or(Vec3::ZERO, |t| t.translation());
+            if self
+                .component::<crate::LocomotionAgent>(id)
+                .ok()
+                .flatten()
+                .is_some_and(|agent| agent.model.is_physical())
+            {
+                let velocity = Vec3::ZERO;
+                #[cfg(feature = "physics")]
+                let velocity = self
+                    .physics_body_state(id)
+                    .ok()
+                    .flatten()
+                    .map_or(velocity, |state| state.linear_velocity);
+                scratch.entries[i].measured_velocity = Some(velocity);
+            }
             scratch.index.insert(id, i);
         }
         scratch
+    }
+
+    /// Objects with locomotion this tick, in a buffer reused across ticks.
+    pub(crate) fn take_locomotion_ids(&mut self) -> Vec<EntityId> {
+        let mut ids = self.locomotion_ids.take().unwrap_or_default();
+        ids.clear();
+        ids.extend(
+            self.locomotion_query
+                .iter(&self.components)
+                .map(|id| id.id()),
+        );
+        ids
+    }
+
+    pub(crate) fn restore_locomotion_ids(&mut self, ids: Vec<EntityId>) {
+        self.locomotion_ids = Some(ids);
+    }
+
+    /// The brain buffers without rebuilding the snapshot (for applying looks).
+    pub(crate) fn take_brain_scratch_only(&mut self) -> Option<crate::brain::BrainScratch> {
+        self.brains.take()
     }
 
     pub(crate) fn restore_brain_scratch(&mut self, scratch: crate::brain::BrainScratch) {
@@ -489,6 +606,61 @@ impl World {
     ) {
         for (id, mut agent) in self.brain_query.iter_mut(&mut self.components) {
             f(id.id(), &mut agent);
+        }
+    }
+
+    pub(crate) fn for_each_audio_emitter(
+        &mut self,
+        mut f: impl FnMut(EntityId, &mut crate::AudioEmitter),
+    ) {
+        for (id, mut emitter) in self.audio_emitter_query.iter_mut(&mut self.components) {
+            f(id.id(), &mut emitter);
+        }
+    }
+
+    pub(crate) fn for_each_audio_listener(
+        &mut self,
+        mut f: impl FnMut(EntityId, &crate::AudioListener),
+    ) {
+        for (id, listener) in self.audio_listener_query.iter(&self.components) {
+            f(id.id(), listener);
+        }
+    }
+
+    pub(crate) fn take_scene_map(&mut self) -> crate::map::SceneMap {
+        self.scene_map.take().unwrap_or_default()
+    }
+
+    pub(crate) fn restore_scene_map(&mut self, map: crate::map::SceneMap) {
+        self.scene_map = Some(map);
+    }
+
+    pub(crate) fn scene_map(&self) -> &crate::map::SceneMap {
+        static EMPTY: std::sync::OnceLock<crate::map::SceneMap> = std::sync::OnceLock::new();
+        // Only absent while a `&mut self` map operation runs, which `&self` callers can't observe.
+        self.scene_map
+            .as_ref()
+            .unwrap_or_else(|| EMPTY.get_or_init(Default::default))
+    }
+
+    pub(crate) fn for_each_map_zone(&mut self, mut f: impl FnMut(EntityId, &crate::map::Zone)) {
+        for (id, zone) in self.map_zone_query.iter(&self.components) {
+            f(id.id(), zone);
+        }
+    }
+
+    pub(crate) fn for_each_map_waypoint(
+        &mut self,
+        mut f: impl FnMut(EntityId, &crate::map::Waypoint),
+    ) {
+        for (id, waypoint) in self.map_waypoint_query.iter(&self.components) {
+            f(id.id(), waypoint);
+        }
+    }
+
+    pub(crate) fn for_each_metadata_entity(&mut self, mut f: impl FnMut(EntityId)) {
+        for id in self.metadata_query.iter(&self.components) {
+            f(id.id());
         }
     }
 
@@ -521,6 +693,12 @@ impl World {
         force: f32,
     ) -> Result<(), crate::PhysicsError> {
         self.key_for(id)?;
+        if self
+            .component::<crate::LocomotionAgent>(id)?
+            .is_some_and(|agent| agent.model.is_physical())
+        {
+            return Err(crate::PhysicsError::LocomotionConflict);
+        }
         if !matches!(
             self.component::<crate::PhysicsBody>(id)?,
             Some(body) if body.body == crate::BodyKind::Dynamic
@@ -532,6 +710,16 @@ impl World {
             .queue_drive(id, velocity, jump, force)
     }
 
+    /// Supporting contact committed by the most recent physics step. Missing bodies are not grounded.
+    #[cfg(feature = "physics")]
+    pub fn is_grounded(&self, id: EntityId) -> Result<bool, WorldError> {
+        self.key_for(id)?;
+        Ok(self
+            .physics
+            .as_ref()
+            .is_some_and(|state| state.grounded(id)))
+    }
+
     /// Linear velocity of a simulated dynamic body, or `None` before its first physics step.
     #[cfg(feature = "physics")]
     pub fn linear_velocity(&self, id: EntityId) -> Result<Option<Vec3>, WorldError> {
@@ -540,6 +728,37 @@ impl World {
             .physics
             .as_ref()
             .and_then(|state| state.linear_velocity(id)))
+    }
+
+    /// Angular velocity from the last committed physics step, world-space radians/s.
+    /// Returns `None` before the body's first physics step. Like linear velocity,
+    /// this is a backend snapshot; component edits reconcile at the next fixed step.
+    #[cfg(feature = "physics")]
+    pub fn angular_velocity(&self, id: EntityId) -> Result<Option<Vec3>, WorldError> {
+        self.key_for(id)?;
+        Ok(self
+            .physics
+            .as_ref()
+            .and_then(|state| state.angular_velocity(id)))
+    }
+
+    /// Committed dynamic-body state, or None before initialization or while body
+    /// settings/pose differ from the committed body. A reconstruction gets a new
+    /// revision; callers must reset control history instead of reusing old feedback.
+    #[cfg(feature = "physics")]
+    pub fn physics_body_state(
+        &self,
+        id: EntityId,
+    ) -> Result<Option<crate::PhysicsBodyState>, WorldError> {
+        self.key_for(id)?;
+        let Some(settings) = self.component::<crate::PhysicsBody>(id)? else {
+            return Ok(None);
+        };
+        let local = *self.local_transform(id)?;
+        Ok(self
+            .physics
+            .as_ref()
+            .and_then(|state| state.body_state(id, *settings, local)))
     }
 
     /// Steps physics only when explicitly called by the fixed simulation loop.
@@ -728,6 +947,30 @@ impl World {
         #[cfg(not(feature = "physics"))]
         {
             let _ = (id, force);
+            Err(crate::PhysicsError::FeatureDisabled)
+        }
+    }
+
+    /// Adds a world-space torque in N·m to a dynamic body for its next fixed step.
+    /// Multiple submissions sum; resubmit every tick for sustained torque. This
+    /// changes angular acceleration, not the body's pose or angular velocity directly.
+    pub fn add_torque(&mut self, id: EntityId, torque: Vec3) -> Result<(), crate::PhysicsError> {
+        #[cfg(feature = "physics")]
+        {
+            self.key_for(id)?;
+            if !matches!(
+                self.component::<crate::PhysicsBody>(id)?,
+                Some(body) if body.body == crate::BodyKind::Dynamic
+            ) {
+                return Err(crate::PhysicsError::NotDynamicBody);
+            }
+            self.physics
+                .get_or_insert_with(crate::physics::runtime::PhysicsState::default)
+                .queue_torque(id, torque)
+        }
+        #[cfg(not(feature = "physics"))]
+        {
+            let _ = (id, torque);
             Err(crate::PhysicsError::FeatureDisabled)
         }
     }

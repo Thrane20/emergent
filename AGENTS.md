@@ -49,6 +49,11 @@ Emergent is a game engine built from scratch in Rust. Gaming-grade speed, predic
 - Read existing code and local guidance before changing architecture. Keep edits focused on the requested outcome.
 - For substantial new systems, first write a concise design brief covering ownership, SlotMap integration, data flow, hot paths, expected scale, and validation. Avoid broad implementation before the boundaries are clear.
 - Preserve unrelated work. Do not introduce competing object identity or hierarchy systems as shortcuts.
+- Game projects share one IDE contract. CLI tool commands, inspection, previews and the native window belong in the engine's `src/project_host/`; new-project code and asset defaults belong in `templates/standard/`; new-plugin defaults belong in `templates/plugin/`. A project's own `src/` holds only its game.
+- `projects/first_project` is an ordinary independent game project. It is never a source of truth for engine APIs, IDE behaviour, templates, fixtures, build defaults or agent guidance. Do not copy its Rust, assets or identifiers into engine/IDE implementations or tests. Historical evidence may describe it; current contracts come from engine source, public exports, capability documentation and the standard template.
+- Implement reusable engine/IDE features in the engine first and validate them using the standard template and a newly created independent project. Do not prototype shared infrastructure in a game project with a promise to move it later.
+- The engine Cargo workspace contains the engine and standard template fixture; game projects build independently through their own manifests. Engine builds/tests must not require a particular game's source, assets or test outcomes.
+- The IDE opens only an explicitly selected or pinned project. With no selection, show New/Open project; never silently fall back to a sample game or edit the template itself. Validation fixtures belong under `tests/fixtures/` or disposable template-derived projects.
 - Explain what changed, why it fits the engine architecture, and how it was validated. Distinguish measured results from intended improvements and unresolved risks.
 
 ## Documentation

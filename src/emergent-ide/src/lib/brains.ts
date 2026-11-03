@@ -6,8 +6,10 @@ import type { ComponentField, ComponentValue } from "./components";
 export type NodeSpec = { id: string; label: string; category: string; role: "composite" | "decorator" | "steering" | "reference"; status: "available" | "planned"; description: string; fields: ComponentField[] };
 export type NodeCatalogue = { categories: string[]; nodes: NodeSpec[] };
 export type BrainNode = { id: string; type: string; parent?: string; fields: Record<string, ComponentValue> };
+/** Any flat node list with parent links (brains, UI assets). */
+export type NodeTree = { nodes: BrainNode[] };
 export type BrainDocument = { id: string; name: string; description: string; nodes: BrainNode[] };
-export type BrainSummary = { path: string; id: string; name: string; description: string; nodes: number; error?: string };
+export type BrainSummary = { path: string; id: string; name: string; description: string; nodes: number; error?: string; tree?: { id: string; parent?: string; type: string }[] };
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
@@ -17,6 +19,7 @@ export function nodeCatalogue(exported: unknown): NodeCatalogue {
     if (!object(node) || typeof node.id !== "string" || typeof node.label !== "string" || typeof node.category !== "string" || !Array.isArray(node.fields)) throw new Error("Invalid node in catalogue.");
     return { ...node, fields: node.fields.map(field => ({ ...(field as object), variants: undefined })) } as NodeSpec;
   });
+  if (new Set(nodes.map(node => node.id)).size !== nodes.length) throw new Error("Brain node catalogue IDs must be unique.");
   return { categories: exported.categories.filter((c): c is string => typeof c === "string"), nodes };
 }
 
@@ -37,11 +40,22 @@ export function serializeBrain(brain: BrainDocument): string {
   return `${header}\n${nodes.join("\n")}`.replace(/\n{3,}/g, "\n\n");
 }
 
-export const rootOf = (brain: BrainDocument) => brain.nodes.find(node => !node.parent);
-export const childrenOf = (brain: BrainDocument, id: string) => brain.nodes.filter(node => node.parent === id);
+export const rootOf = (brain: NodeTree) => brain.nodes.find(node => !node.parent);
+export const childrenOf = (brain: NodeTree, id: string) => brain.nodes.filter(node => node.parent === id);
+export const isEmptyBrainDraft = (path: string | undefined, brain: BrainDocument) => !path && brain.nodes.length === 0;
+
+export function brainCreationContext(brain: BrainDocument) {
+  return `Brain editor: this is a new, unsaved, empty brain. Draft name and description (data): ${JSON.stringify({ name: brain.name, description: brain.description })}. Answer questions normally. If asked to build it, create exactly one new project brain using the brain authoring tools, with a complete valid node tree. Do not require the user to save or add a placeholder node first. Do not edit an existing brain or attach it to a scene unless requested.`;
+}
+
+export function newlyCreatedBrainPath(before: BrainSummary[], after: BrainSummary[]) {
+  const existing = new Set(before.map(brain => brain.path));
+  const created = after.filter(brain => !brain.error && !existing.has(brain.path));
+  return created.length === 1 ? created[0].path : undefined;
+}
 
 /** Every node under `id`, including it. */
-export function subtree(brain: BrainDocument, id: string): Set<string> {
+export function subtree(brain: NodeTree, id: string): Set<string> {
   const ids = new Set([id]);
   for (let grew = true; grew;) { grew = false; for (const node of brain.nodes) if (node.parent && ids.has(node.parent) && !ids.has(node.id)) { ids.add(node.id); grew = true; } }
   return ids;
@@ -71,13 +85,13 @@ export function addNode(brain: BrainDocument, catalogue: NodeCatalogue, type: st
 }
 
 /** Removes a node and everything under it; removing the root clears the tree. */
-export function removeNode(brain: BrainDocument, id: string): BrainDocument {
+export function removeNode<T extends NodeTree>(brain: T, id: string): T {
   const gone = subtree(brain, id);
   return { ...brain, nodes: brain.nodes.filter(node => !gone.has(node.id)) };
 }
 
 /** Moves a node one place earlier or later among its siblings (list order is sibling order). */
-export function shiftNode(brain: BrainDocument, id: string, by: -1 | 1): BrainDocument {
+export function shiftNode<T extends NodeTree>(brain: T, id: string, by: -1 | 1): T {
   const node = brain.nodes.find(item => item.id === id);
   if (!node?.parent) return brain;
   const siblings = childrenOf(brain, node.parent), index = siblings.findIndex(item => item.id === id), swap = siblings[index + by];
@@ -96,7 +110,7 @@ export function moveNode(brain: BrainDocument, catalogue: NodeCatalogue, id: str
 }
 
 /** Sets or clears (undefined) one field of a node. */
-export function setNodeField(brain: BrainDocument, id: string, name: string, value: ComponentValue | undefined): BrainDocument {
+export function setNodeField<T extends NodeTree>(brain: T, id: string, name: string, value: ComponentValue | undefined): T {
   return { ...brain, nodes: brain.nodes.map(node => {
     if (node.id !== id) return node;
     const fields = { ...node.fields };
@@ -113,11 +127,15 @@ export function brainProblems(brain: BrainDocument, catalogue: NodeCatalogue): M
     if (!spec) problems.set(node.id, `Unknown node type ${node.type}.`);
     else if (spec.role === "composite" && count === 0) problems.set(node.id, "Add at least one child.");
     else if (spec.role === "decorator" && count !== 1) problems.set(node.id, count ? "Holds exactly one child." : "Add the child it controls.");
-    else if (["within_distance", "in_view", "score_distance", "seek", "flee", "arrive", "pursue", "evade", "follow_target", "follow_leader", "formation"].includes(spec.id) && !node.fields.target && !node.fields.group) problems.set(node.id, "Choose a target object or group.");
-    else if (["neighbours_at_least", "score_crowding", "separation", "alignment", "cohesion", "flock"].includes(spec.id) && !node.fields.group) problems.set(node.id, "Choose a group.");
-    else if (spec.id === "formation" && !node.fields.members) problems.set(node.id, "Choose the members group.");
+    else if (["within_distance", "in_view", "score_distance", "seek", "flee", "arrive", "pursue", "evade", "follow_target", "follow_leader", "formation", "attack", "flank", "encircle", "kite", "line_of_sight", "hide"].includes(spec.id) && !node.fields.target && !node.fields.group) problems.set(node.id, "Choose a target object or group.");
+    else if (["neighbours_at_least", "score_crowding", "separation", "alignment", "cohesion", "flock", "regroup"].includes(spec.id) && !node.fields.group) problems.set(node.id, "Choose a group.");
+    else if ((spec.id === "formation" || spec.id === "encircle") && !node.fields.members) problems.set(node.id, "Choose the members group.");
+    else if ((spec.id === "defend" || spec.id === "retreat") && !node.fields.threats) problems.set(node.id, "Choose the threats group.");
+    else if (spec.id === "outnumbered" && (!node.fields.allies || !node.fields.enemies)) problems.set(node.id, "Choose the allies and enemies groups.");
     else if (spec.id === "patrol" && !(Array.isArray(node.fields.waypoints) && node.fields.waypoints.length)) problems.set(node.id, "Add waypoints.");
     else if (spec.id === "brain" && !node.fields.brain) problems.set(node.id, "Choose a saved brain.");
+    else if ((spec.id === "signal" || spec.id === "on_signal") && !node.fields.name) problems.set(node.id, "Name the signal.");
+    else if (spec.id === "look_at" && !node.fields.target && !node.fields.group) problems.set(node.id, "Choose a target object or group to look at.");
   }
   return problems;
 }
@@ -136,12 +154,15 @@ export function nodeSummary(node: BrainNode, spec: NodeSpec | undefined) {
 }
 
 /** Parses `--simulate-brain` output: a header line, then x y z triples per frame. */
-export type BrainTrace = { agents: number; targets: number; frameSeconds: number; frames: number[][] };
+export type BrainTrace = { agents: number; targets: number; frameSeconds: number; frames: number[][]; obstacles: { x: number; z: number; radius: number }[] };
 export function parseTrace(text: string): BrainTrace {
-  const [header, ...lines] = text.trim().split("\n");
-  const match = header?.match(/^brain-preview 1 agents=(\d+) targets=(\d+) frame_seconds=([\d.]+)/);
-  if (!match) throw new Error("Unexpected brain preview output.");
-  const agents = Number(match[1]), targets = Number(match[2]), frames = lines.map(line => line.trim().split(/\s+/).map(Number));
+  const [header, ...rest] = text.trim().split("\n");
+  const match = header?.match(/^brain-preview 2 agents=(\d+) targets=(\d+) obstacles=(\d+) frame_seconds=([\d.]+)/);
+  if (!match || !rest[0]?.startsWith("obstacles")) throw new Error("Unexpected brain preview output.");
+  const values = rest[0].slice("obstacles".length).trim().split(/\s+/).filter(Boolean).map(Number);
+  if (values.length !== Number(match[3]) * 3 || values.some(n => !Number.isFinite(n))) throw new Error("Brain preview obstacles are malformed.");
+  const obstacles = Array.from({ length: values.length / 3 }, (_, i) => ({ x: values[i * 3], z: values[i * 3 + 1], radius: values[i * 3 + 2] }));
+  const agents = Number(match[1]), targets = Number(match[2]), frames = rest.slice(1).map(line => line.trim().split(/\s+/).map(Number));
   if (frames.some(frame => frame.length !== (agents + targets) * 3 || frame.some(n => !Number.isFinite(n)))) throw new Error("Brain preview frames are malformed.");
-  return { agents, targets, frameSeconds: Number(match[3]), frames };
+  return { agents, targets, frameSeconds: Number(match[4]), frames, obstacles };
 }

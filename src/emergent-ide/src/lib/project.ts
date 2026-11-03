@@ -1,5 +1,8 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
+import { parse } from "smol-toml";
+import { readProjectPlugins } from "./project-plugins";
+import { activeProjectRoot } from "./workspace";
 
 export type ProjectFileKind =
   | "tween"
@@ -68,26 +71,31 @@ export type ProjectSnapshot = {
   outputs: ProjectOutput[];
 };
 
-const defaultProjectRoot = path.resolve(process.cwd(), "../../projects/first_project");
 const textExtensions = new Set([".md", ".rs", ".toml", ".txt", ".wgsl", ".json", ".ron"]);
 
 export async function readProjectBinding():Promise<Pick<ProjectSnapshot,"id"|"root">> {
-  const root=path.resolve(/* turbopackIgnore: true */ process.env.EMERGENT_PROJECT_PATH??defaultProjectRoot);
+  const root=await activeProjectRoot();
   const manifest=await readFile(path.join(root,"emergent.toml"),"utf8");
   return {root,id:valueFor(manifest,"id")??"unidentified-project"};
 }
 
 export async function readProjectSnapshot(): Promise<ProjectSnapshot> {
-  const root = path.resolve(
-    /* turbopackIgnore: true */ process.env.EMERGENT_PROJECT_PATH ?? defaultProjectRoot,
-  );
+  const root = await activeProjectRoot();
   const manifestPath = path.join(root, "emergent.toml");
   const manifest = await readFile(manifestPath, "utf8");
-  const assetRoots = arrayFor(manifest, "asset_roots");
+  const plugins = (await readProjectPlugins(root)).filter(plugin => !plugin.error);
+  const projectRoots = arrayFor(manifest, "asset_roots");
+  const pluginRoots = plugins.flatMap(plugin => plugin.assetRoots.map(assetRoot => `${plugin.path}/${assetRoot}`));
+  const assetRoots = [...projectRoots, ...pluginRoots];
   const generatedRoot = valueFor(manifest, "generated_code") ?? "src/generated";
-  const roots = [...assetRoots, "src"];
+  const pluginSources = plugins.filter(plugin => plugin.crate).map(plugin => `${plugin.path}/src`);
+  const roots = [...projectRoots, "src", ...pluginRoots, ...pluginSources];
   const discovered = await Promise.all(
-    roots.map((relative) => listFiles(path.join(root, relative), root, generatedRoot)),
+    // A missing plugin folder is reported on the Plugins page, not by failing the whole project.
+    roots.map((relative, index) => {
+      const listed = listFiles(path.join(root, relative), root, generatedRoot);
+      return index <= projectRoots.length ? listed : listed.catch(() => []);
+    }),
   );
   const manifestFile = await projectFile(manifestPath, root, generatedRoot);
   const files = [manifestFile, ...discovered.flat()].sort(fileOrder);
@@ -200,12 +208,13 @@ function connectionsFor(files: ProjectFile[], entryScene: string): ProjectConnec
 }
 
 function valueFor(source: string, key: string): string | undefined {
-  return source.match(new RegExp(`^${key}\\s*=\\s*"([^"]+)"`, "m"))?.[1];
+  try { const value = parse(source)[key]; return typeof value === "string" ? value : undefined; }
+  catch { return undefined; }
 }
 
 function arrayFor(source: string, key: string): string[] {
-  const value = source.match(new RegExp(`^${key}\\s*=\\s*\\[([^\\]]*)\\]`, "m"))?.[1];
-  return value ? [...value.matchAll(/"([^"]+)"/g)].map((match) => match[1]) : [];
+  try { const value = parse(source)[key]; return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; }
+  catch { return []; }
 }
 
 function outputsFor(manifest: string): ProjectOutput[] {

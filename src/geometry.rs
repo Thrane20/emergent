@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 
 use crate::Primitive;
 
@@ -179,6 +179,8 @@ pub struct MeshVertex {
     position: Vec3,
     color: Color,
     normal: Option<Vec3>,
+    /// Texture coordinates for a UV-mapped material image; `None` samples at the origin.
+    uv: Option<Vec2>,
 }
 
 impl MeshVertex {
@@ -188,6 +190,7 @@ impl MeshVertex {
             position,
             color,
             normal: None,
+            uv: None,
         })
     }
 
@@ -198,7 +201,21 @@ impl MeshVertex {
             position,
             color,
             normal: Some(normal.normalize()),
+            uv: None,
         })
+    }
+
+    /// Attaches texture coordinates; they may lie outside 0..1 because textures repeat.
+    pub fn with_uv(mut self, uv: Vec2) -> Result<Self, GeometryError> {
+        if !uv.is_finite() {
+            return Err(GeometryError::InvalidTextureCoordinate);
+        }
+        self.uv = Some(uv);
+        Ok(self)
+    }
+
+    pub fn uv(self) -> Option<Vec2> {
+        self.uv
     }
 
     pub fn position(self) -> Vec3 {
@@ -291,6 +308,7 @@ impl Mesh {
                 position,
                 color,
                 normal: None,
+                uv: None,
             })
             .collect();
         let indices = vec![
@@ -348,6 +366,7 @@ pub enum GeometryError {
         index: usize,
     },
     InvalidNormal,
+    InvalidTextureCoordinate,
     InvalidRadius,
     InvalidExtent,
     CoincidentLineEndpoints,
@@ -388,6 +407,9 @@ impl fmt::Display for GeometryError {
             }
             Self::InvalidNormal => {
                 formatter.write_str("mesh vertex normals must be finite and non-zero")
+            }
+            Self::InvalidTextureCoordinate => {
+                formatter.write_str("mesh texture coordinates must be finite")
             }
             Self::InvalidRadius => formatter.write_str("geometry radius must be finite and positive"),
             Self::InvalidExtent => formatter.write_str("mesh extent must be finite and positive"),

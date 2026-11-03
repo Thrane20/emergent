@@ -1,7 +1,9 @@
 import "server-only";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { sharedTargetDir } from "./workspace";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
+import { readdir, stat } from "node:fs/promises";
 import { InspectionDecoder, inspectionCommand, type InspectionFrame, type ToolResult } from "./inspection-protocol";
 import type { ProjectSnapshot } from "./project";
 import { projectScenes } from "./project-scenes";
@@ -15,8 +17,28 @@ type Session = {
   child: ChildProcessWithoutNullStreams; latest: InspectionFrame | null; log: string; error: string | null;
   used: number; seq: number; started: number; waiters: Set<() => void>;
   pending: Map<number,{resolve:(result?:ToolResult)=>void;reject:(error:Error)=>void}>;
-  lease: ReturnType<typeof setInterval>;
+  lease: ReturnType<typeof setInterval>; parked: string | null;
 };
+
+// A parked worker stays warm while the IDE is on another page; it exits only after this much idle time.
+const PARKED_IDLE_MS = 30 * 60_000;
+
+/** Cheap change fingerprint of the files a scene render depends on. */
+async function projectFingerprint(root: string): Promise<string> {
+  let newest = 0, count = 0;
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) await walk(full);
+      else { const info = await stat(full).catch(() => null); if (info) { count++; newest = Math.max(newest, info.mtimeMs); } }
+    }
+  };
+  await Promise.all(["assets", "src", "emergent.toml"].map(async name => {
+    const full = path.join(root, name), info = await stat(full).catch(() => null);
+    if (info?.isDirectory()) await walk(full); else if (info) { count++; newest = Math.max(newest, info.mtimeMs); }
+  }));
+  return `${count}:${newest}`;
+}
 export type InspectionStatus = {id:string;scene:string;state:string;error:string|null;diagnostics:string;sequence:number;workerPid:number|null;tick:number;renderUs:number;encodeUs:number;uptimeMs:number};
 
 export class InspectionSessions {
@@ -37,13 +59,16 @@ export class InspectionSessions {
   }
   private async launch(project: ProjectSnapshot, scene: string, terrain?:RaymarchedSettings) {
     if (!terrain&&!projectScenes(project).some(item=>item.path===scene)) throw new Error("Choose a scene from the linked project.");
-    if (this.active && ["building","running"].includes(this.active.state) && this.active.root===project.root && this.active.projectId===project.id && this.active.scene===scene) return this.status(project,this.active.id);
+    if (this.active && ["building","running"].includes(this.active.state) && this.active.root===project.root && this.active.projectId===project.id && this.active.scene===scene) {
+      const parked=this.active.parked;this.active.parked=null;this.active.used=Date.now();
+      if(!parked||parked===await projectFingerprint(project.root))return this.status(project,this.active.id);
+    }
     if (this.active) await this.terminate(this.active);
     const root=terrain?await foundationRoot(project):project.root;
-    const args=terrain?["run","--release","--quiet","--manifest-path",path.join(root,"Cargo.toml"),"--example","terrain_live_preview","--features","graphics","--",stringify(terrain)]:["run","--release","--quiet","--manifest-path",path.join(root,"Cargo.toml"),"--","--inspect-scene",scene];
+    const args=terrain?["run","--release","--quiet","--manifest-path",path.join(root,"Cargo.toml"),"--example","terrain_live_preview","--features","graphics","--",stringify(terrain)]:["run","--release","--quiet","--manifest-path",path.join(root,"Cargo.toml"),"--target-dir",sharedTargetDir,"--","--inspect-scene",scene];
     const child=spawn("cargo",args,{cwd:root,shell:false,detached:process.platform!=="win32",stdio:["pipe","pipe","pipe"]});
-    const s: Session={id:randomUUID(),projectId:project.id,root:project.root,scene,state:"building",child,latest:null,log:"",error:null,used:Date.now(),started:Date.now(),seq:0,waiters:new Set(),pending:new Map(),lease:setInterval(()=>{
-      if(Date.now()-s.used>30000) void this.terminate(s);
+    const s: Session={id:randomUUID(),projectId:project.id,root:project.root,scene,state:"building",child,latest:null,log:"",error:null,used:Date.now(),started:Date.now(),seq:0,waiters:new Set(),pending:new Map(),parked:null,lease:setInterval(()=>{
+      if(Date.now()-s.used>PARKED_IDLE_MS) void this.terminate(s);
       else if(s.state==="building" && Date.now()-s.started>120000)this.fail(s,"Inspection startup exceeded 120 seconds.");
     },5000)};
     s.lease.unref(); this.active=s;
@@ -93,6 +118,10 @@ export class InspectionSessions {
     const s=this.active;
     return s&&s.state==="running"&&s.projectId===project.id&&s.root===project.root&&s.scene===scene?s.id:null;
   }
+  /** Ends whichever session is active, for any project; used when the IDE switches projects. */
+  /** Marks the session as left running by a page that navigated away, so a return can tell whether it went stale. */
+  async park(project:Binding,id:string){const s=this.get(project,id);s.parked=await projectFingerprint(project.root);}
+  async stopActive() {if(this.active)await this.terminate(this.active);}
   async stop(project:Binding,id:string) {const s=this.get(project,id);await this.terminate(s);return this.status(project,id);}
   private get(project:Binding,id:string) {
     const s=this.active;

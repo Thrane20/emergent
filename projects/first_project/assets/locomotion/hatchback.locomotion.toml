@@ -1,0 +1,12 @@
+schema_version = 1
+id = "hatchback"
+name = "Hatchback"
+kind = "locomotion"
+description = "A small front-steering car: 2.5 m wheelbase, 35° lock (about a 3.6 m turning radius), brisk brakes."
+type = "wheeled"
+max_speed = 14.0
+acceleration = 4.5
+braking = 9.0
+wheelbase = 2.5
+max_steer = 35.0
+steer_rate = 140.0

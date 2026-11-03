@@ -1,0 +1,9 @@
+schema_version=1
+id='fps-block'
+kind='primitive'
+[geometry]
+primitive='cube'
+half_extent=0.5
+color=[0.4,0.6,0.8,1]
+[physics]
+body='static'

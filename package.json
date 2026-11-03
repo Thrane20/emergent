@@ -1,0 +1,11 @@
+{
+  "name": "emergent",
+  "private": true,
+  "description": "Builds the Rust engine and standard template, then the IDE.",
+  "packageManager": "pnpm@10.34.4",
+  "scripts": {
+    "build": "pnpm run build:rust && pnpm run build:ide",
+    "build:rust": "cargo build --workspace --release --all-features",
+    "build:ide": "pnpm --dir src/emergent-ide build"
+  }
+}

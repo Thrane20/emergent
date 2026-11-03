@@ -11,11 +11,15 @@ import "./inspection.css";
 import "./scene-graph.css";
 import "./noise-filter.css";
 import "./material.css";
+import "./model-parts.css";
 import "./terrain.css";
 import "./tween.css";
 import "./brain.css";
+import "./ui.css";
 import "./structure.css";
 import "./particles.css";
+import "./audio.css";
+import "./scene-map.css";
 import "./themes.css";
 import "./editor-navigation.css";
 
@@ -28,7 +32,7 @@ const krypton = localFont({
 
 export const metadata: Metadata = {
   title: "Emergent IDE",
-  description: "Reference-oriented project mode for Emergent game projects.",
+  description: "Project-scoped authoring for independent Emergent games.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

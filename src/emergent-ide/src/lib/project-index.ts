@@ -1,4 +1,5 @@
 import "server-only";
+import { SCENE_MAX_INSTANCES } from "./scene-limits";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import type { ProjectFile, ProjectSnapshot } from "./project";
@@ -23,7 +24,7 @@ export type ProjectIndex = { projectId: string; projectName: string; entryScene:
 
 const SIDECAR = /\.(heights|paint)\.toml$|\.library\.json$/;
 const MEDIA = /\.(png|jpe?g|webp|glb|mp4|webm)$/i;
-const DEFINITIONS: [RegExp, string][] = [[/\.entity\.toml$/, "entity"], [/\.material\.toml$/, "material"], [/\.noise\.toml$/, "filter"], [/\.tween\.toml$/, "tween"], [/\.structure\.toml$/, "structure"]];
+const DEFINITIONS: [RegExp, string][] = [[/\.shader\.toml$/, "shader"], [/\.ui\.toml$/, "ui"], [/\.prefab\.toml$/, "prefab"], [/\.entity\.toml$/, "entity"], [/\.material\.toml$/, "material"], [/\.noise\.toml$/, "filter"], [/\.tween\.toml$/, "tween"], [/\.structure\.toml$/, "structure"], [/\.brain\.toml$/, "brain"], [/\.locomotion\.toml$/, "locomotion"], [/\.audio\.toml$/, "audio"]];
 const state = globalThis as typeof globalThis & { emergentProjectIndex?: { key: string; index: ProjectIndex } };
 
 export function assetRef(id: string) { return `asset:${id}`; }
@@ -31,8 +32,17 @@ export function sceneRef(id: string) { return `scene:${id}`; }
 export function instanceRef(sceneId: string, id: string) { return `instance:${sceneId}/${id}`; }
 
 function header(content: string) { return content.split(/^\s*\[/m)[0]; }
-function field(text: string, key: string) { return text.match(new RegExp(`^${key}\\s*=\\s*"([^"]*)"`, "m"))?.[1]; }
+function field(text: string, key: string) {
+  try { const value = parse(text)[key]; return typeof value === "string" ? value : undefined; }
+  catch { return undefined; }
+}
 function digest(text: string) { return createHash("sha256").update(text).digest("hex"); }
+/** A clip's audio file sits beside its `.audio.toml` and belongs to it. */
+function audioSource(files: ProjectFile[], definition: string, top: string) {
+  const source = definition.endsWith(".audio.toml") ? field(top, "source") : undefined;
+  const target = source && !source.includes("/") ? path.posix.join(path.posix.dirname(definition), source) : undefined;
+  return target && files.some(file => file.path === target) ? [target] : [];
+}
 function inAssets(project: ProjectSnapshot, file: ProjectFile) { return project.assetRoots.some(root => file.path.startsWith(`${root}/`)); }
 
 /** Builds (or reuses) the index; the cache key covers every file's path, size and mtime. */
@@ -56,7 +66,7 @@ async function buildIndex(project: ProjectSnapshot): Promise<ProjectIndex> {
       const top = header(file.content), id = field(top, "id");
       owned.add(file.path);
       if (!id) { diagnostics.push({ code: "missing-id", message: `${file.path} has no top-level id.`, paths: [file.path] }); continue; }
-      assets.push({ type: "asset", ref: assetRef(id), id, name: field(top, "name") ?? id, kind: field(top, "kind") ?? definition[1], path: file.path, files: [file.path, ...sidecars(files, file.path)], revision: digest(file.content) });
+      assets.push({ type: "asset", ref: assetRef(id), id, name: field(top, "name") ?? id, kind: field(top, "kind") ?? definition[1], path: file.path, files: [file.path, ...sidecars(files, file.path), ...audioSource(files, file.path, top)], revision: digest(file.content) });
     } else if (file.path.endsWith(".asset.json")) {
       let descriptor: Record<string, unknown>;
       try { descriptor = JSON.parse(file.content); } catch { diagnostics.push({ code: "missing-id", message: `${file.path} is not valid JSON.`, paths: [file.path] }); continue; }
@@ -132,7 +142,7 @@ function sceneInstances(scene: SceneEntry, source: AuthoredInstance[], assetByPa
 /** Names follow the IDE: instance name override, then asset name, then instance ID. */
 function authoredInstances(source: string, read: (path: string) => string | null | undefined): AuthoredInstance[] {
   const document = parse(source) as { schema_version?: unknown; entities?: unknown };
-  if (document.schema_version !== 1 || !Array.isArray(document.entities) || document.entities.length > 1024) throw new Error("Scene must use schema 1 and at most 1024 instances.");
+  if (document.schema_version !== 1 || !Array.isArray(document.entities) || document.entities.length > SCENE_MAX_INSTANCES) throw new Error(`Scene must use schema 1 and at most ${SCENE_MAX_INSTANCES} instances.`);
   const assets = new Map<string, Record<string, unknown> | null>();
   return document.entities.map(value => {
     const item = value as Record<string, unknown>;
@@ -184,4 +194,14 @@ function match(needle: string, value: string) {
   let position = 0;
   for (const character of value) if (character === needle[position]) position++;
   return position === needle.length && needle.length >= 3 ? 25 : 0;
+}
+
+/** Field values may use refs: `asset:<id>` becomes that asset's path, `instance:<scene>/<id>` its instance ID. */
+export function resolveFieldRefs(index: ProjectIndex, fields: Record<string, unknown>): Record<string, unknown> {
+  const one = (value: unknown): unknown => {
+    if (typeof value !== "string" || !/^(asset|instance):/.test(value)) return Array.isArray(value) ? value.map(one) : value;
+    const entry = resolveRef(index, value);
+    return entry.type === "asset" ? entry.path : entry.type === "instance" ? entry.id : value;
+  };
+  return Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, one(value)]));
 }

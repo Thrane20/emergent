@@ -3,7 +3,7 @@ import {materialLibrary} from "@/lib/material-assets";
 import { TerrainBuilder } from "@/components/terrain-builder";
 import {createHash} from "node:crypto";
 import {projectScenes} from "@/lib/project-scenes";
-import { readProjectSnapshot } from "@/lib/project";
+import { readProjectForPage } from "@/lib/project-page";
 import {parse} from "smol-toml";
 import {RaymarchedTerrainBuilder} from "@/components/raymarched-terrain-builder";
 import {raymarchedLibrary} from "@/lib/raymarched-assets";
@@ -11,7 +11,7 @@ import {isTerrainBiome} from "@/lib/terrain-biomes";
 
 export const instant = false;
 export default async function TerrainPage({searchParams}:{searchParams:Promise<Record<string,string|string[]|undefined>>}){
- const project=await readProjectSnapshot(),params=await searchParams;
+ const project=await readProjectForPage(),params=await searchParams;
  const scenes=projectScenes(project).map(scene=>({...scene,revision:createHash("sha256").update(project.files.find(file=>file.path===scene.path)?.content??"").digest("hex")}));
  const selected=scenes.find(scene=>scene.path===params.scene)?.path??project.entryScene;
  const instance=typeof params.instance==="string"?params.instance:undefined;

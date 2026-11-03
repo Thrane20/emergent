@@ -7,7 +7,7 @@ import {expect} from "@playwright/test";
 async function main(){
  const data=await mkdtemp(path.join(os.tmpdir(),"emergent-fal-balance-")),base="http://[::1]:3001";
  let server:ReturnType<typeof spawn>|undefined,logs="";
- const env={...process.env,FAL_KEY:"",EMERGENT_IDE_DATA_DIR:data,EMERGENT_PROJECT_PATH:path.resolve("../../projects/first_project"),EMERGENT_NEXT_DIST_DIR:".next-balance-build",EMERGENT_NAV_TEST_URL:base};
+ const env={...process.env,FAL_KEY:"",EMERGENT_IDE_DATA_DIR:data,EMERGENT_PROJECT_PATH:path.resolve("../../templates/standard"),EMERGENT_NEXT_DIST_DIR:".next-balance-build",EMERGENT_NAV_TEST_URL:base};
  try{
   server=spawn(process.execPath,[path.resolve("node_modules/next/dist/bin/next"),"start","--hostname","::1","--port","3001"],{env,stdio:["ignore","pipe","pipe"]});server.stdout?.on("data",c=>logs+=c);server.stderr?.on("data",c=>logs+=c);
   await expect.poll(async()=>{if(server?.exitCode!==null)throw new Error(logs);try{return (await fetch(`${base}/api/fal-balance`,{signal:AbortSignal.timeout(1000)})).ok;}catch{return false;}},{timeout:30000}).toBe(true);

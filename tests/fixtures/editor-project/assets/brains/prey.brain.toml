@@ -1,0 +1,19 @@
+schema_version = 1
+id = "fixture-prey"
+name = "Prey"
+kind = "brain"
+
+[[nodes]]
+id = "root"
+type = "priority"
+
+[[nodes]]
+id = "escape"
+parent = "root"
+type = "evade"
+group = "predators"
+
+[[nodes]]
+id = "roam"
+parent = "root"
+type = "wander"

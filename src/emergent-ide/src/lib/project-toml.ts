@@ -1,4 +1,5 @@
 import "server-only";
+import { SCENE_MAX_BYTES } from "./scene-limits";
 import { createHash, randomUUID } from "node:crypto";
 import {createReadStream} from "node:fs";
 import { readFile } from "node:fs/promises";
@@ -14,7 +15,7 @@ export type TomlDocument = {path:string;content:string;revision:string};
 function editable(project:ProjectSnapshot,path:string) {
   if(!/\.(scene|entity|noise|tween)\.toml$/.test(path)||!project.files.some(file=>file.path===path)||!project.assetRoots.some(root=>path.startsWith(`${root}/`)))throw new Error("Choose an authored scene, entity, noise or tween TOML asset.");
 }
-async function source(project:ProjectSnapshot,path:string) {return readFile(await containedFile(project.root,path,256*1024),"utf8");}
+async function source(project:ProjectSnapshot,path:string) {return readFile(await containedFile(project.root,path,path.endsWith(".scene.toml")?SCENE_MAX_BYTES:256*1024),"utf8");}
 async function revision(project:ProjectSnapshot) {
   const hash=createHash("sha256");
   for(const file of project.files.filter(file=>file.path.endsWith(".toml")||file.path.endsWith(".rs"))){
@@ -36,7 +37,7 @@ export async function saveTomlDocument(project:ProjectSnapshot,path:string,conte
   try{
     const before=await readTomlDocument(project,path);
     if(before.revision!==expected)throw new Error("Project files changed externally. Reload this TOML document before saving.");
-    if(Buffer.byteLength(content)>256*1024)throw new Error("TOML source exceeds 256 KiB.");parse(content);
+    if(Buffer.byteLength(content)>(path.endsWith(".scene.toml")?SCENE_MAX_BYTES:256*1024))throw new Error(path.endsWith(".scene.toml")?"Scene source exceeds 2 MiB.":"TOML source exceeds 256 KiB.");parse(content);
     const scenes=project.files.filter(file=>file.path.endsWith(".scene.toml")).map(file=>file.path);
     if(!/\.(noise|tween)\.toml$/.test(path)&&scenes.length>127)throw new Error("TOML candidate validation supports at most 127 authored scenes in this first editor.");
     const changes:FileChange[]=[{path,before:before.content,content}];

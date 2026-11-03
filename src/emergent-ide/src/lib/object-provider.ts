@@ -35,7 +35,7 @@ export function singleSubmissionFetch(transport: typeof fetch): typeof fetch {
   };
 }
 
-function providerFailure(error: unknown): ProviderFailure {
+export function providerFailure(error: unknown): ProviderFailure {
   const status = error && typeof error === "object" && "status" in error ? Number(error.status) : 0;
   if (status === 401 || status === 403) return new ProviderFailure("fal rejected the credentials. Check the API key and account access in Settings.", false);
   if (status === 402) return new ProviderFailure("fal requires account credit before generation can continue.", false);
@@ -70,12 +70,17 @@ export function createTrellisProvider(key: string, transport: typeof fetch = fet
         const result = await client.queue.result(OBJECT_ENDPOINT, { requestId, abortSignal: AbortSignal.timeout(15_000) });
         url = new URL(result.data.model_mesh.url);
       } catch (error) { throw providerFailure(error); }
-      if (url.protocol !== "https:" || !(url.hostname === "fal.media" || url.hostname.endsWith(".fal.media")) || url.username || url.password || (url.port && url.port !== "443")) {
-        throw new ObjectCreatorError("Provider returned an unsupported model download host.");
-      }
-      const response = await transport(url, { redirect: "error", signal: AbortSignal.timeout(60_000) });
-      if (!response.ok) throw new ProviderFailure("Model download failed. Check the existing request again.", false);
-      return boundedBody(response, MAX_MODEL_BYTES);
+      return downloadFalModel(url, transport);
     },
   };
+}
+
+/** Downloads a provider model, accepting only fal's media hosts and the model size budget. */
+export async function downloadFalModel(url: URL, transport: typeof fetch = fetch) {
+  if (url.protocol !== "https:" || !(url.hostname === "fal.media" || url.hostname.endsWith(".fal.media")) || url.username || url.password || (url.port && url.port !== "443")) {
+    throw new ObjectCreatorError("Provider returned an unsupported model download host.");
+  }
+  const response = await transport(url, { redirect: "error", signal: AbortSignal.timeout(60_000) });
+  if (!response.ok) throw new ProviderFailure("Model download failed. Check the existing request again.", false);
+  return boundedBody(response, MAX_MODEL_BYTES);
 }

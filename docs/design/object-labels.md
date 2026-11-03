@@ -1,0 +1,5 @@
+# Object layers and tags
+
+A project asset-root `object-labels.toml` owns two ordered lists of up to 32 names. Array indices are stable bit positions; blank slots are reserved, not compacted. Defaults are layer 0 Default and no tags. Each authored entity/instance has a `[classification]` table (`layer` index and `tags` u32 mask). Instance values override asset defaults. Runtime ObjectClassification is an ordinary World component on the existing SlotMap entity; masks are values, not competing identities. No parent inheritance or collision-matrix behaviour is implied. Runtime matching is allocation-free bitwise filtering.
+
+The inspector above Components provides a layer dropdown, tag quick-toggle dropdown and multi-selection dialog. Project configuration edits names in fixed bit slots, validates all scenes before publication and uses revision guarded atomic writes. Scene edits use the existing guarded native validation, then update retained inspection without restart. Invalid/stale IDs fail explicitly. Tests cover bit 31, bounds, undefined slots, asset defaults and overrides. Physics collision filtering and render camera masks remain separate follow-ups.

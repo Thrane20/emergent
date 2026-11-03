@@ -1,0 +1,50 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { parse, stringify } from "smol-toml";
+import { readProjectSnapshot } from "../src/lib/project";
+import { implementChat } from "../src/lib/chat-implementation";
+import { listUis, readUi, saveUi } from "../src/lib/ui-assets";
+
+test("UI saves and AI edits validate natively and preserve files on conflicts or invalid widgets", { timeout: 240000 }, async t => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "emergent-ui-test-"));
+  const root = path.join(directory, "game"), foundation = path.resolve(process.cwd(), "../..");
+  const previousRoot = process.env.EMERGENT_PROJECT_PATH, previousData = process.env.EMERGENT_IDE_DATA_DIR;
+  t.after(async () => {
+    if (previousRoot === undefined) delete process.env.EMERGENT_PROJECT_PATH; else process.env.EMERGENT_PROJECT_PATH = previousRoot;
+    if (previousData === undefined) delete process.env.EMERGENT_IDE_DATA_DIR; else process.env.EMERGENT_IDE_DATA_DIR = previousData;
+    await rm(directory, { recursive: true, force: true });
+  });
+  await cp(path.join(foundation, "templates/standard"), root, { recursive: true });
+  const cargo = parse(await readFile(path.join(root, "Cargo.toml"), "utf8"));
+  (cargo.dependencies as Record<string, { path: string }>).emergent.path = foundation;
+  cargo.workspace = {};
+  await writeFile(path.join(root, "Cargo.toml"), stringify(cargo));
+  await cp(path.join(foundation, "Cargo.lock"), path.join(root, "Cargo.lock"));
+  process.env.EMERGENT_PROJECT_PATH = root; process.env.EMERGENT_IDE_DATA_DIR = path.join(directory, "data");
+  let project = await readProjectSnapshot();
+  const sample = listUis(project)[0]; assert.equal(sample.error, undefined);
+  const open = readUi(project, sample.path);
+  const saved = await saveUi(project, { ui: { ...open.ui, id: "test-ui", name: "Test UI" } });
+  assert.equal(saved.path, "assets/ui/test-ui.ui.toml");
+  project = await readProjectSnapshot();
+  await assert.rejects(saveUi(project, { ...saved, revision: "stale" }), /changed on disk/);
+  await assert.rejects(saveUi(project, { ...saved, path: "../escape.ui.toml" }), /asset root/);
+  await assert.rejects(saveUi(project, { ...saved, ui: { ...saved.ui, nodes: [{ id: "root", type: "invented", fields: {} }] } }), /unknown type/);
+  const before = await readFile(path.join(root, saved.path), "utf8");
+  const request = { projectId: project.id, scope: `file:${saved.path}`, scenePath: project.entryScene, message: "Rename this UI", history: [] };
+  const reuse = [{ path: saved.path, symbol: "test-ui.ui.toml", reason: "Keep the existing UI nodes" }];
+  const result = await implementChat(project, request, async prompt => {
+    assert.ok(prompt.includes("FILE foundation/src/ui.rs"));
+    assert.ok(prompt.includes("widget_catalogue"));
+    return JSON.stringify({ summary: "Renamed UI", reuse, files: [{ path: saved.path, content: before.replace('name = "Test UI"', 'name = "AI renamed UI"') }] });
+  });
+  assert.equal(result.applied, true);
+  const after = await readFile(path.join(root, saved.path), "utf8");
+  assert.match(after, /AI renamed UI/);
+  project = await readProjectSnapshot();
+  await assert.rejects(implementChat(project, request, async () => JSON.stringify({ summary: "Invalid widget", reuse, files: [{ path: saved.path, content: after.replace('type = "panel"', 'type = "invented"') }] })), /Candidate failed validation/);
+  assert.equal(await readFile(path.join(root, saved.path), "utf8"), after);
+});

@@ -1,3 +1,4 @@
+import { smokeProjectRoot } from "./project-fixture";
 import assert from "node:assert/strict";
 import {spawn} from "node:child_process";
 import {mkdtemp,readFile,readdir,rm} from "node:fs/promises";
@@ -7,7 +8,7 @@ import {parse} from "smol-toml";
 import {chromium,expect} from "@playwright/test";
 
 async function main(){
- const root=path.resolve(process.env.EMERGENT_PROJECT_PATH??"../../projects/first_project"),base="http://localhost:3001",temporary=await mkdtemp(path.join(os.tmpdir(),"terrain-scene-inspection-"));
+ const root=smokeProjectRoot(),base="http://localhost:3001",temporary=await mkdtemp(path.join(os.tmpdir(),"terrain-scene-inspection-"));
  const manifest=parse(await readFile(path.join(root,"emergent.toml"),"utf8"));
  const files=await readdir(path.join(root,"assets"),{recursive:true});let scenePath="",instanceId="";
  for(const file of files.filter(file=>file.endsWith(".scene.toml"))){const scene=parse(await readFile(path.join(root,"assets",file),"utf8"));for(const instance of scene.entities as {id:string;asset:string}[]??[]){const asset=parse(await readFile(path.join(root,instance.asset),"utf8"));if((asset.terrain as {resolution?:number}|undefined)?.resolution===1024){scenePath=`assets/${file}`;instanceId=instance.id;break;}}if(scenePath)break;}

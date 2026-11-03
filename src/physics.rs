@@ -8,6 +8,23 @@ use std::fmt;
 #[cfg(feature = "physics")]
 use std::time::Duration;
 
+/// The physics world's current fixed gravity, in metres per second squared.
+pub const PHYSICS_GRAVITY: Vec3 = Vec3::new(0.0, -9.81, 0.0);
+
+/// Copied, committed dynamic-body observation; never a backend handle.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PhysicsBodyState {
+    pub transform: Transform,
+    pub linear_velocity: Vec3,
+    /// World-space radians per second.
+    pub angular_velocity: Vec3,
+    pub mass: f32,
+    pub gravity: Vec3,
+    /// World-local reconstruction change token, not durable identity. Compare only
+    /// for the same EntityId in the same World; reconstruction resets control history.
+    pub revision: u64,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum BodyKind {
@@ -122,6 +139,11 @@ impl PhysicsBody {
 pub enum PhysicsError {
     InvalidSettings,
     InvalidForce,
+    InvalidTorque,
+    BodyRevisionExhausted,
+    LocomotionConflict,
+    PhysicalLocomotionRequiresDynamicBody,
+    AircraftBody,
     NotDynamicBody,
     FeatureDisabled,
     UnsupportedTransform,
@@ -140,8 +162,13 @@ impl fmt::Display for PhysicsError {
         f.write_str(match self {
             Self::InvalidSettings => "physics requires finite bounded settings, positive dimensions/mass, and static terrain colliders",
             Self::InvalidForce => "physics force must be finite and its accumulated value must remain finite",
-            Self::NotDynamicBody => "forces can only be applied to entities with a dynamic physics body",
-            Self::FeatureDisabled => "physics force commands require the optional physics feature",
+            Self::InvalidTorque => "physics torque must be finite and its accumulated value must remain finite",
+            Self::BodyRevisionExhausted => "physics body reconstruction revision exhausted",
+            Self::LocomotionConflict => "locomotion conflicts with another pose or velocity writer; physical bodies are moved only by physics",
+            Self::PhysicalLocomotionRequiresDynamicBody => "physical locomotion (drone_physics, fixed_wing_physics) requires an enabled dynamic PhysicsBody",
+            Self::AircraftBody => "fixed_wing_physics needs a box collider with friction 0: the pilot models the wheels",
+            Self::NotDynamicBody => "forces and torques can only be applied to entities with a dynamic physics body",
+            Self::FeatureDisabled => "physics force and torque commands require the optional physics feature",
             Self::UnsupportedTransform => "physics requires finite positive-scale TRS without shear",
             Self::UnsupportedParent => "dynamic bodies must be scene roots, optionally under an identity scene container without physics",
             Self::TransformConflict => "gameplay changed a dynamic body's transform; physics owns its pose",
@@ -186,6 +213,7 @@ pub(crate) mod runtime {
         settings: PhysicsBody,
         scale: Vec3,
         last_local: Transform,
+        revision: u64,
     }
     #[derive(Default)]
     pub(crate) struct PhysicsState {
@@ -193,10 +221,32 @@ pub(crate) mod runtime {
         entries: HashMap<EntityId, Entry>,
         pub(crate) inputs: Vec<(EntityId, PhysicsBody)>,
         pending_forces: HashMap<EntityId, Vec3>,
+        pending_torques: HashMap<EntityId, Vec3>,
+        last_revision: u64,
         /// Target horizontal velocity, jump speed and drive force in newtons (0 sets velocity directly).
         pending_drives: HashMap<EntityId, (Vec3, Option<f32>, f32)>,
     }
     impl PhysicsState {
+        pub(crate) fn grounded(&self, id: EntityId) -> bool {
+            let Some(entry) = self.entries.get(&id) else {
+                return false;
+            };
+            let body = &self.backend.bodies[entry.handle];
+            body.colliders().iter().any(|&collider| {
+                self.backend.contact_pairs_with(collider).any(|pair| {
+                    pair.has_any_active_contact()
+                        && pair.manifolds().iter().any(|m| {
+                            let up = if pair.collider1 == collider {
+                                -m.data.normal.y
+                            } else {
+                                m.data.normal.y
+                            };
+                            up >= 0.5 && m.points.iter().any(|p| p.dist <= 0.02)
+                        })
+                })
+            })
+        }
+
         pub(crate) fn queue_force(
             &mut self,
             id: EntityId,
@@ -229,11 +279,55 @@ pub(crate) mod runtime {
             self.pending_drives.insert(id, (velocity, jump, force));
             Ok(())
         }
+        pub(crate) fn queue_torque(
+            &mut self,
+            id: EntityId,
+            torque: Vec3,
+        ) -> Result<(), PhysicsError> {
+            if !torque.is_finite() {
+                return Err(PhysicsError::InvalidTorque);
+            }
+            let accumulated = self.pending_torques.get(&id).copied().unwrap_or(Vec3::ZERO) + torque;
+            if !accumulated.is_finite() {
+                return Err(PhysicsError::InvalidTorque);
+            }
+            self.pending_torques.insert(id, accumulated);
+            Ok(())
+        }
         pub(crate) fn linear_velocity(&self, id: EntityId) -> Option<Vec3> {
             let entry = self.entries.get(&id)?;
             Some(Vec3::from_array(
                 self.backend.bodies[entry.handle].linvel().to_array(),
             ))
+        }
+        pub(crate) fn angular_velocity(&self, id: EntityId) -> Option<Vec3> {
+            let entry = self.entries.get(&id)?;
+            Some(Vec3::from_array(
+                self.backend.bodies[entry.handle].angvel().to_array(),
+            ))
+        }
+        pub(crate) fn body_state(
+            &self,
+            id: EntityId,
+            settings: PhysicsBody,
+            local: Transform,
+        ) -> Option<PhysicsBodyState> {
+            let entry = self.entries.get(&id)?;
+            if settings.body != BodyKind::Dynamic
+                || entry.settings != settings
+                || entry.last_local != local
+            {
+                return None;
+            }
+            let body = &self.backend.bodies[entry.handle];
+            Some(PhysicsBodyState {
+                transform: entry.last_local,
+                linear_velocity: Vec3::from_array(body.linvel().to_array()),
+                angular_velocity: Vec3::from_array(body.angvel().to_array()),
+                mass: body.mass(),
+                gravity: PHYSICS_GRAVITY * body.gravity_scale(),
+                revision: entry.revision,
+            })
         }
     }
     fn pose(t: Transform) -> Pose {
@@ -281,6 +375,7 @@ pub(crate) mod runtime {
         pub(crate) fn step(&mut self, world: &mut World, dt: Duration) -> Result<(), PhysicsError> {
             if self.inputs.is_empty() && self.entries.is_empty() {
                 self.pending_forces.clear();
+                self.pending_torques.clear();
                 self.pending_drives.clear();
                 return Ok(());
             }
@@ -341,6 +436,10 @@ pub(crate) mod runtime {
                     .get(&id)
                     .is_none_or(|e| e.settings != settings || e.scale != t.scale);
                 if rebuild {
+                    let revision = self
+                        .last_revision
+                        .checked_add(1)
+                        .ok_or(PhysicsError::BodyRevisionExhausted)?;
                     if let Some(old) = self.entries.remove(&id) {
                         self.backend.remove_body_with_colliders(old.handle, true);
                     }
@@ -364,6 +463,12 @@ pub(crate) mod runtime {
                     }
                     .mass(settings.mass)
                     .friction(settings.friction)
+                    // Friction 0 means frictionless against anything (Rapier would otherwise average it).
+                    .friction_combine_rule(if settings.friction == 0.0 {
+                        rapier3d::prelude::CoefficientCombineRule::Min
+                    } else {
+                        rapier3d::prelude::CoefficientCombineRule::Average
+                    })
                     .restitution(settings.restitution);
                     let (handle, _) = self.backend.insert(
                         builder
@@ -379,8 +484,10 @@ pub(crate) mod runtime {
                             settings,
                             scale: t.scale,
                             last_local: *world.local_transform(id)?,
+                            revision,
                         },
                     );
+                    self.last_revision = revision;
                 } else if settings.body == BodyKind::Static {
                     let entry = &self.entries[&id];
                     let body = &mut self.backend.bodies[entry.handle];
@@ -393,6 +500,7 @@ pub(crate) mod runtime {
             for entry in self.entries.values() {
                 if entry.settings.body == BodyKind::Dynamic {
                     self.backend.bodies[entry.handle].reset_forces(false);
+                    self.backend.bodies[entry.handle].reset_torques(false);
                 }
             }
             for (&id, &force) in &self.pending_forces {
@@ -404,15 +512,24 @@ pub(crate) mod runtime {
                 }
             }
             self.pending_forces.clear();
+            for (&id, &torque) in &self.pending_torques {
+                if let Some(entry) = self.entries.get(&id) {
+                    if entry.settings.body == BodyKind::Dynamic {
+                        self.backend.bodies[entry.handle]
+                            .add_torque(Vector::from_array(torque.to_array()), true);
+                    }
+                }
+            }
+            self.pending_torques.clear();
             for (&id, &(velocity, jump, force)) in &self.pending_drives {
                 if let Some(entry) = self.entries.get(&id) {
                     if entry.settings.body == BodyKind::Dynamic {
+                        let grounded = self.grounded(id);
                         let body = &mut self.backend.bodies[entry.handle];
                         body.lock_rotations(true, true);
                         let current = body.linvel();
-                        // shortcut: "grounded" is near-zero vertical speed, so a jump at the apex is allowed; use contact queries once they exist.
                         let vertical = match jump {
-                            Some(speed) if current.y.abs() < 0.05 => speed,
+                            Some(speed) if grounded && current.y <= 0.1 => speed,
                             _ => current.y,
                         };
                         let target = Vector::new(velocity.x, 0.0, velocity.z);
@@ -439,7 +556,7 @@ pub(crate) mod runtime {
                 }
             }
             self.pending_drives.clear();
-            self.backend.gravity = Vector::new(0.0, -9.81, 0.0);
+            self.backend.gravity = Vector::from_array(PHYSICS_GRAVITY.to_array());
             self.backend.integration_parameters.dt = dt;
             self.backend.step();
             for &(id, settings) in &self.inputs {

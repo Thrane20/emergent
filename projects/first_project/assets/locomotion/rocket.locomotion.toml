@@ -1,0 +1,10 @@
+schema_version = 1
+id = "rocket"
+name = "Rocket"
+kind = "locomotion"
+description = "Launches 60° nose-up, burns for 3 s while turning towards the target, then coasts."
+type = "rocket"
+thrust = 25.0
+burn_time = 3.0
+turn_rate = 90.0
+launch_angle = 60.0

@@ -62,6 +62,8 @@ fn one() -> f32 {
 #[serde(default, deny_unknown_fields)]
 pub struct MaterialDefinition {
     pub asset: Option<String>,
+    pub shader: Option<String>,
+    pub shader_parameters: std::collections::BTreeMap<String, f32>,
     pub terrain_paint: Option<String>,
     pub shading: MaterialShading,
     pub cast_shadows: bool,
@@ -73,6 +75,7 @@ pub struct MaterialDefinition {
     pub emission_intensity: f32,
     pub bump_strength: f32,
     pub noise_resolution: u32,
+    pub texture_tiling: [f32; 2],
     pub diffuse_map: Option<MaterialTextureMap>,
     pub terrain_layers: Vec<MaterialLayer>,
     pub active_layer: Option<String>,
@@ -85,6 +88,8 @@ impl Default for MaterialDefinition {
     fn default() -> Self {
         Self {
             asset: None,
+            shader: None,
+            shader_parameters: Default::default(),
             terrain_paint: None,
             shading: MaterialShading::Flat,
             cast_shadows: true,
@@ -96,6 +101,7 @@ impl Default for MaterialDefinition {
             emission_intensity: 0.0,
             bump_strength: 0.1,
             noise_resolution: 32,
+            texture_tiling: [1.0; 2],
             diffuse_map: None,
             terrain_layers: Vec::new(),
             active_layer: None,
@@ -119,8 +125,11 @@ impl Error for MaterialError {}
 #[derive(Clone, Debug, Default, Component)]
 pub struct Material {
     definition: MaterialDefinition,
+    pub(crate) shader: Option<crate::ShaderDefinition>,
     noise: [Option<NoiseSettings>; 4],
     diffuse: Option<crate::TextureImage>,
+    /// The diffuse image is sampled with mesh texture coordinates instead of triplanar projection.
+    uv_mapped: bool,
     pub(crate) terrain: Option<TerrainMaterial>,
 }
 /// Authored blend weights at the terrain heightfield resolution, in row-major XZ order.
@@ -195,6 +204,16 @@ impl TerrainPaint {
 impl MaterialDefinition {
     pub fn validate(&self) -> Result<(), MaterialError> {
         if self
+            .shader
+            .as_ref()
+            .is_some_and(|p| !p.ends_with(".shader.toml") || p.len() > 512)
+            || (self.shader.is_none() && !self.shader_parameters.is_empty())
+            || self.shader_parameters.len() > 16
+            || (self.shader.is_some() && (self.cast_shadows || self.terrain_paint.is_some()))
+        {
+            return Err(MaterialError("Shader materials need a .shader.toml asset, at most 16 parameters, shadows disabled and no terrain paint".into()));
+        }
+        if self
             .asset
             .as_ref()
             .is_some_and(|path| !path.ends_with(".material.toml") || path.len() > 512)
@@ -257,8 +276,12 @@ impl MaterialDefinition {
             || !(0.0..=100.0).contains(&self.emission_intensity)
             || !self.bump_strength.is_finite()
             || !(0.0..=2.0).contains(&self.bump_strength)
+            || !self
+                .texture_tiling
+                .iter()
+                .all(|n| n.is_finite() && (0.001..=100.0).contains(n))
         {
-            return Err(MaterialError("Material colours must be linear RGB in 0..1; shininess 1..256, emission intensity 0..100 and bump strength 0..2.".into()));
+            return Err(MaterialError("Material colours must be linear RGB in 0..1; shininess 1..256, emission intensity 0..100, bump strength 0..2 and texture tiling 0.001..100 per axis.".into()));
         }
         for map in self.maps().into_iter().flatten() {
             if !map.asset.ends_with(".noise.toml")
@@ -324,6 +347,15 @@ impl MaterialDefinition {
             }
             return file.material.resolve(project);
         }
+        let shader = self
+            .shader
+            .as_ref()
+            .map(|path| -> Result<_, MaterialError> {
+                let graph: crate::ShaderDefinition = read_asset(project, path, 128 * 1024)?;
+                graph.parameter_values(&self.shader_parameters)?;
+                Ok(graph)
+            })
+            .transpose()?;
         let terrain = self
             .terrain_paint
             .as_ref()
@@ -342,6 +374,11 @@ impl MaterialDefinition {
                         .resolve(project)
                     })
                     .collect::<Result<Vec<_>, _>>()?;
+                if layers.iter().any(|m| m.shader.is_some()) {
+                    return Err(MaterialError(
+                        "Shader materials cannot be terrain blend layers".into(),
+                    ));
+                }
                 if layers.iter().any(|m| {
                     m.definition.noise_resolution > 64 && m.noise.iter().any(Option::is_some)
                 }) {
@@ -388,34 +425,56 @@ impl MaterialDefinition {
             .transpose()?;
         Ok(Material {
             definition: self,
+            shader,
             terrain,
             diffuse,
+            uv_mapped: false,
             noise,
         })
     }
     /// Constructs a constant material without requiring a project or file system.
     pub fn constant(self) -> Result<Material, MaterialError> {
         self.validate()?;
-        if self.asset.is_some()
+        if self.shader.is_some()
+            || self.asset.is_some()
             || self.terrain_paint.is_some()
             || self.maps().iter().any(|m| m.is_some())
             || self.texture_maps().next().is_some()
         {
             return Err(MaterialError(
-                "Resolve noise references against a project.".into(),
+                "Resolve shader, texture and material asset references against a project.".into(),
             ));
         }
         Ok(Material {
             definition: self,
+            shader: None,
             noise: Default::default(),
             diffuse: None,
+            uv_mapped: false,
             terrain: None,
         })
     }
 }
 impl Material {
+    /// A constant material whose `image` is sampled with mesh texture coordinates, as
+    /// imported models expect; the definition's albedo, if any, tints it.
+    pub fn with_uv_image(
+        definition: MaterialDefinition,
+        image: crate::TextureImage,
+    ) -> Result<Self, MaterialError> {
+        let mut material = definition.constant()?;
+        material.diffuse = Some(image);
+        material.uv_mapped = true;
+        Ok(material)
+    }
+    pub fn uv_mapped(&self) -> bool {
+        self.uv_mapped
+    }
     pub fn diffuse_image(&self) -> Option<&crate::TextureImage> {
         self.diffuse.as_ref()
+    }
+    pub fn shader(&self) -> Option<&crate::ShaderDefinition> {
+        self.shader.as_ref()
     }
     pub fn definition(&self) -> &MaterialDefinition {
         &self.definition
@@ -543,6 +602,8 @@ mod tests {
             "shininess=0.0",
             "emission_intensity=nan",
             "bump_strength=3.0",
+            "texture_tiling=[0.0,1.0]",
+            "texture_tiling=[1.0,nan]",
             "unknown=true",
             "[bump_map]\nasset='bad.png'",
         ] {
@@ -579,8 +640,10 @@ mod tests {
             ..Default::default()
         };
         let mut material = Material {
+            shader: None,
             terrain: None,
             diffuse: None,
+            uv_mapped: false,
             definition: MaterialDefinition::default(),
             noise: [Some(settings), None, None, None],
         };

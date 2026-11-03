@@ -146,6 +146,92 @@ fn zero_gravity_and_scaled_offset_box() {
 }
 
 #[test]
+fn torque_applies_on_the_first_step_sums_and_does_not_persist() {
+    let mut engine = Engine::new(EngineConfig::default()).unwrap();
+    let id = spawn(&mut engine, BodyKind::Dynamic, Vec3::Y * 5.0, [0.5; 3]);
+    assert_eq!(engine.world().angular_velocity(id).unwrap(), None);
+    engine.world_mut().add_force(id, Vec3::Y * 9.81).unwrap();
+    engine.world_mut().add_torque(id, Vec3::Y * 0.5).unwrap();
+    engine.world_mut().add_torque(id, Vec3::Y * 0.5).unwrap();
+    engine.run_ticks(&mut Idle, 1).unwrap();
+    let angular = engine.world().angular_velocity(id).unwrap().unwrap();
+    // Unit cube, 1 kg: I_y = 1/6 kg·m²; 1 N·m for 1/60 s gives 0.1 rad/s.
+    assert!((angular.y - 0.1).abs() < 1e-5, "{angular}");
+    assert!((engine.world().global_transform(id).unwrap().translation().y - 5.0).abs() < 1e-5);
+    engine.run_ticks(&mut Idle, 60).unwrap();
+    let coast = engine.world().angular_velocity(id).unwrap().unwrap();
+    assert!(
+        (coast - angular).length() < 1e-5,
+        "torque persisted: {coast}"
+    );
+    assert!(
+        engine
+            .world()
+            .local_transform(id)
+            .unwrap()
+            .rotation
+            .angle_between(Quat::IDENTITY)
+            > 0.09
+    );
+    engine
+        .world_mut()
+        .component_mut::<PhysicsBody>(id)
+        .unwrap()
+        .unwrap()
+        .mass = 2.0;
+    engine.run_ticks(&mut Idle, 1).unwrap();
+    assert_eq!(
+        engine.world().angular_velocity(id).unwrap(),
+        Some(Vec3::ZERO),
+        "body reconstruction resets angular motion"
+    );
+}
+
+#[test]
+fn torque_validation_and_deleted_handles_cannot_affect_replacements() {
+    let mut engine = Engine::new(EngineConfig::default()).unwrap();
+    let id = spawn(&mut engine, BodyKind::Dynamic, Vec3::Y * 5.0, [0.5; 3]);
+    let fixed = spawn(&mut engine, BodyKind::Static, Vec3::ZERO, [0.5; 3]);
+    assert_eq!(
+        engine.world_mut().add_torque(id, Vec3::splat(f32::NAN)),
+        Err(PhysicsError::InvalidTorque)
+    );
+    assert_eq!(
+        engine.world_mut().add_torque(fixed, Vec3::Y),
+        Err(PhysicsError::NotDynamicBody)
+    );
+    engine.world_mut().add_torque(id, Vec3::Y).unwrap();
+    engine.world_mut().remove_subtree(id).unwrap();
+    let replacement = spawn(&mut engine, BodyKind::Dynamic, Vec3::Y * 5.0, [0.5; 3]);
+    assert_ne!(id, replacement);
+    assert!(matches!(
+        engine.world_mut().add_torque(id, Vec3::Y),
+        Err(PhysicsError::World(_))
+    ));
+    assert!(engine.world().angular_velocity(id).is_err());
+    let mut other = Engine::new(EngineConfig::default()).unwrap();
+    assert!(matches!(
+        other.world_mut().add_torque(replacement, Vec3::Y),
+        Err(PhysicsError::World(_))
+    ));
+    engine.run_ticks(&mut Idle, 1).unwrap();
+    assert_eq!(
+        engine.world().angular_velocity(replacement).unwrap(),
+        Some(Vec3::ZERO)
+    );
+    let mut overflow = Engine::new(EngineConfig::default()).unwrap();
+    let id = spawn(&mut overflow, BodyKind::Dynamic, Vec3::Y * 5.0, [0.5; 3]);
+    overflow
+        .world_mut()
+        .add_torque(id, Vec3::splat(f32::MAX))
+        .unwrap();
+    assert_eq!(
+        overflow.world_mut().add_torque(id, Vec3::splat(f32::MAX)),
+        Err(PhysicsError::InvalidTorque)
+    );
+}
+
+#[test]
 fn forces_are_applied_for_each_fixed_tick_and_counter_gravity() {
     let mut engine = Engine::new(EngineConfig::default()).unwrap();
     let id = spawn(&mut engine, BodyKind::Dynamic, Vec3::Y * 5.0, [0.5; 3]);
@@ -332,4 +418,83 @@ fn terrain_heightfield_contacts_follow_scaled_translated_ground_and_remove_clean
     engine.world_mut().remove_subtree(ground).unwrap();
     engine.run_ticks(&mut Idle, 120).unwrap();
     assert!(engine.world().local_transform(cube).unwrap().translation.y < 0.);
+}
+
+#[test]
+fn controller_cannot_jump_without_support_even_at_zero_vertical_speed() {
+    let mut e = Engine::new(EngineConfig::default()).unwrap();
+    let player = spawn(
+        &mut e,
+        BodyKind::Dynamic,
+        Vec3::new(0., 5., 0.),
+        [0.3, 0.9, 0.3],
+    );
+    e.world_mut()
+        .component_mut::<PhysicsBody>(player)
+        .unwrap()
+        .unwrap()
+        .gravity_scale = 0.;
+    e.world_mut()
+        .insert_component(
+            player,
+            emergent::CharacterController {
+                speed: 4.,
+                jump_speed: 5.,
+                camera_relative: true,
+                force: 0.,
+            },
+        )
+        .unwrap();
+    e.run_ticks(&mut Idle, 1).unwrap();
+    assert!(!e.world().is_grounded(player).unwrap());
+    e.set_keys(emergent::KeySet::EMPTY.with(emergent::Key::Space));
+    e.run_ticks(&mut Idle, 1).unwrap();
+    assert_eq!(e.world().linear_velocity(player).unwrap().unwrap().y, 0.);
+}
+
+#[test]
+fn controller_walks_on_heightfield_support() {
+    let mut e = Engine::new(EngineConfig::default()).unwrap();
+    let ground = e.world_mut().spawn("terrain");
+    e.world_mut()
+        .insert_component(
+            ground,
+            PhysicsBody::new(
+                BodyKind::Static,
+                emergent::TerrainCollider {
+                    settings: emergent::TerrainSettings {
+                        resolution: 32,
+                        size: 40.,
+                        height: 0.3,
+                        ..Default::default()
+                    },
+                },
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let player = spawn(
+        &mut e,
+        BodyKind::Dynamic,
+        Vec3::new(0., 3., 0.),
+        [0.3, 0.9, 0.3],
+    );
+    e.world_mut()
+        .insert_component(
+            player,
+            emergent::CharacterController {
+                speed: 4.,
+                jump_speed: 5.,
+                camera_relative: true,
+                force: 0.,
+            },
+        )
+        .unwrap();
+    e.run_ticks(&mut Idle, 180).unwrap();
+    assert!(e.world().is_grounded(player).unwrap());
+    e.set_keys(emergent::KeySet::EMPTY.with(emergent::Key::W));
+    e.run_ticks(&mut Idle, 60).unwrap();
+    let p = e.world().global_transform(player).unwrap().translation();
+    assert!(p.z < -3.5 && p.y > 0.5, "{p:?}");
+    assert!(e.world().is_grounded(player).unwrap());
 }

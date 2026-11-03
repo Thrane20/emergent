@@ -1,0 +1,10 @@
+schema_version=1
+id='fps-camera'
+kind='camera'
+[transform]
+translation=[0,0.7,0]
+[camera]
+projection='perspective'
+field_of_view_degrees=75
+near=0.05
+far=1000

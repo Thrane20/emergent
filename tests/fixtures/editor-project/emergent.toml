@@ -1,0 +1,13 @@
+schema_version = 1
+id = "fixture.editor"
+name = "Editor fixture"
+entry_scene = "assets/scenes/main.scene.toml"
+generated_code = "src"
+asset_roots = ["assets"]
+
+[[outputs]]
+id = "host"
+os = "macos"
+architecture = "aarch64"
+rust_target = "aarch64-apple-darwin"
+profile = "development"

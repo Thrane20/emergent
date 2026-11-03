@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { parse } from "smol-toml";
-import { authoredComponents, componentTypes, objectComponentTypes, patchComponents } from "../src/lib/components";
+import { authoredComponents, componentTypes, objectComponentTypes, pairsValue, pairValue, patchComponents } from "../src/lib/components";
 import { replaceInstanceComponent } from "../src/lib/scene-placement";
 
 const registry = componentTypes(parse(`[[types]]\nid="emergent.light"\nlabel="Light"\ndescription="d"\napplies_to="light"\n[[types.fields]]\nname="intensity"\nlabel="Intensity"\nkind="number"\nmin=0.0\nhelp="h"\n[[types.fields]]\nname="range"\nlabel="Range"\nkind="number"\nvariants=["point","spot"]\nhelp="h"\n`));
@@ -25,7 +25,8 @@ test("component patches set, reset, disable and drop empty overrides", () => {
   assert.throws(() => patchComponents([], "emergent.light", { intensity: Number.NaN }));
   assert.throws(() => patchComponents([], "emergent.light", { type: 1 }));
   assert.deepEqual(authoredComponents([{ type: "emergent.follow", target: "leader" }])[0].fields, { target: "leader" }, "entity fields are instance IDs");
-  assert.throws(() => authoredComponents([{ type: "emergent.light", intensity: { bright: true } }]));
+  // Objects are only name/value pairs (metadata); anything nested is rejected.
+  assert.throws(() => authoredComponents([{ type: "emergent.light", intensity: { bright: { very: true } } }]));
   const added = patchComponents([], "emergent.character_controller", {}, true);
   assert.deepEqual(added, [{ type: "emergent.character_controller", enabled: true, fields: {} }], "added types stay while empty");
   assert.deepEqual(patchComponents(patchComponents(added, "emergent.character_controller", { speed: 6 }, true), "emergent.character_controller", { speed: null }, true), added);
@@ -46,4 +47,19 @@ test("component edits rewrite only the instance's [[entities.components]] tables
   const removed = replaceInstanceComponent(disabled, "lamp", "emergent.light", null);
   assert.deepEqual(parse(removed), parse(source));
   assert.doesNotMatch(removed, /components/);
+});
+
+test("pairs fields round-trip and empty text defaults stay defaults", () => {
+  const types = componentTypes(parse(`[[types]]\nid="emergent.metadata"\nlabel="Metadata"\ndescription="d"\napplies_to="any"\n[[types.fields]]\nname="values"\nlabel="Values"\nkind="pairs"\nhelp="h"\n[types.fields.default]\n[[types]]\nid="emergent.zone"\nlabel="Zone"\ndescription="d"\napplies_to="any"\n[[types.fields]]\nname="layers"\nlabel="Layers"\nkind="text"\ndefault=""\nhelp="h"`));
+  assert.deepEqual(types[0].fields[0].default, {}, "an empty table is a default, so adding Metadata needs no starting value");
+  assert.equal(Object.getPrototypeOf(types[0].fields[0].default), Object.prototype, "pages receive plain objects");
+  assert.equal(types[1].fields[0].default, "", "an empty-text default is kept, not treated as required");
+  assert.deepEqual([pairValue("2"), pairValue("true"), pairValue("homebase"), pairValue(" "), pairValue("1e3")], [2, true, "homebase", " ", 1000]);
+  const source = `schema_version = 1\nid = "main"\n[[entities]]\nid = "a"\nasset = "assets/point.entity.toml"\n`;
+  const written = replaceInstanceComponent(source, "a", "emergent.metadata", { values: { type: "homebase", team: 2, friendly: true } }, true);
+  const component = authoredComponents((parse(written).entities as { components: unknown }[])[0].components)[0];
+  assert.deepEqual(component.fields.values, { type: "homebase", team: 2, friendly: true });
+  assert.equal(Object.getPrototypeOf(component.fields.values), Object.prototype);
+  assert.ok(!pairsValue(Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, i]))), "over 32 pairs");
+  assert.ok(!pairsValue({ list: [1, 2] }));
 });

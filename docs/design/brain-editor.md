@@ -72,10 +72,10 @@ brain cannot be combined with a controller or follow.
 1. **Composition** — Blend ✓, Priority ✓, Selector ✓, Sequence ✓, Utility ✓, Random
    choice ○, Repeat ○, Cooldown ✓, Invert ○, Wait ✓.
 2. **Evaluation & senses** — Within distance ✓, Outside distance ✓, In view cone ✓,
-   Neighbours at least ✓, Chance ✓, Timer elapsed ○, Line of sight ○ (needs ray queries),
+   Neighbours at least ✓, Chance ✓, Timer elapsed ○, Line of sight ✓ (added 2026-10-31),
    Stat threshold ○ (needs stats), Utility scorers: distance ✓, crowding ✓.
 3. **Seek & flee** — Seek ✓, Flee ✓, Arrive (slow on approach) ✓, Pursue (predict) ✓,
-   Evade ✓, Hide behind obstacle ○.
+   Evade ✓, Hide behind obstacle ✓ (added 2026-10-31).
 4. **Wander & idle** — Wander ✓, Hold position ✓, Return home ✓, Orbit / circle ✓, Drift ○.
 5. **Paths & patrol** — Patrol waypoints (loop / ping-pong) ✓, Follow path once ✓, Follow
    target (keep distance) ✓, Pathfind (A*/navmesh) ○.
@@ -84,11 +84,17 @@ brain cannot be combined with a controller or follow.
 7. **Avoidance & bounds** — Avoid objects (keep clear of a group) ✓, Stay within area
    (radius around home or a point) ✓, Obstacle avoidance ○ (needs colliders/rays), Wall
    follow ○.
-8. **Group tactics (saved-brain templates)** — Predator, Prey, Herd, Guard area, Swarm,
+8. **Battle** (added 2026-10-31) — Attack (charge, lead a moving enemy, hold at strike
+   range), Defend (step between the protected object and the nearest threat), Hold ground,
+   Retreat (fall back towards a rally point; inactive with no threat near), Flank, Encircle
+   (ring slots by members group), Kite (keep between min and max distance), Regroup, and the
+   Outnumbered decorator. No damage or health yet: these are movement tactics. Starter brains:
+   Soldier, Skirmisher.
+9. **Group tactics (saved-brain templates)** — Predator, Prey, Herd, Guard area, Swarm,
    Escort, Ambush. These ship as starter `.brain.toml` assets built from the nodes above,
    so they are editable, not new primitives.
-9. **Actions** — Face movement ✓, Look at target ✓, Speed limit ✓, Jump ○, Signal/event ○.
-10. **Project brains** — every saved brain in the project appears here and can be dropped
+10. **Actions** — Face movement ✓, Look at target ✓, Speed limit ✓, Jump ○, Signal/event ○.
+11. **Project brains** — every saved brain in the project appears here and can be dropped
    in as a sub-behaviour.
 
 ## Brain editor (IDE `/brains`)
@@ -155,9 +161,10 @@ apply → run.
 - **IDE** — `/brains` (rail: Brain Editor): library by heading (planned nodes shown
   disabled, saved brains embeddable or openable), top-down tree (drag from the library,
   drag to re-parent, reorder, delete, problems flagged), schema inspector, Rust preview
-  (agents, groups, targets, speed, seed; group names inferred from the brain), save with
-  revision guard and Rust validation, apply to a scene object, and the AI chat scoped to
-  the brain file. Starter brains: Prey, Predator, Guard area, Swarm, Escort.
+  (agents, groups, targets, speed, seed; group names inferred from the brain), Save brain
+  (project asset; revision guard and Rust validation; never edits a scene), and the AI
+  chat scoped to the brain file. Objects get a brain with the Brain component in the scene
+  inspector. Starter brains: Prey, Predator, Guard area, Swarm, Escort.
 - **Measurements** (release, Apple M3 Pro, `cargo test --release --test brains --
   --ignored`): a flock-only brain costs 0.027 ms/tick for 64 agents and 0.53 ms/tick for
   256 (quadratic neighbour scan, three scans per flock node). Extrapolated ~8 ms at 1,024
@@ -173,3 +180,79 @@ on `once`, flock keeps agents > 0.3 m apart, identical traces for the same seed)
 headless-Chrome run of edit → save → preview → new brain → save → apply, and a 120-tick
 native Metal run of `main` with the Prey brain on the pyramid.
 
+## Sight and cover (2026-10-31)
+
+- **Obstacles** are objects with a box physics collider (static or dynamic), read into the
+  tick snapshot as oriented boxes only when some brain uses sight or cover. Terrain
+  height-field colliders do not block sight yet. No physics step or Rapier query is needed,
+  so this also works without the physics feature (where box bodies cannot be authored).
+- **Line of sight** (decorator): target within range and the segment between the two
+  objects crosses no obstacle box (the looker and the target never block themselves);
+  `invert` makes it "while hidden". **In view** gains `line_of_sight`.
+- **Hide**: for each obstacle within the search radius whose footprint radius is at most
+  `max_cover` (so the ground and big walls are skipped), the spot is past the obstacle on
+  the side away from the threat; it arrives at the nearest spot and holds. Inactive with no
+  cover in reach, so a parent Priority can fall back to flee. Optional panic distance.
+- **Preview**: `obstacles=N` scatters static boxes; trace format v2 adds an obstacles line;
+  the canvas draws them. Sight brains open the preview with 8 obstacles.
+- Starter brain **Scout**: hides when an enemy has line of sight to it, otherwise wanders
+  its patch.
+
+Validation: `tests/brains.rs::line_of_sight_is_blocked_by_box_colliders_and_hide_uses_cover`
+(scene with real colliders: open ground chases, a wall blocks, inverted sight advances
+while hidden, hide reaches the far side of the wall, oversize cover is ignored), trace
+parser tests, and a browser check of the expanded library and an obstacle preview.
+
+
+## Stacked brains and channels (implemented 2026-11-01)
+
+The user chose **stacked brains, blended** with **Movement, Look and Actions** channels.
+
+- **Stack** — the Brain component keeps `brain` and gains `stack`, an ordered list of
+  further brains run on the same object each tick.
+- **Channels** — every node output carries movement (velocity plus the existing intent
+  extras), an optional **look** (a point or a direction) and an optional **signal**.
+  - Movement: stacked brains add like a Blend (clamped to max speed); flags OR; first
+    target/altitude wins.
+  - Look: the first brain in the stack with a look wins (directions do not blend). Applied
+    after all other movement (after locomotion), turning at the component's `turn_rate`;
+    it replaces face-movement while present.
+  - Actions: all signals are kept.
+- **Inside a tree** — Priority is per channel: movement from the first child that wants
+  to move (or brake/hover), look from the first with a look, signal from the first with a
+  signal. Blend sums movement and takes the first look and signal. Selector takes one
+  child for everything.
+- **Nodes** — *Look & aim*: Look at (target or nearest of group, aim offset), Look along
+  movement, Scan (sweep ± angle over a period). *Actions*: Signal (name, optional target,
+  cooldown). *Evaluation*: On signal (name, optional sender group and radius, hold time).
+- **Signals** are double-buffered per tick: emitted this tick, visible next tick to On
+  signal nodes and to game code (`World::signals`). Names share the scene's name interner.
+  A cooldown keeps them bounded.
+- **Rules** — a brain stack that looks cannot share an object with Spin or Look at, which
+  also turn it. Locomotion still owns position; a look then turns the body, which suits
+  drones and turrets. Tracked and wheeled vehicles should look with a child object later.
+
+As built: `Look`, `Signal` and `PublishedSignals` in `src/brain.rs`; `BrainAgent::stacked`
+with one state per layer; per-channel Priority; looks applied by `brain::apply_looks`
+after locomotion, controllers, follows and spins and before camera components; signals
+double-buffered in the brain scratch and published for `World::signals()`. The Brain
+component gained **Also run** (`stack`, up to 8 brains) and **Turn rate**. Validation:
+`tests/brains.rs::stacked_brains_move_and_look_independently_and_signal_each_other`
+(walks to a flag while facing a tower; a one-brain Priority with a look branch first
+still moves; a guard's alarm reaches a villager the next tick, who waits, then flees;
+Scan sweeps ±45°; a looking brain with Spin and a missing stacked brain are rejected), IDE
+checks, and a browser check of the Look & aim library and the Also run picker. The preview
+canvas does not draw looks or signals yet.
+
+
+## AI from an empty draft
+
+The empty, unsaved brain can send AI requests immediately, without a placeholder
+node or initial save. Chat includes the draft name/description as creation context
+and uses existing project brain-authoring tools and native publication validation.
+On an applied change the editor refreshes the library and opens the single new
+brain automatically; multiple new assets remain selectable in the library. Saved
+or partially authored dirty brains retain the send/save guard, but the prompt remains
+editable so a request can be drafted before saving. Editing/navigation is guarded
+while AI work is active. Focused IDE tests cover draft detection, context
+content and automatic selection when exactly one valid brain is created.

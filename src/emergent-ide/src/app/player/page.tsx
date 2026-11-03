@@ -2,12 +2,12 @@ import {FalBalance} from "@/components/fal-balance";
 import Link from "next/link";
 import { PlayerSettingsEditor } from "@/components/player-settings-editor";
 import { readPlayerSettings } from "@/lib/player-settings";
-import { readProjectSnapshot } from "@/lib/project";
+import { readProjectForPage } from "@/lib/project-page";
 
 export const instant = false;
 
 export default async function PlayerPage() {
-  const project = await readProjectSnapshot();
+  const project = await readProjectForPage();
   const document = await readPlayerSettings(project);
   return (
     <main className="player-shell">

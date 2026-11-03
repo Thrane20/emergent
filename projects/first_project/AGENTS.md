@@ -2,7 +2,14 @@
 
 This directory is a game project built on the public `emergent` crate. Do not edit engine source under `../..` to implement game features. If a required public capability is missing, document the boundary before proposing an engine change.
 
+This is an ordinary game, not an engine/IDE reference implementation or source of
+truth. Shared contracts belong in engine source and `templates/standard`; no IDE
+feature, engine test or project generator may depend on this project's code/assets.
+Build this game explicitly using its Cargo.toml; it is outside the engine workspace.
+
 ## Ownership
+
+- `src/main.rs` hands control to `emergent::project_host::main`; the window, inspection, previews and every `--` tool command come from the engine. Implement IDE-facing features there, not here.
 
 - Project-authored Rust belongs under `src/`.
 - Generator-owned, reviewable Rust belongs under `src/generated/`. Keep its module exports explicit and deterministic.
@@ -18,7 +25,7 @@ This directory is a game project built on the public `emergent` crate. Do not ed
 
 ## Assets
 
-- Scene instances reference entity assets through the public `SceneDefinition` loader. Primitive, existing light, empty-node, and versioned terrain entity assets are loadable; nested compositions and authored behaviour links remain deferred.
+- Scene instances reference entity assets through the public `SceneDefinition` loader. Consult current engine capability documentation for supported assets and schemas; this game's asset inventory does not define engine capabilities.
 - Use `textures/` for images such as PNG or JPEG, `models/` for future mesh/object files, and `audio/` for sound assets.
 - Refer to assets with project-relative forward-slash paths under a declared asset root.
 - Do not claim a media type is loadable until an engine importer or project loader exists for it.

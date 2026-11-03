@@ -1,0 +1,12 @@
+schema_version = 1
+id = "cube"
+name = "Cube"
+kind = "primitive"
+
+[transform]
+translation = [0.0, 0.5, 0.0]
+
+[geometry]
+primitive = "cube"
+half_extent = 0.5
+color = [0.8, 0.45, 0.2, 1.0]

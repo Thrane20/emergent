@@ -1,14 +1,27 @@
 // Authored object components: the registry exported by the game binary and per-instance [[entities.components]] lists.
 // The Rust loader is the authority on field validity; these helpers only check shape so edits can be built safely.
-export type ComponentField = { name: string; label: string; kind: "number" | "colour" | "bool" | "vector3" | "entity" | "entities" | "text" | "choice" | "brain"; options?: string[]; min?: number; max?: number; unit?: string; variants?: string[]; default?: ComponentValue; help: string };
+export type ComponentField = { name: string; label: string; kind: "number" | "colour" | "bool" | "vector3" | "entity" | "entities" | "text" | "choice" | "brain" | "brains" | "locomotion" | "audio" | "pairs"; options?: string[]; min?: number; max?: number; unit?: string; variants?: string[]; default?: ComponentValue; help: string };
 export type ComponentType = { id: string; label: string; description: string; applies_to: string; fields: ComponentField[] };
 export type AuthoredComponent = { type: string; enabled: boolean; fields: Record<string, ComponentValue> };
-export type ComponentValue = number | boolean | number[] | string | string[];
+/** Pairs fields hold a name → value table (metadata). */
+export type PairValue = string | number | boolean;
+export type ComponentValue = number | boolean | number[] | string | string[] | Record<string, PairValue>;
 /** Field changes for one component: a value sets it, null resets it to the asset default; `enabled` toggles the component. */
 export type ComponentPatch = Record<string, ComponentValue | null>;
 
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
-const fieldValue = (value: unknown): value is ComponentValue => typeof value === "boolean" || typeof value === "string" && value.length > 0 && value.length <= 512 || Array.isArray(value) && value.length <= 64 && value.every(item => typeof item === "string" && item.length > 0 && item.length <= 128) || typeof value === "number" && Number.isFinite(value) || Array.isArray(value) && value.length <= 4 && value.every(n => typeof n === "number" && Number.isFinite(n));
+/** Same bounds as the engine's Pairs fields: 32 pairs, 64-character names, 256-character text. */
+export const pairsValue = (value: unknown): value is Record<string, PairValue> => object(value) && Object.keys(value).length <= 32 && Object.entries(value).every(([key, item]) => key.trim().length > 0 && key.length <= 64 && (typeof item === "boolean" || typeof item === "number" && Number.isFinite(item) || typeof item === "string" && item.length <= 256));
+/** TOML tables parse with a null prototype; pages can only receive plain objects. */
+const plain = <T,>(value: T): T => (pairsValue(value) ? { ...value } : value) as T;
+/** Text that reads as a number or true/false is stored as one; anything else stays text. */
+export function pairValue(text: string): PairValue {
+  const trimmed = text.trim();
+  if (trimmed === "true" || trimmed === "false") return trimmed === "true";
+  if (trimmed !== "" && Number.isFinite(Number(trimmed))) return Number(trimmed);
+  return text;
+}
+const fieldValue = (value: unknown): value is ComponentValue => pairsValue(value) || typeof value === "boolean" || typeof value === "string" && value.length > 0 && value.length <= 512 || Array.isArray(value) && value.length <= 64 && value.every(item => typeof item === "string" && item.length > 0 && item.length <= 512) || typeof value === "number" && Number.isFinite(value) || Array.isArray(value) && value.length <= 4 && value.every(n => typeof n === "number" && Number.isFinite(n));
 const typeId = (value: unknown): value is string => typeof value === "string" && /^[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*$/.test(value) && value.length <= 96;
 
 export function componentTypes(exported: unknown): ComponentType[] {
@@ -16,8 +29,9 @@ export function componentTypes(exported: unknown): ComponentType[] {
   return exported.types.map(value => {
     if (!object(value) || !typeId(value.id) || typeof value.label !== "string" || typeof value.applies_to !== "string" || !Array.isArray(value.fields)) throw new Error("Invalid component type in registry export.");
     const fields = value.fields.map(field => {
-      if (!object(field) || typeof field.name !== "string" || typeof field.label !== "string" || !["number", "colour", "bool", "vector3", "entity", "entities", "text", "choice", "brain"].includes(field.kind as string)) throw new Error(`Invalid field in component ${value.id}.`);
-      return { ...field, default: fieldValue(field.default) ? field.default : undefined, variants: Array.isArray(field.variants) ? field.variants.filter((v): v is string => typeof v === "string") : undefined, help: typeof field.help === "string" ? field.help : "" } as ComponentField;
+      if (!object(field) || typeof field.name !== "string" || typeof field.label !== "string" || !["number", "colour", "bool", "vector3", "entity", "entities", "text", "choice", "brain", "brains", "locomotion", "audio", "pairs"].includes(field.kind as string)) throw new Error(`Invalid field in component ${value.id}.`);
+      // An empty-text default ("no signal", "every layer") is a real default, not a missing one.
+      return { ...field, default: fieldValue(field.default) || field.default === "" ? plain(field.default) : undefined, variants: Array.isArray(field.variants) ? field.variants.filter((v): v is string => typeof v === "string") : undefined, help: typeof field.help === "string" ? field.help : "" } as ComponentField;
     });
     return { id: value.id, label: value.label, description: typeof value.description === "string" ? value.description : "", applies_to: value.applies_to, fields };
   });
@@ -30,7 +44,7 @@ export function authoredComponents(value: unknown): AuthoredComponent[] {
     if (!object(entry) || !typeId(entry.type) || entry.enabled !== undefined && typeof entry.enabled !== "boolean") throw new Error("Each component needs a type like emergent.light.");
     const { type, enabled, ...fields } = entry;
     if (!Object.values(fields).every(fieldValue)) throw new Error(`Component ${type} has a value that is not a number, colour or true/false.`);
-    return { type, enabled: enabled !== false, fields: fields as Record<string, ComponentValue> };
+    return { type, enabled: enabled !== false, fields: Object.fromEntries(Object.entries(fields).map(([name, value]) => [name, plain(value)])) as Record<string, ComponentValue> };
   });
 }
 

@@ -1,0 +1,8 @@
+schema_version = 1
+id = "shader-force-field"
+name = "Force field"
+
+[material]
+shader = "assets/shaders/force-field.shader.toml"
+cast_shadows = false
+shading = "smooth"

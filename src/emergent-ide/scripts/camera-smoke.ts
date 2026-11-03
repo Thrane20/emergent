@@ -9,10 +9,10 @@ import {parse,stringify} from "smol-toml";
 import {chromium,expect} from "@playwright/test";
 async function main(){
  const root=path.resolve("../.."),temporary=await mkdtemp(path.join(os.tmpdir(),"emergent-camera-ui-")),project=path.join(temporary,"game"),port=process.env.EMERGENT_CAMERA_TEST_PORT??"3006",base=`http://localhost:${port}`,scene="assets/scenes/main.scene.toml";
- await mkdir(path.join(project,"assets/scenes"),{recursive:true});await mkdir(path.join(project,"assets/entities"));await mkdir(path.join(project,"assets/data"));await cp(path.join(root,"projects/first_project/src"),path.join(project,"src"),{recursive:true});
- const cargo=parse(await readFile(path.join(root,"projects/first_project/Cargo.toml"),"utf8"));(cargo.package as Record<string,unknown>).name=`emergent-camera-${randomUUID().slice(0,8)}`;(cargo.dependencies as Record<string,unknown>).emergent={path:root,features:["graphics","physics"]};cargo.workspace={};await writeFile(path.join(project,"Cargo.toml"),stringify(cargo));await cp(path.join(root,"Cargo.lock"),path.join(project,"Cargo.lock"));
+ await mkdir(path.join(project,"assets/scenes"),{recursive:true});await mkdir(path.join(project,"assets/entities"));await mkdir(path.join(project,"assets/data"));await cp(path.join(root,"templates/standard/src"),path.join(project,"src"),{recursive:true});
+ const cargo=parse(await readFile(path.join(root,"templates/standard/Cargo.toml"),"utf8"));(cargo.package as Record<string,unknown>).name=`emergent-camera-${randomUUID().slice(0,8)}`;(cargo.dependencies as Record<string,unknown>).emergent={path:root,features:["graphics","physics"]};cargo.workspace={};await writeFile(path.join(project,"Cargo.toml"),stringify(cargo));await cp(path.join(root,"Cargo.lock"),path.join(project,"Cargo.lock"));
  await writeFile(path.join(project,"emergent.toml"),`schema_version=1\nid="camera-ui"\nname="Camera authoring"\nentry_scene="${scene}"\ngenerated_code="src/generated"\nasset_roots=["assets"]\n[[outputs]]\nid="host"\nos="macos"\narchitecture="aarch64"\nrust_target="aarch64-apple-darwin"\nprofile="development"\n`);
- await writeFile(path.join(project,"assets/data/leader_speed.txt"),"1.0");
+
  const cameraSource='# retain camera metadata\nschema_version=1\nid="cam"\nname="Scene camera"\nkind="camera"\n[transform]\ntranslation=[0.0,1.0,0.0]\n[camera]\n# retain clip comment\nprojection="perspective"\nfield_of_view_degrees=60.0\nnear=0.5\nfar=5.0\n';
  await writeFile(path.join(project,"assets/entities/camera.entity.toml"),cameraSource);
  await writeFile(path.join(project,"assets/entities/cube.entity.toml"),'schema_version=1\nid="cube"\nkind="primitive"\n[geometry]\nprimitive="cube"\nhalf_extent=0.5\ncolor=[0.5,0.8,0.6,1.0]\n');

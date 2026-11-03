@@ -1,0 +1,180 @@
+schema_version = 1
+id = "dissolve"
+name = "Dissolve"
+transparent = true
+
+[[parameters]]
+id = "red"
+name = "Red"
+default = 1
+min = 0
+max = 1
+
+[[parameters]]
+id = "green"
+name = "Green"
+default = 0.25
+min = 0
+max = 1
+
+[[parameters]]
+id = "blue"
+name = "Blue"
+default = 0.04
+min = 0
+max = 1
+
+[[parameters]]
+id = "scale"
+name = "Noise scale"
+default = 8
+min = 0.1
+max = 50
+
+[[parameters]]
+id = "progress"
+name = "Dissolve amount"
+default = 0.45
+min = 0
+max = 1
+
+[[parameters]]
+id = "edge"
+name = "Edge width"
+default = 0.08
+min = 0.001
+max = 0.3
+
+[[parameters]]
+id = "strength"
+name = "Edge glow"
+default = 4
+min = 0
+max = 10
+
+[[nodes]]
+id = "zero"
+op = "constant"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "one"
+op = "constant"
+inputs = []
+value = 1
+
+[[nodes]]
+id = "time"
+op = "time"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "red"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "red"
+
+[[nodes]]
+id = "green"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "green"
+
+[[nodes]]
+id = "blue"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "blue"
+
+[[nodes]]
+id = "x"
+op = "position_x"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "y"
+op = "position_y"
+inputs = []
+value = 0
+
+[[nodes]]
+id = "scale"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "scale"
+
+[[nodes]]
+id = "progress"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "progress"
+
+[[nodes]]
+id = "edge"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "edge"
+
+[[nodes]]
+id = "strength"
+op = "parameter"
+inputs = []
+value = 0
+parameter = "strength"
+
+[[nodes]]
+id = "coordinate"
+op = "add"
+inputs = [ "x", "y" ]
+value = 0
+
+[[nodes]]
+id = "scaled"
+op = "multiply"
+inputs = [ "coordinate", "scale" ]
+value = 0
+
+[[nodes]]
+id = "pattern"
+op = "noise"
+inputs = [ "scaled" ]
+value = 0
+
+[[nodes]]
+id = "upper"
+op = "add"
+inputs = [ "progress", "edge" ]
+value = 0
+
+[[nodes]]
+id = "mask"
+op = "smoothstep"
+inputs = [ "progress", "upper", "pattern" ]
+value = 0
+
+[[nodes]]
+id = "edge-inverse"
+op = "one_minus"
+inputs = [ "mask" ]
+value = 0
+
+[[nodes]]
+id = "edge-glow"
+op = "multiply"
+inputs = [ "edge-inverse", "strength" ]
+value = 0
+
+[outputs]
+color = [ "red", "green", "blue" ]
+emission = "edge-glow"
+opacity = "mask"
+displacement = "zero"

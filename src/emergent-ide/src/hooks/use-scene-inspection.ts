@@ -7,6 +7,7 @@ export function useSceneInspection(projectId: string, path: string | undefined, 
   const [epoch, setEpoch] = useState(0);
   const [state, setState] = useState<{ key: string; inspection: InspectionStatus | null; busy: boolean; error: string } | null>(null);
   const queue = useRef<Promise<void>>(Promise.resolve());
+  const restarting = useRef(false);
   const key = JSON.stringify([projectId, path, enabled, epoch]);
   useEffect(() => {
     if (!enabled || !path) return;
@@ -27,14 +28,18 @@ export function useSceneInspection(projectId: string, path: string | undefined, 
     });
     return () => {
       active = false;
+      const stop = restarting.current;
+      restarting.current = false;
       queue.current = queue.current.catch(() => {}).then(async () => {
         if (!id) return;
+        // Leaving the page parks the worker so coming back reattaches instantly; only an explicit reload restarts it.
+        if (!stop) { await fetch("/api/inspection", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, id }), keepalive: true }); return; }
         const response = await fetch("/api/inspection", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ projectId, id }), keepalive: true });
         if (!response.ok) { const data = await response.json(); throw new Error(data.error || "Inspection could not stop."); }
       }).catch(error => { console.error("Inspection cleanup failed; the server idle lease will stop the worker.", error); });
     };
   }, [projectId, path, enabled, key]);
-  const reload = useCallback(() => setEpoch(value => value + 1), []);
+  const reload = useCallback(() => { restarting.current = true; setEpoch(value => value + 1); }, []);
   const current = state?.key === key ? state : null;
   return { inspection: enabled ? current?.inspection ?? null : null, busy: Boolean(enabled && path && (!current || current.busy)), error: current?.error ?? "", reload };
 }

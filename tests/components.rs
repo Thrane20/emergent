@@ -256,3 +256,155 @@ fn a_drive_force_accelerates_by_mass_and_coasts_to_rest_under_friction() {
         "too weak to move"
     );
 }
+
+#[test]
+fn look_at_and_follow_camera_track_a_moving_target() {
+    let f = Fixture::new(&[("cube.entity.toml", CUBE)]);
+    let forward = |world: &World, id: emergent::EntityId| {
+        world
+            .global_transform(id)
+            .unwrap()
+            .matrix()
+            .transform_vector3(Vec3::NEG_Z)
+            .normalize()
+    };
+    // A player driven by W along -Z; a spinning beacon to follow from behind.
+    let scene = f.scene("[[entities]]\nid='player'\nasset='assets/cube.entity.toml'\n[[entities.components]]\ntype='emergent.character_controller'\nspeed=4\ncamera_relative=false\n[[entities]]\nid='watcher'\nasset='assets/cube.entity.toml'\n[entities.transform]\ntranslation=[6,3,0]\n[[entities.components]]\ntype='emergent.look_at'\ntarget='player'\n[[entities]]\nid='slow'\nasset='assets/cube.entity.toml'\n[entities.transform]\ntranslation=[-6,3,0]\n[[entities.components]]\ntype='emergent.look_at'\ntarget='player'\nturn_rate=10\n[[entities]]\nid='beacon'\nasset='assets/cube.entity.toml'\n[entities.transform]\ntranslation=[20,0,0]\n[[entities.components]]\ntype='emergent.spin'\naxis=[0,1,0]\ndegrees_per_second=90\n[[entities]]\nid='chase'\nasset='assets/cube.entity.toml'\n[[entities.components]]\ntype='emergent.follow_camera'\ntarget='beacon'\noffset=[0,3,8]\nsmoothing=0\n[[entities]]\nid='overhead'\nasset='assets/cube.entity.toml'\n[[entities.components]]\ntype='emergent.follow_camera'\ntarget='player'\nmode='fixed'\noffset=[0,10,0]\nsmoothing=0.5\nlook_at=false\n").unwrap();
+    let mut engine = engine();
+    let loaded = scene.instantiate(engine.world_mut()).unwrap();
+    let id = |name: &str| loaded.entities[name];
+    engine.set_keys(KeySet::EMPTY.with(Key::W));
+    engine.run_ticks(&mut Idle, 60).unwrap();
+    let world = engine.world();
+    let player = position(world, id("player"));
+    let aim = (player - position(world, id("watcher"))).normalize();
+    // The watcher aimed at the player's position from the previous tick: within a degree or two.
+    assert!(
+        forward(world, id("watcher")).angle_between(aim) < 0.05,
+        "watcher tracks the player"
+    );
+    let lag = forward(world, id("slow"))
+        .angle_between((player - position(world, id("slow"))).normalize());
+    assert!(lag > 0.2, "a 10°/s turn rate cannot keep up: {lag}");
+    // Chase camera: 8 m behind and 3 m above the beacon, measured in the beacon's turning heading.
+    // Cameras read the previous tick's committed pose: one tick of a 90°/s spin is 1.5°, ~0.21 m at 8 m.
+    let beacon = *world.global_transform(id("beacon")).unwrap();
+    let ahead = beacon.matrix().transform_vector3(Vec3::NEG_Z);
+    let ahead = Vec3::new(ahead.x, 0.0, ahead.z).normalize();
+    let expected = beacon.translation() + Vec3::Y * 3.0 - ahead * 8.0;
+    assert!(
+        position(world, id("chase")).distance(expected) < 0.3,
+        "{} vs {expected}",
+        position(world, id("chase"))
+    );
+    assert!(
+        forward(world, id("chase")).angle_between((beacon.translation() - expected).normalize())
+            < 0.05,
+        "and looks at it"
+    );
+    // Overhead camera: a world offset reached with 0.5 s smoothing. It started at the origin, so
+    // after 1 s it has closed 1 - e^-2 (86%) of the climb and trails the moving player a little.
+    let overhead = position(world, id("overhead"));
+    let goal = player + Vec3::Y * 10.0;
+    assert!(
+        (8.0..10.0).contains(&overhead.y) && overhead.distance(goal) < 2.5,
+        "{overhead} vs {goal}"
+    );
+    assert_eq!(
+        engine
+            .world()
+            .local_transform(id("overhead"))
+            .unwrap()
+            .rotation,
+        emergent::Quat::IDENTITY,
+        "look_at=false leaves rotation alone"
+    );
+
+    for (extra, message) in [
+        ("[[entities.components]]\ntype='emergent.look_at'\ntarget='a'\n", "its own object"),
+        ("[[entities.components]]\ntype='emergent.look_at'\ntarget='ghost'\n", "not in this scene"),
+        ("[[entities.components]]\ntype='emergent.look_at'\ntarget='b'\n[[entities.components]]\ntype='emergent.spin'\n", "look at turns the object"),
+        ("[[entities.components]]\ntype='emergent.follow_camera'\ntarget='b'\n[[entities.components]]\ntype='emergent.character_controller'\n", "only one of"),
+    ] {
+        let error = f
+            .scene(&format!("[[entities]]\nid='a'\nasset='assets/cube.entity.toml'\n{extra}[[entities]]\nid='b'\nasset='assets/cube.entity.toml'\n"))
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains(message), "{message}: {error}");
+    }
+}
+
+#[test]
+fn mouse_look_consumes_motion_once_clamps_pitch_and_clears_input() {
+    let f = Fixture::new(&[("camera.entity.toml", "schema_version=1\nid='camera'\nkind='camera'\n[camera]\nprojection='perspective'\nfield_of_view_degrees=75\nnear=0.05\nfar=1000\n")]);
+    let scene = f.scene("active_camera='camera'\n[[entities]]\nid='camera'\nasset='assets/camera.entity.toml'\n[[entities.components]]\ntype='emergent.mouse_look'\nsensitivity=0.12\npitch_limit=85\n").unwrap();
+    let mut e = engine();
+    let loaded = scene.instantiate(e.world_mut()).unwrap();
+    let id = loaded.entities["camera"];
+    assert!(!e.add_mouse_motion(emergent::Vec2::new(f32::NAN, 0.0)));
+    e.add_mouse_motion(emergent::Vec2::new(100.0, -10000.0));
+    e.start(&mut Idle).unwrap();
+    e.advance_frame(&mut Idle, Duration::from_secs_f64(3.0 / 60.0))
+        .unwrap();
+    let look = e
+        .world()
+        .component::<emergent::MouseLook>(id)
+        .unwrap()
+        .unwrap();
+    assert!((look.yaw - (-12f32).to_radians().rem_euclid(std::f32::consts::TAU)).abs() < 0.0001);
+    assert!((look.pitch - 85f32.to_radians()).abs() < 0.0001);
+    let before = *look;
+    e.add_mouse_motion(emergent::Vec2::splat(100.0));
+    e.clear_input();
+    e.advance_frame(&mut Idle, Duration::from_secs_f64(1.0 / 60.0))
+        .unwrap();
+    assert_eq!(
+        *e.world()
+            .component::<emergent::MouseLook>(id)
+            .unwrap()
+            .unwrap(),
+        before
+    );
+    e.world_mut().remove_subtree(id).unwrap();
+    e.advance_frame(&mut Idle, Duration::from_secs_f64(1.0 / 60.0))
+        .unwrap();
+    e.stop(&mut Idle);
+}
+
+#[cfg(feature = "physics")]
+#[test]
+fn first_person_fixture_walks_blocks_jumps_and_prefab_loads() {
+    {
+        let root = "templates/standard";
+        let project =
+            Project::load(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(root)).unwrap();
+        emergent::PrefabDefinition::load(&project, "assets/prefabs/first-person.prefab.toml")
+            .unwrap();
+        let scene =
+            SceneDefinition::load(&project, "assets/scenes/first-person.scene.toml").unwrap();
+        let mut e = engine();
+        let loaded = scene.instantiate(e.world_mut()).unwrap();
+        let player = loaded.entities["player"];
+        e.run_ticks(&mut Idle, 120).unwrap();
+        assert!(e.world().is_grounded(player).unwrap());
+        e.set_keys(KeySet::EMPTY.with(Key::W));
+        e.run_ticks(&mut Idle, 240).unwrap();
+        let p = position(e.world(), player);
+        assert!(p.z < -7.0 && p.z > -7.6, "blocked at {p:?}");
+        e.set_keys(KeySet::EMPTY.with(Key::Space));
+        e.run_ticks(&mut Idle, 1).unwrap();
+        assert!(e.world().linear_velocity(player).unwrap().unwrap().y > 4.0);
+        e.clear_input();
+        e.run_ticks(&mut Idle, 120).unwrap();
+        assert!(e.world().is_grounded(player).unwrap());
+    }
+}
+
+#[test]
+fn mouse_look_rejects_invalid_settings_and_non_camera_owners() {
+    assert!(emergent::MouseLook::new(0., 85., emergent::Quat::IDENTITY).is_err());
+    assert!(emergent::MouseLook::new(0.12, 90., emergent::Quat::IDENTITY).is_err());
+    let f = Fixture::new(&[("cube.entity.toml", CUBE)]);
+    assert!(f.scene("[[entities]]\nid='cube'\nasset='assets/cube.entity.toml'\n[[entities.components]]\ntype='emergent.mouse_look'\n").is_err());
+}

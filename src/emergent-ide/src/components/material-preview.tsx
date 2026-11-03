@@ -1,5 +1,7 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
+import {graphMaterial} from "./shader-preview";
+import {shaderGraph} from "@/lib/shader-graph";
 import * as THREE from "three";
 import type {MaterialSettings} from "@/lib/material-settings";
 // shortcut: browser Blinn-Phong approximation; noise channel maps, bump and triplanar projection render only in native inspection.
@@ -12,8 +14,9 @@ function loadTexture(projectId:string,asset:string){
 }
 // The engine samples diffuse images at local position × scale; repeat approximates that over each shape's UV span in metres.
 async function threeMaterial(projectId:string,settings:MaterialSettings,span:[number,number]){
+ if(settings.shader){const response=await fetch(`/api/shaders?projectId=${encodeURIComponent(projectId)}&path=${encodeURIComponent(settings.shader)}`);const result=await response.json();if(!response.ok)throw new Error(result.error);return graphMaterial(shaderGraph(result.graph),settings.shader_parameters);}
  const source=settings.diffuse_map?await loadTexture(projectId,settings.diffuse_map.asset):null,map=source?.clone()??null;
- map?.repeat.set(span[0]*settings.diffuse_map!.scale,span[1]*settings.diffuse_map!.scale);
+ map?.repeat.set(span[0]*settings.diffuse_map!.scale*settings.texture_tiling[0],span[1]*settings.diffuse_map!.scale*settings.texture_tiling[1]);
  if(settings.shading==="unlit")return new THREE.MeshBasicMaterial({color:linear(settings.albedo),map});
  return new THREE.MeshPhongMaterial({color:linear(settings.albedo),map,specular:linear(settings.specular),shininess:settings.shininess,emissive:linear(settings.emission),emissiveIntensity:settings.emission_intensity,flatShading:settings.shading==="flat"});
 }
@@ -36,15 +39,16 @@ export function MaterialStage({projectId,material}:{projectId:string;material:Ma
   meshes.current=shapes.map(shape=>{const mesh=new THREE.Mesh(shape.geometry(),new THREE.MeshPhongMaterial({color:0x808080}));mesh.position.x=shape.x;mesh.rotation.x=.35;scene.add(mesh);return mesh;});
   const resize=()=>{const {width,height}=element.getBoundingClientRect();if(!width||!height)return;renderer.setSize(width,height);camera.aspect=width/height;camera.position.z=Math.max(4.2,8.5/camera.aspect);camera.updateProjectionMatrix();};
   const observer=new ResizeObserver(resize);observer.observe(element);resize();
-  const clock=new THREE.Clock();renderer.setAnimationLoop(()=>{const dt=clock.getDelta();for(const mesh of meshes.current)mesh.rotation.y+=dt*.35;renderer.render(scene,camera);});
+  const clock=new THREE.Clock();renderer.setAnimationLoop(()=>{const dt=clock.getDelta();for(const mesh of meshes.current){mesh.rotation.y+=dt*.35;if(mesh.material instanceof THREE.ShaderMaterial)mesh.material.uniforms.shaderTime.value+=dt;}renderer.render(scene,camera);});
   return ()=>{renderer.setAnimationLoop(null);observer.disconnect();bulb.geometry.dispose();bulb.material.dispose();for(const mesh of meshes.current){mesh.geometry.dispose();disposeMaterial(mesh.material as THREE.Material);}meshes.current=[];renderer.dispose();renderer.domElement.remove();};
  },[]);
  useEffect(()=>{
   let cancelled=false;
   void Promise.all(shapes.map(shape=>threeMaterial(projectId,material,shape.span))).then(materials=>{
    if(cancelled||!meshes.current.length){materials.forEach(disposeMaterial);return;}
+   setError("");
    meshes.current.forEach((mesh,index)=>{disposeMaterial(mesh.material as THREE.Material);mesh.material=materials[index];});
-  });
+  }).catch(error=>{if(!cancelled)setError(error instanceof Error?error.message:"Material preview failed.");});
   return ()=>{cancelled=true;};
  },[projectId,material]);
  return <div className="material-stage-canvas" ref={host}>{error&&<p role="alert">{error}</p>}</div>;
@@ -58,7 +62,7 @@ export function useMaterialThumbnails(projectId:string,items:{path:string;revisi
   try{renderer=new THREE.WebGLRenderer({antialias:true,alpha:true,preserveDrawingBuffer:true});}catch{return;}
   renderer.setSize(160,104,false);renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.setClearColor(0x000000,0);
   const scene=new THREE.Scene(),camera=new THREE.PerspectiveCamera(30,160/104,.1,20),sphere=new THREE.Mesh(shapes[0].geometry());camera.position.set(0,.4,2.6);camera.lookAt(0,0,0);lights(scene);scene.add(sphere);
-  void (async()=>{for(const item of pending){const material=await threeMaterial(projectId,item.material,shapes[0].span);if(cancelled){disposeMaterial(material);break;}sphere.material=material;renderer.render(scene,camera);const url=renderer.domElement.toDataURL("image/png");disposeMaterial(material);done.current.set(item.path,item.revision);setThumbnails(previous=>({...previous,[item.path]:url}));}sphere.geometry.dispose();renderer.dispose();renderer.forceContextLoss();})();
+  void (async()=>{for(const item of pending){let material:THREE.Material;try{material=await threeMaterial(projectId,item.material,shapes[0].span);}catch{continue;}if(cancelled){disposeMaterial(material);break;}sphere.material=material;renderer.render(scene,camera);const url=renderer.domElement.toDataURL("image/png");disposeMaterial(material);done.current.set(item.path,item.revision);setThumbnails(previous=>({...previous,[item.path]:url}));}sphere.geometry.dispose();renderer.dispose();renderer.forceContextLoss();})();
   return ()=>{cancelled=true;};
  },[projectId,items]);
  return thumbnails;

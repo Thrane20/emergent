@@ -122,3 +122,9 @@ mod tests {
         assert!(!set.contains(Key::W) && set.contains(Key::Space));
     }
 }
+
+/// Relative device motion consumed once at a fixed-tick boundary. No time scaling.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Resource)]
+pub struct MouseMotion {
+    pub delta: crate::Vec2,
+}

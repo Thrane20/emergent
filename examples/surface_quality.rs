@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or("/tmp/emergent-surface-quality".into());
     fs::create_dir_all(&directory)?;
     let project = Project::load(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("projects/first_project"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/editor-project"),
     )?;
     let mut renderer = pollster::block_on(GeometryRenderer::new_offscreen(640, 640))?;
     renderer.set_view(Vec3::new(0.0, 0.0, 3.0), Vec3::ZERO, Vec3::Y)?;

@@ -205,3 +205,31 @@ of Add Component, edit, engine-rejected conflict, Remove, target selection and M
 `set_component`, and a 120-tick native Metal run of the physics scene with the jumping bean
 and a controller on the falling cube. WASD in the native window was not driven by an
 automated test.
+
+## Camera behaviours (2026-11-01)
+
+- **Look at** (`emergent.look_at`): target object, aim offset, turn rate (0 = instant,
+  otherwise slerp at that rate). Turns any object's -Z towards the target: cameras,
+  turrets, heads.
+- **Follow camera** (`emergent.follow_camera`): target, offset (right/up/back in the
+  target's heading for `behind`, world x/y/z for `fixed`), exponential smoothing
+  (seconds), and look at the target (default on).
+- Both run last in the motion phase, after brains, locomotion, controllers, follows and
+  spins, reading the previous tick's committed target pose (one tick of lag). The Run
+  window re-reads the active camera's transform every frame, so a camera with these
+  components drives the view. Rotations are written in the parent's space (approximate
+  under rotated parents).
+- Loader rules: target must be another object in the scene; follow camera is a mover
+  (not with controller, follow, brain or locomotion); look at is a rotator (not with spin
+  or locomotion; with a brain's face-movement, look at wins); neither on a dynamic body.
+
+Validation: `tests/components.rs::look_at_and_follow_camera_track_a_moving_target`
+(tracks a W-driven player within ~3°, a 10°/s turn rate lags, a chase camera holds 8 m
+behind and 3 m above a turning target within one tick, a fixed overhead camera closes
+86% in 1 s with 0.5 s smoothing, rejections) and a 120-tick native run of a drone chased
+by a follow camera.
+
+
+### Object inspector cards and component picker
+
+The main object inspector presents Layers & tags first, followed by Transform, Physics, optional camera properties, authored components and Material as independent cards. Labels/fields use compact shared typography. Only the attributes region scrolls; a separate Add component action row remains directly above Statements, including when Statements expands. ComponentsInspector portals its action into a parent-owned DOM target supplied through a callback ref; the modal remains owned by the selected object's component editor. The native dialog supplies focus containment/Escape handling, searchable available component entries, descriptions and Cancel. Selecting an entry retains the existing schema/default/required-reference checks and guarded save path. Cancel does not mutate authored data.

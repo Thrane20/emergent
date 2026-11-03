@@ -250,7 +250,7 @@ The following is verified by source inspection, not a new runtime test:
 - [Renderer](../../src/graphics.rs): SlotMap-owned geometry with insertion/removal and
   per-instance drawing. General visibility/culling is still listed as planned in
   the [capability catalogue](../capabilities/engine-capabilities.toml).
-- [Project rendering](../../projects/first_project/src/visual.rs) uploads loaded scene
+- [Project rendering](../../src/project_host/visual.rs) uploads loaded scene
   geometry. Streaming needs incremental additions/removals through public engine
   contracts, rather than rebuilding or re-uploading the whole scene.
 - Terrain Builder already supports saved edits and material painting. Their

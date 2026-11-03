@@ -1,0 +1,14 @@
+schema_version = 1
+id = "shadows"
+
+[[entities]]
+id = "caster"
+asset = "assets/entities/shadow-cube.entity.toml"
+
+[[entities]]
+id = "receiver"
+asset = "assets/entities/shadow-floor.entity.toml"
+
+[[entities]]
+id = "light"
+asset = "assets/entities/shadow-sun.entity.toml"

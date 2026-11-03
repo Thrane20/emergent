@@ -1,0 +1,13 @@
+schema_version = 1
+id = "light-aircraft"
+name = "Light aircraft"
+kind = "locomotion"
+description = "A single-engine plane: stalls below 18 m/s, cruises at 28 m/s, banks up to 45° to turn."
+type = "fixed_wing"
+min_speed = 18.0
+cruise_speed = 28.0
+max_speed = 45.0
+max_bank = 45.0
+bank_rate = 60.0
+max_climb = 6.0
+max_descent = 8.0

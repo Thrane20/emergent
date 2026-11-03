@@ -13,7 +13,8 @@ id = "defend"
 parent = "root"
 type = "within_distance"
 group = "threats"
-distance = 5.0
+distance = 2
+target = "e424712c-c93e-4dc5-a57f-aca53d97c59a"
 
 [[nodes]]
 id = "intercept"
@@ -28,4 +29,5 @@ type = "formation"
 group = "leader"
 members = "escort"
 shape = "wedge"
-spacing = 2.0
+spacing = 2
+target = "324a2b17-799b-4f32-b37c-a0c2c4715026"

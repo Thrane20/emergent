@@ -1,0 +1,9 @@
+schema_version = 1
+id = "engine-hum"
+name = "Engine hum"
+kind = "audio"
+description = "Procedural 110 Hz hum with harmonics; 2 s, loops seamlessly."
+source = "engine-hum.wav"
+category = "sfx"
+gain_db = 0.0
+loop = [0.0, 2.0]

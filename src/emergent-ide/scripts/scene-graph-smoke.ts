@@ -1,3 +1,4 @@
+import { smokeProjectRoot } from "./project-fixture";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {readFile,unlink,writeFile} from "node:fs/promises";
@@ -7,7 +8,7 @@ import {parse} from "smol-toml";
 import {assetContents,assetTemplate} from "../src/lib/asset-catalog";
 
 async function main(){
- const root=path.resolve(process.env.EMERGENT_PROJECT_PATH||"../../projects/first_project"),base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3000";
+ const root=smokeProjectRoot(),base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3001";
  const projectId=(parse(await readFile(path.join(root,"emergent.toml"),"utf8"))).id as string;
  const id=`graph-smoke-${randomUUID().slice(0,8)}`,asset=`assets/entities/${id}.entity.toml`,scene=`assets/scenes/${id}.scene.toml`;
  const source=`# preserve this scene\nschema_version=1\nid="${id}"\n[[entities]]\nid="parent"\nasset="${asset}"\n[entities.transform]\ntranslation=[3,0,0]\nrotation_degrees=[0,0,90]\nscale=[2,2,2]\n[[entities]]\nid="child"\nasset="${asset}"\n[entities.transform]\ntranslation=[1,0,0]\n`;
@@ -23,7 +24,7 @@ async function main(){
   const dropped=page.waitForResponse(r=>r.url().endsWith("/api/scenes/placement")&&r.request().method()==="PUT",{timeout:120000});
   await tree.getByRole("treeitem",{name:"child",exact:true}).dragTo(tree.getByRole("treeitem",{name:"parent",exact:true}));const moved=await dropped;assert.equal(moved.status(),200,await moved.text());
   await expect(tree.getByRole("treeitem",{name:"child",exact:true})).toHaveAttribute("aria-level","2");
-  const inspector=page.locator(".transform-inspector");await expect(inspector.getByLabel("Parent",{exact:true})).toHaveValue("parent");
+  const inspector=page.locator(".transform-inspector");await expect(inspector.getByLabel("Parent",{exact:true})).toHaveCount(0);
   await expect(inspector.getByLabel("Position X",{exact:true})).toBeEnabled({timeout:120000});
   assert.equal(await canvas.getAttribute("data-session"),session);assert.equal(await canvas.getAttribute("data-worker"),worker);
   const global=page.getByRole("group",{name:"Transform space"}).getByRole("button",{name:"Global",exact:true});await global.click();
@@ -43,9 +44,9 @@ async function main(){
   assert.ok(Math.abs(transformed[1].transform.scale[0]-2)<0.001);assert.ok(Math.abs(transformed[1].transform.rotation_degrees[2]+45)<0.001);
   await page.getByRole("group",{name:"Transform space"}).getByRole("button",{name:"Local",exact:true}).click();
   await expect.poll(async()=>Number(await inspector.getByLabel("Position X",{exact:true}).inputValue())).toBeCloseTo(2,3);
-  await inspector.getByLabel("Parent",{exact:true}).selectOption("");await expect(tree.getByRole("treeitem",{name:"child",exact:true})).toHaveAttribute("aria-level","1",{timeout:120000});
+  await tree.getByRole("treeitem",{name:"child",exact:true}).dragTo(page.locator(".scene-root"));await expect(tree.getByRole("treeitem",{name:"child",exact:true})).toHaveAttribute("aria-level","1",{timeout:120000});
   await expect(inspector.getByLabel("Position X",{exact:true})).toBeEnabled({timeout:120000});
-  await inspector.getByLabel("Parent",{exact:true}).selectOption("parent");
+  await tree.getByRole("treeitem",{name:"child",exact:true}).dragTo(tree.getByRole("treeitem",{name:"parent",exact:true}));
   await expect(tree.getByRole("treeitem",{name:"child",exact:true})).toHaveAttribute("aria-level","2",{timeout:120000});
   await expect(inspector.getByLabel("Position X",{exact:true})).toBeEnabled({timeout:120000});
   await tree.getByRole("treeitem",{name:"child",exact:true}).dragTo(page.locator(".scene-root"));

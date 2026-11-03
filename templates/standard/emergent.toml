@@ -1,0 +1,30 @@
+schema_version = 1
+id = "template.standard"
+name = "Standard template"
+entry_scene = "assets/scenes/main.scene.toml"
+generated_code = "src/generated"
+asset_roots = ["assets"]
+
+[[outputs]]
+id = "macos-arm64-dev"
+os = "macos"
+architecture = "aarch64"
+rust_target = "aarch64-apple-darwin"
+profile = "development"
+enabled = true
+
+[[outputs]]
+id = "linux-x64-release"
+os = "linux"
+architecture = "x86_64"
+rust_target = "x86_64-unknown-linux-gnu"
+profile = "release"
+enabled = false
+
+[[outputs]]
+id = "windows-x64-release"
+os = "windows"
+architecture = "x86_64"
+rust_target = "x86_64-pc-windows-msvc"
+profile = "release"
+enabled = false

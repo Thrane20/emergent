@@ -1,0 +1,8 @@
+schema_version = 1
+id = "artillery-shell"
+name = "Artillery shell"
+kind = "locomotion"
+description = "Fired once at 25 m/s on the low arc that lands on the brain's target; gravity does the rest."
+type = "ballistic"
+launch_speed = 25.0
+arc = "low"

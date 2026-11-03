@@ -1,0 +1,14 @@
+schema_version = 1
+id = "fps-sun"
+name = "Sun"
+kind = "directional-light"
+
+[transform]
+translation = [0.0, 10.0, 0.0]
+rotation_degrees = [-50.0, 30.0, 0.0]
+
+[light]
+type = "directional"
+intensity = 1.2
+color = [1.0, 1.0, 1.0]
+casts_shadows = true

@@ -1,3 +1,4 @@
+import { smokeProjectRoot } from "./project-fixture";
 import assert from "node:assert/strict";
 import {randomUUID} from "node:crypto";
 import {readFile,writeFile,unlink} from "node:fs/promises";
@@ -5,7 +6,7 @@ import path from "node:path";
 import {chromium,expect} from "@playwright/test";
 import {parse} from "smol-toml";
 async function main(){
- const base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3000",root=path.resolve(process.env.EMERGENT_PROJECT_PATH||"../../projects/first_project");
+ const base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3001",root=smokeProjectRoot();
  const projectId=parse(await readFile(path.join(root,"emergent.toml"),"utf8")).id as string,name=`Noise smoke ${randomUUID().slice(0,8)}`,asset=`assets/filters/${name.toLowerCase().replaceAll(" ","-")}.noise.toml`;
  const browser=await chromium.launch({channel:process.env.PLAYWRIGHT_CHANNEL||"chrome",headless:true});let debugPage:import("@playwright/test").Page|undefined;
  try{

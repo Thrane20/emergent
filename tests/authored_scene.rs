@@ -402,13 +402,18 @@ fn file_instance_light_and_subdivision_limits_are_enforced() {
     assert!(f.load().err().unwrap().to_string().contains("256 KiB"));
     f.asset(CUBE);
     let mut entries = String::new();
-    for n in 0..1025 {
+    for n in 0..4097 {
         entries.push_str(&format!(
             "[[entities]]\nid='e{n}'\nasset='assets/cube.entity.toml'\n"
         ));
     }
     f.scene(&entries);
-    assert!(f.load().err().unwrap().to_string().contains("1024"));
+    assert!(f
+        .load()
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("4096 instances"));
     f.scene("[[entities]]\nid='one'\nasset='assets/cube.entity.toml'");
     f.asset(&CUBE.replace(
         "primitive = 'cube'\nhalf_extent = 0.75",
@@ -508,6 +513,39 @@ fn physics_defaults_fitting_overrides_and_hierarchy_validation() {
     assert_eq!(child.collider.as_box().unwrap().center, [0.0, 0.5, 0.0]);
     f.scene("[[entities]]\nid='parent'\nasset='assets/cube.entity.toml'\n[[entities]]\nid='child'\nasset='assets/cube.entity.toml'\nparent='parent'\n[entities.physics]\nbody='dynamic'\n");
     assert!(f.load().err().unwrap().to_string().contains("scene root"));
+}
+
+#[cfg(feature = "physics")]
+#[test]
+fn empty_group_auto_fits_box_to_descendant_geometry() {
+    let f = Fixture::new();
+    fs::write(
+        f.0.join("assets/group.entity.toml"),
+        "schema_version=1\nid='group'\nkind='entity'\n",
+    )
+    .unwrap();
+    f.scene("[[entities]]\nid='root'\nasset='assets/group.entity.toml'\n[entities.physics]\nbody='dynamic'\n[[entities]]\nid='pivot'\nasset='assets/group.entity.toml'\nparent='root'\n[entities.transform]\ntranslation=[0.0,1.0,0.0]\n[[entities]]\nid='mesh'\nasset='assets/cube.entity.toml'\nparent='pivot'\n");
+    let mut world = World::new();
+    let loaded = f.load().unwrap().instantiate(&mut world).unwrap();
+    let collider = world
+        .component::<emergent::PhysicsBody>(loaded.entities["root"])
+        .unwrap()
+        .unwrap()
+        .collider
+        .as_box()
+        .unwrap();
+    assert_eq!(collider.center, [2.0, 1.0, 0.0]);
+    assert_eq!(collider.half_extents, [0.75; 3]);
+    fs::write(f.0.join("assets/drone.locomotion.toml"), "schema_version=1\nid='drone'\nname='Drone'\nkind='locomotion'\ntype='drone'\nmax_speed=2\nmax_climb=2\nmax_tilt=30\nyaw_rate=60\nground_height=0.5\n").unwrap();
+    f.scene("[[entities]]\nid='root'\nasset='assets/group.entity.toml'\n[entities.physics]\nbody='static'\n[[entities.components]]\ntype='emergent.locomotion'\nprofile='assets/drone.locomotion.toml'\n[[entities]]\nid='mesh'\nasset='assets/cube.entity.toml'\nparent='root'\n");
+    assert!(f.load().is_ok());
+    f.scene("[[entities]]\nid='root'\nasset='assets/group.entity.toml'\n[entities.physics]\nbody='dynamic'\n");
+    assert!(f
+        .load()
+        .err()
+        .unwrap()
+        .to_string()
+        .contains("requires geometry on this entity or its descendants"));
 }
 
 #[cfg(not(feature = "physics"))]
@@ -931,6 +969,23 @@ fn editable_structure() -> emergent::StructureDefinition {
     }
 }
 #[test]
+fn empty_structure_parent_keeps_child_geometry() {
+    use emergent::{PolygonMesh, StructurePart, StructureTransform};
+    let mut structure = editable_structure();
+    structure.parts[0].parent = Some("group".into());
+    structure.parts.push(StructurePart {
+        id: "group".into(),
+        name: "Group".into(),
+        parent: None,
+        transform: StructureTransform::default(),
+        mesh: PolygonMesh {
+            vertices: vec![],
+            faces: vec![],
+        },
+    });
+    assert_eq!(structure.mesh().unwrap().vertices().len(), 4);
+}
+#[test]
 fn structure_assets_compile_local_hierarchy_into_one_mesh_on_the_canonical_entity() {
     let f = Fixture::new();
     let mut structure = editable_structure();
@@ -1060,4 +1115,180 @@ fn particle_assets_resolve_components_and_enforce_scene_capacity() {
     )
     .unwrap();
     assert!(fixture.load().is_err());
+}
+
+#[test]
+fn prefab_instances_have_independent_roots_members_links_and_lifetimes() {
+    use emergent::{Follow, PrefabDefinition, Transform};
+    let f = Fixture::new();
+    let path = "assets/drone.prefab.toml";
+    let source = "schema_version=1\nid='drone'\nname='Drone'\nroot='body'\n\
+        [[entities]]\nid='body'\nasset='assets/cube.entity.toml'\n\
+        [[entities]]\nid='rotor'\nparent='body'\nasset='assets/cube.entity.toml'\n\
+        [[entities.components]]\ntype='emergent.follow'\ntarget='body'\nspeed=1\nstop_distance=1\n";
+    fs::write(f.0.join(path), source).unwrap();
+    let project = Project::load(&f.0).unwrap();
+    let prefab = PrefabDefinition::load(&project, path).unwrap();
+    // Once loaded, repeated spawning performs no file I/O.
+    fs::remove_file(f.0.join(path)).unwrap();
+    let mut world = World::new();
+    let a = prefab.instantiate(&mut world).unwrap();
+    let b = prefab.instantiate_as(&mut world, "Scout B").unwrap();
+    assert_eq!(world.get(b.root).unwrap().name(), "Scout B");
+    assert!(prefab.instantiate_as(&mut world, "").is_err());
+    assert_eq!(a.root, a.entities["body"]);
+    assert_eq!(world.get(a.root).unwrap().name(), "Drone");
+    assert_eq!(world.parent(a.root).unwrap(), None);
+    assert_eq!(world.parent(a.entities["rotor"]).unwrap(), Some(a.root));
+    assert_ne!(a.root, b.root);
+    assert_ne!(a.entities["rotor"], b.entities["rotor"]);
+    for instance in [&a, &b] {
+        assert_eq!(
+            world
+                .component::<Follow>(instance.entities["rotor"])
+                .unwrap()
+                .unwrap()
+                .target,
+            instance.root
+        );
+    }
+    world
+        .set_local_transform(a.root, Transform::from_translation(Vec3::new(10., 0., 0.)))
+        .unwrap();
+    world.propagate_transforms();
+    assert_eq!(
+        world
+            .global_transform(a.entities["rotor"])
+            .unwrap()
+            .translation()
+            .x,
+        12.
+    );
+    assert_eq!(
+        world
+            .global_transform(b.entities["rotor"])
+            .unwrap()
+            .translation()
+            .x,
+        4.
+    );
+    world.remove_subtree(a.root).unwrap();
+    assert!(world.get(a.entities["rotor"]).is_err());
+    assert!(world.get(b.entities["rotor"]).is_ok());
+    let c = prefab.instantiate(&mut world).unwrap();
+    assert_ne!(c.root, a.root);
+    assert!(world.get(a.root).is_err());
+    assert_eq!(a.renderables.len(), 2);
+}
+
+#[test]
+fn prefab_validation_rejects_invalid_roots_cycles_and_external_targets() {
+    use emergent::PrefabDefinition;
+    let f = Fixture::new();
+    let project = Project::load(&f.0).unwrap();
+    let base = "schema_version=1\nid='p'\nname='Drone'\nroot='a'\n[[entities]]\nid='a'\nasset='assets/cube.entity.toml'\n[[entities]]\nid='b'\nasset='assets/cube.entity.toml'\nparent='a'\n";
+    fs::write(f.0.join("assets/p.prefab.toml"), base).unwrap();
+    for source in [
+        base.replace("root='a'", "root='missing'"),
+        base.replace("parent='a'", ""),
+        base.replace("parent='a'", "parent='b'"),
+        format!("{base}[[entities.components]]\ntype='emergent.follow'\ntarget='external'\n"),
+        base.replace("name='Drone'", "name=''"),
+        base.replace("id='b'", "id='a'"),
+    ] {
+        assert!(
+            PrefabDefinition::from_source_with(
+                &project,
+                "assets/p.prefab.toml",
+                &source,
+                &emergent::ComponentRegistry::builtin()
+            )
+            .is_err(),
+            "accepted {source}"
+        );
+    }
+}
+
+#[test]
+fn prefab_project_component_entity_fields_cannot_escape_the_graph() {
+    use emergent::{ComponentField, ComponentRegistry, ComponentType, FieldKind, PrefabDefinition};
+    let f = Fixture::new();
+    let project = Project::load(&f.0).unwrap();
+    let mut registry = ComponentRegistry::builtin();
+    registry
+        .register(ComponentType {
+            id: "project.links",
+            label: "Links",
+            description: "",
+            applies_to: "any",
+            fields: vec![ComponentField::new("target", "Target", FieldKind::Entity)],
+        })
+        .unwrap();
+    let source = "schema_version=1\nid='p'\nname='P'\nroot='a'\n[[entities]]\nid='a'\nasset='assets/cube.entity.toml'\n[[entities.components]]\ntype='project.links'\ntarget='a'\n";
+    fs::write(f.0.join("assets/p.prefab.toml"), source).unwrap();
+    let prefab =
+        PrefabDefinition::from_source_with(&project, "assets/p.prefab.toml", source, &registry)
+            .unwrap();
+    let mut world = World::new();
+    let loaded = prefab.instantiate(&mut world).unwrap();
+    assert_eq!(loaded.components[0].entity, loaded.root);
+    assert_eq!(loaded.components[0].fields["target"].as_str(), Some("a"));
+    assert!(PrefabDefinition::from_source_with(
+        &project,
+        "assets/p.prefab.toml",
+        &source.replace("target='a'", "target='outside'"),
+        &registry
+    )
+    .is_err());
+}
+
+#[test]
+fn prefab_labels_resolve_unique_nested_assets_and_reject_missing_or_duplicate_names() {
+    use emergent::PrefabDefinition;
+    let f = Fixture::new();
+    fs::create_dir_all(f.0.join("assets/prefabs/drones")).unwrap();
+    let source = "schema_version=1\nid='p'\nname='Scout drone'\nroot='body'\n[[entities]]\nid='body'\nasset='assets/cube.entity.toml'\n";
+    fs::write(f.0.join("assets/prefabs/drones/scout.prefab.toml"), source).unwrap();
+    let project = Project::load(&f.0).unwrap();
+    let prefab = PrefabDefinition::load_named(&project, "Scout drone").unwrap();
+    let mut world = World::new();
+    let loaded = prefab.instantiate_as(&mut world, "Scout A").unwrap();
+    assert_eq!(world.get(loaded.root).unwrap().name(), "Scout A");
+    assert!(PrefabDefinition::load_named(&project, "missing")
+        .err()
+        .unwrap()
+        .message
+        .contains("no prefab"));
+    assert!(PrefabDefinition::load_named(&project, "scout drone").is_err());
+    assert!(PrefabDefinition::load_named(&project, "").is_err());
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(f.0.join("assets"), f.0.join("assets/prefabs/loop")).unwrap();
+        std::os::unix::fs::symlink(
+            f.0.join("assets/prefabs/drones/scout.prefab.toml"),
+            f.0.join("assets/prefabs/alias.prefab.toml"),
+        )
+        .unwrap();
+        assert!(PrefabDefinition::load_named(&project, "Scout drone").is_ok());
+    }
+    fs::write(
+        f.0.join("assets/duplicate.prefab.toml"),
+        source.replace("id='p'", "id='other'"),
+    )
+    .unwrap();
+    assert!(PrefabDefinition::load_named(&project, "Scout drone")
+        .err()
+        .unwrap()
+        .message
+        .contains("ambiguous"));
+    assert!(PrefabDefinition::load(&project, "assets/prefabs/drones/scout.prefab.toml").is_ok());
+}
+
+#[test]
+fn expanded_prefab_origin_label_is_validated_without_a_live_source_dependency() {
+    let f = Fixture::new();
+    f.scene("[[entities]]\nid='copy'\nasset='assets/cube.entity.toml'\nprefab_label='Drone'\n");
+    f.load().unwrap();
+    f.scene("[[entities]]\nid='copy'\nasset='assets/cube.entity.toml'\nprefab_label=''\n");
+    assert!(f.load().is_err());
 }

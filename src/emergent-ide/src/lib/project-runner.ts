@@ -1,4 +1,6 @@
+import { SCENE_MAX_BYTES } from "./scene-limits";
 import { spawn, type ChildProcess } from "node:child_process";
+import { sharedTargetDir } from "./workspace";
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { projectScenes } from "./project-scenes";
@@ -50,7 +52,7 @@ class ProjectRunManager {
         || !project.assetRoots.some(root => scenePath.startsWith(`${root}/`))) {
       throw new ProjectRunError("Choose a scene from the linked project to run.");
     }
-    try { await containedFile(project.root, scenePath, 256 * 1024); }
+    try { await containedFile(project.root, scenePath, SCENE_MAX_BYTES); }
     catch { throw new ProjectRunError("The selected scene is missing or outside the linked project."); }
 
     const manifest = path.join(project.root, "Cargo.toml");
@@ -72,7 +74,7 @@ class ProjectRunManager {
       output: `$ cargo run --manifest-path ${manifest} -- --run-scene ${scenePath}\n`,
     };
 
-    const child = spawn("cargo", ["run", "--manifest-path", manifest, "--", "--run-scene", scenePath], {
+    const child = spawn("cargo", ["run", "--manifest-path", manifest, "--target-dir", sharedTargetDir, "--", "--run-scene", scenePath], {
       cwd: project.root,
       env: process.env,
       shell: false,

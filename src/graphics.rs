@@ -54,11 +54,13 @@ struct Vertex {
     position: [f32; 3],
     color: [f32; 4],
     normal: [f32; 3],
+    uv: [f32; 2],
 }
 
 impl Vertex {
-    const ATTRIBUTES: [wgpu::VertexAttribute; 3] =
-        wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4, 2 => Float32x3];
+    const ATTRIBUTES: [wgpu::VertexAttribute; 4] = wgpu::vertex_attr_array![
+        0 => Float32x3, 1 => Float32x4, 2 => Float32x3, 3 => Float32x2
+    ];
 
     fn layout() -> wgpu::VertexBufferLayout<'static> {
         wgpu::VertexBufferLayout {
@@ -91,6 +93,9 @@ struct MaterialUniform {
     bounds_size: [f32; 4],
     camera: [f32; 4],
     diffuse: [f32; 4],
+    texture_tiling: [f32; 4],
+    shader_time: [f32; 4],
+    shader_parameters: [[f32; 4]; 4],
 }
 
 #[repr(C)]
@@ -133,6 +138,9 @@ struct LightUniform {
 }
 
 struct GpuMesh {
+    shader_pipeline: Option<wgpu::RenderPipeline>,
+    transparent: bool,
+    overlay: Option<[f32; 4]>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
     index_count: u32,
@@ -314,6 +322,10 @@ pub struct GeometryRenderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    surface_layout: wgpu::PipelineLayout,
+    shader_time: f32,
+    transparent_order: Vec<usize>,
+    overlay_pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
     uniform_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
@@ -681,6 +693,36 @@ impl GeometryRenderer {
             multiview_mask: None,
             cache: None,
         });
+        let overlay_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Emergent UI overlay pipeline"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vertex_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(Vertex::layout())],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fragment_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
         let shadow_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("Emergent directional shadow pipeline"),
             layout: Some(
@@ -746,6 +788,10 @@ impl GeometryRenderer {
             queue,
             config,
             pipeline,
+            surface_layout: pipeline_layout,
+            shader_time: 0.,
+            transparent_order: Vec::new(),
+            overlay_pipeline,
             shadow_pipeline,
             uniform_layout,
             material_layout,
@@ -1017,6 +1063,10 @@ impl GeometryRenderer {
                 }
             }
         }
+        let shader_pipeline = material
+            .shader()
+            .map(|graph| self.compile_surface(graph))
+            .transpose()?;
         let (mut vertices, mut indices) = tessellate(geometry);
         if shading == ShadingMode::Flat {
             (vertices, indices) = flatten_triangles(&vertices, &indices);
@@ -1038,6 +1088,9 @@ impl GeometryRenderer {
         let (material_uniform, material_bind_group) =
             self.upload_noise(material, &layers, side, &pixels, &vertices);
         let key = self.geometry.insert(GpuMesh {
+            shader_pipeline,
+            transparent: material.shader().is_some_and(|g| g.transparent),
+            overlay: None,
             vertex_buffer,
             index_buffer,
             index_count: indices.len() as u32,
@@ -1048,6 +1101,20 @@ impl GeometryRenderer {
             renderer: self.renderer_id,
             key,
         })
+    }
+
+    /// Prepares a static UI texture/quad. No raster work occurs in rendering.
+    pub fn insert_ui_surface(
+        &mut self,
+        surface: &crate::UiSurface,
+    ) -> Result<GeometryId, GraphicsError> {
+        let (geometry, material) = surface.prepare().map_err(GraphicsError::Material)?;
+        let id = self.insert_with_material(&geometry, &material)?;
+        if surface.screen {
+            self.geometry[id.key].overlay =
+                Some([surface.width, surface.height, surface.x, surface.y]);
+        }
+        Ok(id)
     }
 
     fn upload_noise(
@@ -1325,12 +1392,125 @@ impl GeometryRenderer {
             bounds_size: (max - min).max(Vec3::splat(0.0001)).extend(0.0).to_array(),
             camera: [0.0; 4],
             diffuse: [
-                f32::from(material.diffuse_image().is_some()),
+                // 0: no image, 1: triplanar projection, 2: mesh texture coordinates.
+                match (material.diffuse_image().is_some(), material.uv_mapped()) {
+                    (false, _) => 0.,
+                    (true, false) => 1.,
+                    (true, true) => 2.,
+                },
                 d.active_diffuse_map().map_or(1., |map| map.scale),
                 0.,
                 0.,
             ],
+            texture_tiling: [d.texture_tiling[0], d.texture_tiling[1], 0., 0.],
+            shader_time: [0.; 4],
+            shader_parameters: material.shader().map_or([[0.; 4]; 4], |g| {
+                g.parameter_values(&d.shader_parameters)
+                    .expect("resolved shader values")
+            }),
         }
+    }
+
+    /// Prepares a replacement off the draw path, retaining the existing geometry handle on success.
+    pub fn replace_material(
+        &mut self,
+        id: GeometryId,
+        geometry: &Geometry,
+        material: &crate::Material,
+    ) -> Result<(), GraphicsError> {
+        if !self.contains(id) {
+            return Err(GraphicsError::MissingGeometry(id));
+        }
+        let prepared = self.insert_with_material(geometry, material)?;
+        let mesh = self
+            .geometry
+            .remove(prepared.key)
+            .expect("new geometry handle");
+        self.geometry[id.key] = mesh;
+        Ok(())
+    }
+    /// Explicit animation time; invalid host input leaves the last valid time intact.
+    pub fn set_shader_time(&mut self, seconds: f32) -> bool {
+        if !seconds.is_finite() || !(0.0..=1_000_000.0).contains(&seconds) {
+            return false;
+        }
+        self.shader_time = seconds;
+        true
+    }
+    fn compile_surface(
+        &self,
+        graph: &crate::ShaderDefinition,
+    ) -> Result<wgpu::RenderPipeline, GraphicsError> {
+        let graph_code = graph
+            .wgsl()
+            .map_err(|e| GraphicsError::Material(e.to_string()))?;
+        let base = include_str!("shaders/geometry.wgsl");
+        let begin = base.find("// SURFACE_GRAPH_BEGIN").expect("shader marker");
+        let end = base.find("// SURFACE_GRAPH_END").expect("shader marker");
+        let source=format!("{}{}{}",&base[..begin],graph_code,&base[end..])
+            .replace("let position = input.position; // SURFACE_VERTEX", "let displaced=surface_graph(input.position,input.uv,1.0);let position=input.position+input.normal*displaced.displacement;")
+            .replace("// SURFACE_FRAGMENT", "let graph=surface_graph(input.local_position,input.uv,dot(normalize(input.normal),normalize(object.material.camera.xyz-input.world_position)));albedo=graph.color;emission=graph.color*graph.emission;alpha*=graph.opacity;if alpha<0.001 {discard;}");
+        let displaced = graph
+            .nodes
+            .iter()
+            .find(|n| n.id == graph.outputs.displacement)
+            .is_some_and(|n| n.op != crate::ShaderOp::Constant || n.value != 0.);
+        let source = if displaced {
+            source.replace("var surface_normal = normalize(input.normal);", "var surface_normal = normalize(cross(dpdx(input.world_position),dpdy(input.world_position)));if dot(surface_normal,input.normal)<0.0 {surface_normal = -surface_normal;}")
+        } else {
+            source
+        };
+        let scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
+        let shader = self
+            .device
+            .create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("Surface graph"),
+                source: wgpu::ShaderSource::Wgsl(source.into()),
+            });
+        let pipeline = self
+            .device
+            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Emergent geometry pipeline"),
+                layout: Some(&self.surface_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vertex_main"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(Vertex::layout())],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(!graph.transparent),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fragment_main"),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format: self.config.format,
+                        blend: graph
+                            .transparent
+                            .then_some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                multiview_mask: None,
+                cache: None,
+            });
+        if let Some(error) = pollster::block_on(scope.pop()) {
+            return Err(GraphicsError::Material(error.to_string()));
+        }
+        Ok(pipeline)
     }
 
     pub fn remove(&mut self, geometry: GeometryId) -> bool {
@@ -1390,6 +1570,23 @@ impl GeometryRenderer {
         self.validate_instances(instances)?;
         let prepared = self.prepare_lights(lights)?;
         self.ensure_uniform_capacity(instances.len())?;
+        self.transparent_order.clear();
+        self.transparent_order
+            .extend(instances.iter().enumerate().filter_map(|(i, instance)| {
+                self.geometry[instance.geometry.key]
+                    .transparent
+                    .then_some(i)
+            }));
+        let eye = self.view_matrix.inverse().transform_point3(Vec3::ZERO);
+        self.transparent_order.sort_unstable_by(|&a, &b| {
+            let distance = |i: usize| {
+                instances[i]
+                    .model
+                    .transform_point3(Vec3::ZERO)
+                    .distance_squared(eye)
+            };
+            distance(b).total_cmp(&distance(a))
+        });
         let view_projection = self.view_projection();
         let viewport = [self.config.width, self.config.height];
         if let Some(field) = &mut self.raymarched_terrain {
@@ -1420,12 +1617,47 @@ impl GeometryRenderer {
             .extend(1.0)
             .to_array();
         for (index, instance) in instances.iter().enumerate() {
+            let overlay = self.geometry[instance.geometry.key].overlay;
+            let model = if let Some([w, h, x, y]) = overlay {
+                Mat4::from_scale_rotation_translation(
+                    Vec3::new(
+                        if w > 0.0 {
+                            w
+                        } else {
+                            (self.config.width as f32 - x).max(0.001)
+                        },
+                        if h > 0.0 {
+                            h
+                        } else {
+                            (self.config.height as f32 - y).max(0.001)
+                        },
+                        1.0,
+                    ),
+                    crate::Quat::IDENTITY,
+                    Vec3::new(x, y, 0.0),
+                )
+            } else {
+                instance.model
+            };
+            let projection = if overlay.is_some() {
+                orthographic_rh(
+                    0.0,
+                    self.config.width as f32,
+                    self.config.height as f32,
+                    0.0,
+                    -1.0,
+                    1.0,
+                )
+            } else {
+                view_projection
+            };
             let mut material = self.geometry[instance.geometry.key].material;
             material.camera = camera;
+            material.shader_time[0] = self.shader_time;
             let uniform = ObjectUniform {
-                model: instance.model.to_cols_array_2d(),
-                model_view_projection: (view_projection * instance.model).to_cols_array_2d(),
-                normal_matrix: normal_matrix(instance.model).to_cols_array_2d(),
+                model: model.to_cols_array_2d(),
+                model_view_projection: (projection * model).to_cols_array_2d(),
+                normal_matrix: normal_matrix(model).to_cols_array_2d(),
                 material,
             };
             let offset = index * self.uniform_stride as usize;
@@ -1508,6 +1740,9 @@ impl GeometryRenderer {
                 let offset = u32::try_from(index as u64 * self.uniform_stride)
                     .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
                 let mesh = &self.geometry[instance.geometry.key];
+                if mesh.overlay.is_some() {
+                    continue;
+                }
                 if mesh.material.params[2] < 0.5 {
                     continue;
                 }
@@ -1560,10 +1795,18 @@ impl GeometryRenderer {
             pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(1, &self.lighting_bind_group, &[]);
-            for (index, instance) in instances.iter().enumerate() {
+            for index in (0..instances.len())
+                .filter(|&i| !self.geometry[instances[i].geometry.key].transparent)
+                .chain(self.transparent_order.iter().copied())
+            {
+                let instance = &instances[index];
                 let offset = u32::try_from(index as u64 * self.uniform_stride)
                     .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
                 let mesh = &self.geometry[instance.geometry.key];
+                if mesh.overlay.is_some() {
+                    continue;
+                }
+                pass.set_pipeline(mesh.shader_pipeline.as_ref().unwrap_or(&self.pipeline));
                 pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
                 pass.set_bind_group(2, &mesh.material_bind_group, &[]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
@@ -1573,6 +1816,42 @@ impl GeometryRenderer {
         }
         self.particles
             .encode(&mut encoder, surface_view, &self.depth_view);
+        if instances
+            .iter()
+            .any(|i| self.geometry[i.geometry.key].overlay.is_some())
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("UI overlays"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: surface_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&self.overlay_pipeline);
+            pass.set_bind_group(1, &self.lighting_bind_group, &[]);
+            for (index, instance) in instances.iter().enumerate() {
+                let mesh = &self.geometry[instance.geometry.key];
+                if mesh.overlay.is_none() {
+                    continue;
+                }
+                let offset = u32::try_from(index as u64 * self.uniform_stride)
+                    .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
+                pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
+                pass.set_bind_group(2, &mesh.material_bind_group, &[]);
+                pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
+                pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            }
+        }
         Ok(encoder)
     }
 
@@ -2018,6 +2297,7 @@ fn tessellate_point(point: Point) -> (Vec<Vertex>, Vec<u32>) {
             position: position.to_array(),
             color,
             normal: Vec3::ZERO.to_array(),
+            uv: [0.0; 2],
         })
         .collect();
     let indices = vec![
@@ -2052,6 +2332,7 @@ fn tessellate_line(line: Line) -> (Vec<Vertex>, Vec<u32>) {
             position: position.to_array(),
             color,
             normal: Vec3::ZERO.to_array(),
+            uv: [0.0; 2],
         })
         .collect();
     let indices = vec![
@@ -2070,6 +2351,7 @@ fn tessellate_polygon(polygon: &Polygon) -> (Vec<Vertex>, Vec<u32>) {
             position: position.to_array(),
             color,
             normal: Vec3::ZERO.to_array(),
+            uv: [0.0; 2],
         })
         .collect();
     let mut indices = Vec::with_capacity((polygon.vertices().len() - 2) * 3);
@@ -2087,6 +2369,7 @@ fn tessellate_mesh(mesh: &Mesh) -> (Vec<Vertex>, Vec<u32>) {
             position: vertex.position().to_array(),
             color: vertex.color().components(),
             normal: vertex.normal().unwrap_or(Vec3::ZERO).to_array(),
+            uv: vertex.uv().unwrap_or_default().to_array(),
         })
         .collect();
     (vertices, mesh.indices().to_vec())

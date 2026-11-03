@@ -27,6 +27,7 @@ export function InspectionViewport({projectId,sessionId,sceneName,frame,readOnly
  const [overlay,setOverlay]=useState<ToolResult|null>(null),[rect,setRect]=useState(imageRect(960,540));
  const [overlayCurrent,setOverlayCurrent]=useState(false);
  const overlaySequence=useRef(0);
+ const overlayFresh=useRef(false);
  const shortcut=useRef(false);
  const lastCommand=useRef(0),pendingOverlay=useRef<{seq:number;data:ToolResult}|null>(null);
  const [stats,setStats]=useState({sequence:0,command:0,worker:0,render:0,encode:0,fps:0});
@@ -59,7 +60,7 @@ export function InspectionViewport({projectId,sessionId,sceneName,frame,readOnly
  },[projectId,sessionId,onReady,onFailure,command]);
  const running=stats.worker>0;
  useEffect(()=>{if(!terrainPreview||!running)return;let active=true;void command({op:"preview",quality:previewQuality,stepHeatmap}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[terrainPreview,running,command,previewQuality,stepHeatmap]);
- useEffect(()=>{if(!running||busy)return;let active=true;void command({op:"select",id:selectedId,space,tool}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[command,selectedId,revision,space,tool,running,busy]);
+ useEffect(()=>{if(!running||busy)return;if(overlayFresh.current){overlayFresh.current=false;return;}let active=true;void command({op:"select",id:selectedId,space,tool}).catch(error=>{if(active)setError(error.message);});return()=>{active=false;};},[command,selectedId,revision,space,tool,running,busy]);
  const sendView=useCallback(async()=>{
   if(sending.current)return;sending.current=true;
   try{while(desired.current&&!disposed.current){const view=desired.current;desired.current=null;await command({op:"view",...view});if(!disposed.current)setError("");}}
@@ -108,8 +109,8 @@ export function InspectionViewport({projectId,sessionId,sceneName,frame,readOnly
  async function finish(cancel=false){
   const active=drag.current;if(!active||active.ending)return;active.ending=true;
   let saved=false;
-  try{await active.ready;if(cancel){desiredDrag.current=null;await dragSending.current;await command({op:"cancel",token:active.token});}
-   else{await flushDrag();if(active.failure)throw active.failure;if(active.changed&&active.latest){await callbacks.current.onCommit(active.id,active.revision,active.latest);saved=true;}await command({op:"finish",token:active.token});}setError("");
+  try{await active.ready;if(cancel){desiredDrag.current=null;await dragSending.current;await command({op:"cancel",token:active.token});overlayFresh.current=true;}
+   else{await flushDrag();if(active.failure)throw active.failure;if(active.changed&&active.latest){await callbacks.current.onCommit(active.id,active.revision,active.latest);saved=true;}await command({op:"finish",token:active.token});overlayFresh.current=true;}setError("");
   }catch(error){if(!saved)await command({op:"cancel",token:active.token}).catch(()=>{});else onFailure();setError(`${error instanceof Error?error.message:"Gizmo edit failed."}${saved?" Placement saved; restart inspection.":" Drag canceled; source unchanged."}`);}
   finally{drag.current=null;desiredDrag.current=null;if(!disposed.current){setBusy(false);callbacks.current.onBusy(false);}}
  }
@@ -126,6 +127,9 @@ export function InspectionViewport({projectId,sessionId,sceneName,frame,readOnly
   />
   <svg className="inspection-gizmos" viewBox="0 0 960 540" style={{left:rect.left,top:rect.top,width:rect.width,height:rect.height,opacity:overlayCurrent?1:0}} aria-label="Scene transform gizmos">
    {overlay?.frustum&&<g className="camera-frustum" data-camera-frustum={overlay.frustum.id} aria-label="Selected camera frustum" stroke="#efcf85" strokeWidth="1.5" fill="none">{overlay.frustum.segments.map((segment,index)=><line key={index} x1={segment[0][0]*960} y1={segment[0][1]*540} x2={segment[1][0]*960} y2={segment[1][1]*540}/>)}</g>}
+   {overlay?.audio_ranges&&<g className="audio-ranges" aria-label="Selected audio source range" fill="none">
+    {(["inner","outer"] as const).map(ring=><g key={ring} stroke={ring==="inner"?"#8fd3c4":"#5d9e92"} strokeWidth="1.2" strokeDasharray={ring==="outer"?"5 4":undefined}>{overlay.audio_ranges![ring].map((segment,index)=><line key={index} x1={segment[0][0]*960} y1={segment[0][1]*540} x2={segment[1][0]*960} y2={segment[1][1]*540}/>)}</g>)}
+   </g>}
    {overlay?.markers.map(marker=><g key={marker.id} transform={`translate(${marker.point[0]*960} ${marker.point[1]*540})`}><path d="M 0 -7 L 7 0 L 0 7 L -7 0 Z" fill="#19251d" stroke="#d9d591"/><text x="10" y="3" fill="#eee9b1" fontSize="10">{marker.id}</text></g>)}
    {overlay?.selected===selectedId&&overlay.tool===tool&&overlay.space===space&&overlay.origin&&<>
     <circle cx={overlay.origin[0]*960} cy={overlay.origin[1]*540} r="5" fill="none" stroke="#fff1aa" strokeWidth="2"/>
@@ -144,7 +148,8 @@ export function InspectionViewport({projectId,sessionId,sceneName,frame,readOnly
   {error&&<p className="inspection-message inspection-error" role="alert">{error}</p>}
   {selectedId&&overlay?.selected===selectedId&&overlay.tool===tool&&overlay.space===space&&overlay.origin&&!overlay.handles.length&&!busy&&<p className="inspection-message">No usable axes in this view/space. Change the view or use Local mode.</p>}
   {terrainPreview&&<div className="inspection-tools terrain-preview-options" role="group" aria-label="Terrain preview diagnostics"><label>Preview quality<select aria-label="Terrain preview quality" value={previewQuality} disabled={!running} onChange={event=>setPreviewQuality(event.target.value)}><option value="auto">Auto · half while moving</option><option value="full">Full · 960 × 540</option><option value="half">Half · 480 × 270</option></select></label><label><input type="checkbox" checked={stepHeatmap} disabled={!running} onChange={event=>setStepHeatmap(event.target.checked)}/>Ray-step heatmap</label>{stepHeatmap&&<span>Blue: few steps · Red: many · Magenta: exhausted</span>}</div>}
-  <div className="inspection-caption"><span>{sceneName} · Live · tick 0 · {stats.fps.toFixed(1)} fps / target 30 · frame {stats.sequence} · capture {stats.render.toFixed(1)} ms · PNG {stats.encode.toFixed(1)} ms</span><button onClick={()=>{const view={...initialView(),...frame};setProjection(view.projection);setFieldOfView(view.fieldOfView);update(view);}} disabled={!stats.sequence||busy||disabled}>Reset view</button></div>
+  <div className="inspection-fps" aria-label="Frame rate"><span>Current FPS {stats.fps.toFixed(1)}</span><span>Target FPS 30</span></div>
+  <div className="inspection-caption"><button onClick={()=>{const view={...initialView(),...frame};setProjection(view.projection);setFieldOfView(view.fieldOfView);update(view);}} disabled={!stats.sequence||busy||disabled}>Reset view</button></div>
   <div className="inspection-help">F: frame selection · Shift-F: align selection to view · Drag: orbit · Shift-drag: pan · Scroll: dolly / scale</div>
  </div>;
 }

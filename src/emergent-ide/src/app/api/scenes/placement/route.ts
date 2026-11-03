@@ -1,6 +1,7 @@
 import { objectProject, sameOrigin } from "@/lib/object-http";
 import { ObjectCreatorError } from "@/lib/object-types";
-import { deleteSceneInstance, renameSceneInstance, saveSceneMaterial, saveScenePhysics, saveSceneCamera, reparentSceneInstance, saveScenePlacement, saveSceneComponent, scenePlacement } from "@/lib/scene-placement";
+import { duplicateSceneInstance, deleteSceneInstance, renameSceneInstance, saveSceneMaterial, saveScenePhysics, saveSceneCamera, reparentSceneInstance, saveScenePlacement, saveSceneComponent, scenePlacement } from "@/lib/scene-placement";
+import {saveSceneClassification} from "@/lib/scene-placement";
 
 export async function GET(request: Request) {
   try {
@@ -18,6 +19,8 @@ export async function PUT(request: Request) {
     const project = await objectProject(body.projectId);
     if (typeof body.path !== "string" || typeof body.id !== "string" || typeof body.revision !== "string") throw new Error("Scene, instance and revision are required.");
     const space=body.space??"local";if(space!=="local"&&space!=="global")throw new Error("Invalid transform space.");
+    if(body.action==="duplicate")return Response.json(await duplicateSceneInstance(project,body.path,body.id,body.revision,space));
+    if(body.action==="classification")return Response.json(await saveSceneClassification(project,body.path,body.id,body.revision,body.classification,space));
     if(body.action==="rename")return Response.json(await renameSceneInstance(project,body.path,body.id,body.revision,body.name,space));
     if(body.action==="camera"){
       if(body.camera===undefined)throw new Error("Camera settings are required.");

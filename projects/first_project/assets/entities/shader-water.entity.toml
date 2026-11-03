@@ -1,0 +1,10 @@
+schema_version=1
+id='shader-water'
+name='Subdivided water surface'
+kind='terrain'
+[terrain]
+resolution=64
+size=3
+height=0.01
+[material]
+asset='assets/materials/water.material.toml'

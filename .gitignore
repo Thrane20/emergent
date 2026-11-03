@@ -1,2 +1,15 @@
-/target/
+# Build output and local state at any depth (engine, games, and IDE)
+target/
+node_modules/
+.next*/
+.data/
+coverage/
+dist/
+build/
 .emergent-object-staging/
+
+# Local configuration and editor output
+.env*
+!.env.example
+.DS_Store
+*.tsbuildinfo

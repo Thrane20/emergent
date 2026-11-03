@@ -1,4 +1,5 @@
 import "server-only";
+import { SCENE_MAX_BYTES, SCENE_MAX_INSTANCES } from "./scene-limits";
 import { randomUUID } from "node:crypto";
 import { mkdir, readdir, readFile, realpath, rm, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -12,12 +13,14 @@ import { lightingSettings } from "./lighting-settings";
 import { containedFile } from "./object-files";
 import type { ProjectSnapshot } from "./project";
 import { publishProjectEvent } from "./project-events";
-import { projectIndex, RefError, resolveRef, type InstanceEntry, type ProjectIndex, type SceneEntry } from "./project-index";
-import { replaceSceneLighting } from "./scene-lighting";
+import { projectIndex, RefError, resolveFieldRefs, resolveRef, type InstanceEntry, type ProjectIndex, type SceneEntry } from "./project-index";
+import { replaceSceneLighting, replaceSceneWind, sceneWind } from "./scene-lighting";
 import { addedComponentType, replaceInstanceComponent,
   commitSceneEdit, materialEdit, physicsSettings, replaceInstanceCamera, replaceInstanceName, replaceInstanceParent,
   replaceInstancePhysics, replaceInstanceTransform, replaceSceneSubtree, scenePlacement, transformEdit, type TransformValues,
 } from "./scene-placement";
+import { parsePrefab, placePrefab } from "./prefabs";
+import { componentRegistry } from "./scene-preview";
 import { validateProjectScene } from "./scene-preview";
 import { applyChanges } from "./statement-files";
 
@@ -54,9 +57,10 @@ async function currentInstance(project: ProjectSnapshot, scene: SceneEntry, id: 
 }
 
 /** Runs one scene edit; on success journals it, pushes `live` controls to the running inspection world and notifies pages. */
-async function sceneEdit(project: ProjectSnapshot, scene: SceneEntry, revision: string, tool: string, summary: string, edit: (source: string) => string | Promise<string>, options: { dryRun?: boolean; check?: () => Promise<void>; live?: (sessionId: string) => Promise<void>; ref?: string; source?: "mcp" | "ide" } = {}): Promise<OpResult> {
+async function sceneEdit(project: ProjectSnapshot, scene: SceneEntry, revision: string, tool: string, summary: string, edit: (source: string) => string | Promise<string>, options: { dryRun?: boolean; check?: () => Promise<void>; live?: (sessionId: string) => Promise<void>; ref?: string; source?: "mcp" | "ide"; removal?: boolean } = {}): Promise<OpResult> {
   if (typeof revision !== "string" || !/^[0-9a-f]{64}$/.test(revision)) throw new RefError("Pass the sceneRevision/revision from describe; edits are refused against an unknown revision.");
-  const { before, content, changed } = await commitSceneEdit(project, scene.path, revision, edit, { check: options.check, dryRun: options.dryRun });
+  const { before, content, changed, warning } = await commitSceneEdit(project, scene.path, revision, edit, { check: options.check, dryRun: options.dryRun, removal: options.removal });
+  if (warning) summary = `${summary} (the scene still has a problem: ${warning})`;
   if (!changed) return { applied: false, dryRun: options.dryRun === true, changeId: null, summary: `${summary}: no change.`, diff: "", revision, ref: options.ref, live: false };
   const diff = textDiff(before, content);
   if (options.dryRun) return { applied: false, dryRun: true, changeId: null, summary: `Would ${summary}. Validated; nothing written.`, diff, revision, ref: options.ref, live: false };
@@ -71,6 +75,13 @@ async function pushLive(project: ProjectSnapshot, scenePath: string, push?: (ses
   const session = push ? inspectionSessions.activeFor(project, scenePath) : null;
   if (!session || !push) return false;
   try { await push(session); return true; } catch { return false; }
+}
+
+/** One journalled, Rust-validated, undoable edit of a scene by path (for editors that build their own TOML change). */
+export async function editScenePath(project: ProjectSnapshot, scenePath: string, revision: string, tool: string, summary: string, edit: (source: string) => string | Promise<string>) {
+  const scene = (await projectIndex(project)).scenes.find(entry => entry.path === scenePath);
+  if (!scene) throw new RefError(`${scenePath} is not a scene in this project.`);
+  return sceneEdit(project, scene, revision, tool, summary, edit, { source: "ide" });
 }
 
 export type TransformInput = { ref: string; revision: string; translation?: unknown; rotation_degrees?: unknown; scale?: unknown; space?: "local" | "global"; dryRun?: boolean };
@@ -113,27 +124,34 @@ export async function deleteInstance(project: ProjectSnapshot, input: { ref: str
   const removed: string[] = [], pending = [entry.ref];
   while (pending.length) { const ref = pending.pop()!; removed.push(ref); pending.push(...(index.byRef.get(ref) as InstanceEntry | undefined)?.children ?? []); }
   const label = removed.length > 1 ? `delete ${entry.name} (${entry.ref}) and its ${removed.length - 1} descendant(s): ${removed.slice(1).join(", ")}` : `delete ${entry.name} (${entry.ref})`;
-  return sceneEdit(project, scene, input.revision, "delete", label, source => replaceSceneSubtree(source, entry.id), { dryRun: input.dryRun });
+  return sceneEdit(project, scene, input.revision, "delete", label, source => replaceSceneSubtree(source, entry.id), { dryRun: input.dryRun, removal: true });
 }
 
 export type PlaceInput = { asset: string; scene: string; revision: string; parent?: string | null; name?: string; translation?: unknown; rotation_degrees?: unknown; scale?: unknown; dryRun?: boolean; source?: "mcp" | "ide" };
 export async function placeAsset(project: ProjectSnapshot, input: PlaceInput) {
   const index = await projectIndex(project), scene = sceneTarget(index, input.scene), asset = resolveRef(index, input.asset);
-  if (asset.type !== "asset" || !asset.path.endsWith(".entity.toml")) throw new RefError(`${input.asset} is not a placeable entity asset. Use list with type "assets" to find entity assets.`);
+  if (asset.type !== "asset" || !/\.(entity|prefab)\.toml$/.test(asset.path)) throw new RefError(`${input.asset} is not a placeable entity asset. Use list with type "assets" to find entity assets.`);
   let parent: InstanceEntry | null = null;
   if (input.parent) { const target = instanceTarget(index, input.parent); if (target.scene.ref !== scene.ref) throw new RefError("Parents must be in the same scene."); parent = target.entry; }
   const patch = { translation: vector(input.translation, "translation"), rotation_degrees: vector(input.rotation_degrees, "rotation_degrees"), scale: vector(input.scale, "scale") };
+  const prefabSource = asset.path.endsWith(".prefab.toml") ? await readFile(await containedFile(project.root, asset.path, 256 * 1024), "utf8") : null;
+  const prefab = prefabSource === null ? null : parsePrefab(prefabSource);
+  const types = prefab ? await componentRegistry(project) : [];
   const id = randomUUID(), ref = `instance:${scene.id}/${id}`;
-  const defaults = assetDefaults(project, asset.path);
+  const prefabTransform = prefab?.entities.find(item => item.id === prefab.root)?.transform as Partial<TransformValues> | undefined;
+  const base = assetDefaults(project, prefab?.entities.find(item => item.id === prefab.root)?.asset ?? asset.path);
+  const defaults = { translation: prefabTransform?.translation ?? base.translation, rotation_degrees: prefabTransform?.rotation_degrees ?? base.rotation_degrees, scale: prefabTransform?.scale ?? base.scale };
   return sceneEdit(project, scene, input.revision, "place_asset", `place ${asset.name} (${asset.ref}) in ${scene.name} as ${ref}${parent ? ` under ${parent.name}` : ""}`, source => {
     const document = parse(source) as { entities?: unknown[] };
-    if ((document.entities?.length ?? 0) >= 1024) throw new RefError("This scene already has the maximum of 1024 instances.");
-    let content = `${source.replace(/\s*$/, "")}\n\n[[entities]]\nid = ${JSON.stringify(id)}\nasset = ${JSON.stringify(asset.path)}\n`;
+    if ((document.entities?.length ?? 0) >= SCENE_MAX_INSTANCES) throw new RefError(`This scene already has the maximum of ${SCENE_MAX_INSTANCES} instances.`);
+    let content = prefab ? placePrefab(source, prefab, types, local => local === prefab.root ? id : randomUUID()).content : `${source.replace(/\s*$/, "")}\n\n[[entities]]\nid = ${JSON.stringify(id)}\nasset = ${JSON.stringify(asset.path)}\n`;
     if (input.name !== undefined) content = replaceInstanceName(content, id, input.name);
     if (parent) content = replaceInstanceParent(content, id, parent.id);
     if (patch.translation || patch.rotation_degrees || patch.scale) content = replaceInstanceTransform(content, id, { translation: patch.translation ?? defaults.translation, rotation_degrees: patch.rotation_degrees ?? defaults.rotation_degrees, scale: patch.scale ?? defaults.scale });
     return content;
-  }, { dryRun: input.dryRun, ref, source: input.source });
+  }, { dryRun: input.dryRun, ref, source: input.source, check: prefabSource === null ? undefined : async () => {
+    if (await readFile(await containedFile(project.root, asset.path, 256 * 1024), "utf8") !== prefabSource) throw new Error("Prefab changed during placement. Reload and retry.");
+  } });
 }
 
 function assetDefaults(project: ProjectSnapshot, assetPath: string): TransformValues {
@@ -156,7 +174,9 @@ function patchOrReset(value: unknown, name: string): Settings | null {
 
 export async function setComponent(project: ProjectSnapshot, input: { ref: string; revision: string; component: "material" | "physics" | "camera"; settings: unknown; dryRun?: boolean }) {
   const index = await projectIndex(project), { entry, scene } = instanceTarget(index, input.ref);
-  const patch = patchOrReset(input.settings, input.component);
+  const settings = patchOrReset(input.settings, input.component);
+  // A shader may be given as an asset ref; materials store its path.
+  const patch = settings && input.component === "material" ? resolveFieldRefs(index, settings) as typeof settings : settings;
   const { instance } = await currentInstance(project, scene, entry.id);
   const label = patch === null ? `reset ${input.component} of ${entry.name} (${entry.ref}) to asset defaults` : `set ${input.component} ${Object.keys(patch).join(", ")} on ${entry.name} (${entry.ref})`;
   const options = { dryRun: input.dryRun, ref: entry.ref };
@@ -178,7 +198,8 @@ export async function setComponent(project: ProjectSnapshot, input: { ref: strin
 export async function setObjectComponent(project: ProjectSnapshot, input: { ref: string; revision: string; type: string; fields: Record<string, unknown> | null; enabled?: boolean; dryRun?: boolean }) {
   const index = await projectIndex(project), { entry, scene } = instanceTarget(index, input.ref);
   if (input.fields !== null && (!input.fields || typeof input.fields !== "object" || Array.isArray(input.fields))) throw new RefError("fields must be an object of field values, or null to remove the component override.");
-  const patch = input.fields === null ? null : { ...input.fields, ...(input.enabled === undefined ? {} : { enabled: input.enabled }) } as ComponentPatch;
+  // Brains, profiles and targets may be given as refs; scene files store paths and instance IDs.
+  const patch = input.fields === null ? null : { ...resolveFieldRefs(index, input.fields), ...(input.enabled === undefined ? {} : { enabled: input.enabled }) } as ComponentPatch;
   const label = patch === null ? `remove ${input.type} override from ${entry.name} (${entry.ref})` : `set ${input.type} ${Object.keys(patch).join(", ") || "defaults"} on ${entry.name} (${entry.ref})`;
   const keepEmpty = await addedComponentType(project, input.type);
   return sceneEdit(project, scene, input.revision, "set_component", label, source => replaceInstanceComponent(source, entry.id, input.type, patch, keepEmpty), { dryRun: input.dryRun, ref: entry.ref });
@@ -187,10 +208,18 @@ export async function setObjectComponent(project: ProjectSnapshot, input: { ref:
 export async function setEnvironment(project: ProjectSnapshot, input: { scene: string; revision: string; settings: unknown; dryRun?: boolean }) {
   const index = await projectIndex(project), scene = sceneTarget(index, input.scene);
   const patch = patchOrReset(input.settings, "environment") ?? {};
-  const source = await readFile(await containedFile(project.root, scene.path, 256 * 1024), "utf8");
+  const source = await readFile(await containedFile(project.root, scene.path, SCENE_MAX_BYTES), "utf8");
   const next = lightingSettings(merge(lightingSettings((parse(source) as Settings).environment) as Settings, patch));
   if (next.skybox && !projectImages(project).some(image => image.path === next.skybox && image.kind === "skybox")) throw new RefError("Choose a skybox image from this project's image library (kind skybox).");
   return sceneEdit(project, scene, input.revision, "set_environment", `set environment ${Object.keys(patch).join(", ") || "defaults"} on ${scene.name} (${scene.ref})`, current => replaceSceneLighting(current, next), { dryRun: input.dryRun, ref: scene.ref });
+}
+
+/** Sets the scene's uniform wind (speed m/s, from a compass bearing), or removes it with null. */
+export async function setWind(project: ProjectSnapshot, input: { scene: string; revision: string; wind: unknown; dryRun?: boolean; source?: "ide" }) {
+  const index = await projectIndex(project), scene = sceneTarget(index, input.scene);
+  const wind = sceneWind(input.wind);
+  const label = wind ? `set wind ${wind.speed} m/s from ${wind.from}° on ${scene.name} (${scene.ref})` : `remove wind from ${scene.name} (${scene.ref})`;
+  return sceneEdit(project, scene, input.revision, "set_wind", label, current => replaceSceneWind(current, wind), { dryRun: input.dryRun, ref: scene.ref, ...(input.source ? { source: input.source } : {}) });
 }
 
 /** Gives durable IDs to files the index reports as missing-id: an `id` in TOML definitions, a descriptor for loose media. */
@@ -280,14 +309,15 @@ export async function changeHistory(project: ProjectSnapshot, limit = 20) {
 }
 
 const lockState = globalThis as typeof globalThis & { emergentScenePlacementActive?: boolean };
-async function withSceneLock<T>(action: () => Promise<T>) {
+export async function withSceneLock<T>(action: () => Promise<T>) {
   if (lockState.emergentScenePlacementActive) throw new RefError("Another scene edit is being saved. Try again shortly.");
   lockState.emergentScenePlacementActive = true;
   try { return await action(); } finally { lockState.emergentScenePlacementActive = false; }
 }
 
 function journalDirectory(project: ProjectSnapshot) { return path.join(settingsDirectory(), "mcp-changes", project.id.replace(/[^a-z0-9_.-]/gi, "_")); }
-async function journal(project: ProjectSnapshot, tool: string, summary: string, changes: FileChange[], undoOf?: string) {
+/** Records an applied MCP change so history and undo cover it. */
+export async function journal(project: ProjectSnapshot, tool: string, summary: string, changes: FileChange[], undoOf?: string) {
   const id = randomUUID(), at = new Date().toISOString(), directory = journalDirectory(project);
   await mkdir(directory, { recursive: true, mode: 0o700 });
   const entry: JournalEntry = { id, projectId: project.id, root: project.root, at, tool, summary, changes, undoOf };

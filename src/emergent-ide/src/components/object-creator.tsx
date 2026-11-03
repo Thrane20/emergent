@@ -6,6 +6,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ModelPreview } from "./model-preview";
 import { MAX_IMAGE_BYTES, type ObjectJob, type ObjectSettings } from "@/lib/object-types";
+import { ReferenceImagePicker } from "./reference-image-picker";
+import type { LibraryImage } from "@/lib/image-library";
 
 const activeStates = ["uploading", "submitting", "queued", "generating", "downloading"];
 async function jsonResponse<T>(response: Response): Promise<T> {
@@ -14,7 +16,7 @@ async function jsonResponse<T>(response: Response): Promise<T> {
   return result as T;
 }
 
-export function ObjectCreator({ projectId, projectName, initialJobs, settings }: { projectId: string; projectName: string; initialJobs: ObjectJob[]; settings: ObjectSettings }) {
+export function ObjectCreator({ projectId, projectName, initialJobs, settings, images }: { projectId: string; projectName: string; initialJobs: ObjectJob[]; settings: ObjectSettings; images: LibraryImage[] }) {
   const [jobs, setJobs] = useState(initialJobs);
   const [selectedId, setSelectedId] = useState(initialJobs[0]?.id ?? "");
   const [name, setName] = useState("");
@@ -82,12 +84,9 @@ export function ObjectCreator({ projectId, projectName, initialJobs, settings }:
       <aside className="object-sidebar"><section className="panel object-input-panel"><div className="panel-head"><h2>Create an object</h2><span className="kind-badge">01 / REFERENCE</span></div>
         <form className="object-form" onSubmit={generate}>
           <label className="settings-field"><span>Object name</span><input value={name} onChange={(event) => setName(event.target.value)} placeholder="Moon rover" maxLength={64} required disabled={busy} /></label>
-          <label className="object-upload"><input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={(event) => {
-            const file = event.target.files?.[0];
-            if (!file) return;
-            if (file.size > MAX_IMAGE_BYTES) { setError("Choose an image smaller than 10 MiB."); return; }
+          <ReferenceImagePicker projectId={projectId} images={images} preview={imageUrl} disabled={busy} maxBytes={MAX_IMAGE_BYTES} onError={setError} onPick={(file) => {
             setImage(file); setImageUrl(URL.createObjectURL(file)); pendingId.current = null; setError("");
-          }} />{imageUrl ? <img src={imageUrl} alt="New generation reference" /> : <div><span>＋</span><b>Choose a reference image</b></div>}</label>
+          }} />
           {image && <p className="object-muted">{image.name}</p>}
           <button className="settings-save object-generate" disabled={busy || !image || !name.trim() || !settings.configured}>{busy ? "Submitting…" : "✦ Generate object"}</button>
           {!settings.configured && <Link className="object-link" href="/settings#object-generation">Add your fal key in Settings →</Link>}
@@ -99,7 +98,7 @@ export function ObjectCreator({ projectId, projectName, initialJobs, settings }:
         {selected?.error && selected.state !== "failed" && selected.state !== "uncertain" && <p className="object-message" role="status">{selected.error}</p>}
         {error && <p className="object-error" role="alert">{error}</p>}
         {pollError && <p className="object-message" role="status">{pollError}</p>}
-        <footer className="object-stage-footer"><div><span className="eyebrow">03 / KEEP</span>{selected?.savedPath && <p>{selected.savedPath}</p>}</div>{selected?.state === "ready" && !selected.savedPath && <input aria-label="Saved object name" value={saveName || selected.name} onChange={(event) => setSaveName(event.target.value)} maxLength={64} />}<button className="settings-save" disabled={selected?.state !== "ready" || !!selected?.savedPath || saving} onClick={() => void save()}>{saving ? "Saving…" : selected?.savedPath ? "Saved ✓" : "Save to project"}</button></footer>
+        <footer className="object-stage-footer"><div><span className="eyebrow">03 / KEEP</span>{selected?.savedPath && <><p>{selected.savedPath}</p><Link className="object-link" href={`/models?model=${encodeURIComponent(selected.savedPath.replace(/model\.glb$/, "object.asset.json"))}`}>Split into parts ↗</Link></>}</div>{selected?.state === "ready" && !selected.savedPath && <input aria-label="Saved object name" value={saveName || selected.name} onChange={(event) => setSaveName(event.target.value)} maxLength={64} />}<button className="settings-save" disabled={selected?.state !== "ready" || !!selected?.savedPath || saving} onClick={() => void save()}>{saving ? "Saving…" : selected?.savedPath ? "Saved ✓" : "Save to project"}</button></footer>
       </section>
     </div>
   </main>;

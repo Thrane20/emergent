@@ -1,3 +1,4 @@
+import { SCENE_MAX_BYTES, SCENE_MAX_INSTANCES } from "./scene-limits";
 import { randomUUID } from "node:crypto";
 import { lstat, mkdir, open, readFile, realpath, unlink } from "node:fs/promises";
 import path from "node:path";
@@ -100,10 +101,10 @@ export async function createProjectAsset(
     try {
       if (!sceneCompatible(template)) throw new AssetCreationError("This asset type is not supported by the scene loader.");
       if (!scenePath.endsWith(".scene.toml") || !project.assetRoots.some((root) => scenePath.startsWith(`${root}/`))) throw new AssetCreationError("Choose a scene under a declared asset root.");
-      const target = await containedFile(project.root, scenePath, 256 * 1024);
+      const target = await containedFile(project.root, scenePath, SCENE_MAX_BYTES);
       const before = await readFile(target, "utf8");
       const scene = parse(before);
-      if (scene.schema_version !== 1 || !Array.isArray(scene.entities) || scene.entities.length >= 1024) throw new AssetCreationError("Scene must use schema 1 with fewer than 1024 instances.");
+      if (scene.schema_version !== 1 || !Array.isArray(scene.entities) || scene.entities.length >= SCENE_MAX_INSTANCES) throw new AssetCreationError(`Scene must use schema 1 with fewer than ${SCENE_MAX_INSTANCES} instances.`);
       if (scene.entities.some((entity) => !entity || typeof entity !== "object" || Array.isArray(entity) || !("id" in entity) || typeof entity.id !== "string" || !("asset" in entity) || typeof entity.asset !== "string")) throw new AssetCreationError("Scene entries must reference entity assets. Migrate legacy inline entries first.");
       if (scene.entities.some((entity) => (entity as { id: string }).id === id)) throw new AssetCreationError(`Scene already contains instance '${id}'.`);
       // Preserve authored comments; remove only an empty top-level entities list before appending tables.
@@ -115,7 +116,7 @@ export async function createProjectAsset(
         : "";
       const content = header.replace(/^entities\s*=\s*\[\s*\]\s*$/m, "") + cameraSelection + rest + `\n[[entities]]\nid = ${JSON.stringify(id)}\nasset = ${JSON.stringify(relative)}\n`;
       parse(content);
-      if (Buffer.byteLength(content) > 256 * 1024) throw new AssetCreationError("Updated scene exceeds 256 KiB.");
+      if (Buffer.byteLength(content) > SCENE_MAX_BYTES) throw new AssetCreationError("Updated scene exceeds 2 MiB.");
       await applyChanges(project, [{ path: scenePath, before, content }]);
     } catch (error) {
       return { path: relative, id, sceneError: `Asset saved, but not included in scene: ${error instanceof Error ? error.message : "inclusion failed"}` };

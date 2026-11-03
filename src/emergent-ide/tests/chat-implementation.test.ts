@@ -13,14 +13,15 @@ test("chat applies a centre cube, answers questions, and rejects invalid/conflic
  const directory=await mkdtemp(path.join(os.tmpdir(),"emergent-chat-")),root=path.join(directory,"game"),foundation=path.resolve(process.cwd(),"../..");
  const oldRoot=process.env.EMERGENT_PROJECT_PATH,oldData=process.env.EMERGENT_IDE_DATA_DIR;
  t.after(async()=>{if(oldRoot===undefined)delete process.env.EMERGENT_PROJECT_PATH;else process.env.EMERGENT_PROJECT_PATH=oldRoot;if(oldData===undefined)delete process.env.EMERGENT_IDE_DATA_DIR;else process.env.EMERGENT_IDE_DATA_DIR=oldData;await rm(directory,{recursive:true,force:true});});
- await cp(path.join(foundation,"projects/first_project/src"),path.join(root,"src"),{recursive:true});
+ await cp(path.join(foundation,"templates/standard/src"),path.join(root,"src"),{recursive:true});
  await mkdir(path.join(root,"assets/entities"),{recursive:true});await mkdir(path.join(root,"assets/scenes"),{recursive:true});
- const cargo=parse(await readFile(path.join(foundation,"projects/first_project/Cargo.toml"),"utf8"));
+ const cargo=parse(await readFile(path.join(foundation,"templates/standard/Cargo.toml"),"utf8"));
+ cargo.workspace={};
  const dependencies=cargo.dependencies as Record<string,{path?:string}>;dependencies.emergent.path=foundation;
  await writeFile(path.join(root,"Cargo.toml"),stringify(cargo));
  const scene="assets/scenes/chat.scene.toml",asset="assets/entities/cube.entity.toml";
  const original='# retain scene note\nschema_version=1\nid="chat-scene"\n[[entities]]\nid="original"\nasset="assets/entities/cube.entity.toml"\n';
- const manifest=parse(await readFile(path.join(foundation,"projects/first_project/emergent.toml"),"utf8"));
+ const manifest=parse(await readFile(path.join(foundation,"templates/standard/emergent.toml"),"utf8"));
  manifest.id="chat-test";manifest.name="Chat test";manifest.entry_scene=scene;
  await writeFile(path.join(root,"emergent.toml"),stringify(manifest));
  await writeFile(path.join(root,scene),original);

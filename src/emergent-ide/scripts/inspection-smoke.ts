@@ -1,3 +1,4 @@
+import { smokeProjectRoot } from "./project-fixture";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile, unlink, writeFile } from "node:fs/promises";
@@ -6,8 +7,8 @@ import { chromium, expect, request } from "@playwright/test";
 import { assetContents, assetTemplate } from "../src/lib/asset-catalog";
 
 async function main(){
-  const base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3000";
-  const root=path.resolve(process.env.EMERGENT_PROJECT_PATH||"../../projects/first_project");
+  const base=process.env.EMERGENT_IDE_BASE_URL||"http://localhost:3001";
+  const root=smokeProjectRoot();
   const manifest=await readFile(path.join(root,"emergent.toml"),"utf8"),projectId=manifest.match(/^id\s*=\s*"([^"]+)"/m)![1];
   const id=`inspection-smoke-${randomUUID().slice(0,8)}`,scene=`assets/scenes/${id}.scene.toml`,asset=`assets/entities/${id}.entity.toml`;
   const original=assetContents(assetTemplate("object.cube")!,id);

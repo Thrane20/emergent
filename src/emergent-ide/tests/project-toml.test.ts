@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import {readTomlDocument,saveTomlDocument} from "../src/lib/project-toml";
 import type {ProjectSnapshot} from "../src/lib/project";
+import { SCENE_MAX_BYTES } from "../src/lib/scene-limits";
 
 test("TOML editor scopes documents and preserves source on syntax, bounds and external-reference conflicts",async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),"emergent-toml-test-"));t.after(()=>rm(root,{recursive:true,force:true}));await mkdir(path.join(root,"assets"));
@@ -14,7 +15,8 @@ test("TOML editor scopes documents and preserves source on syntax, bounds and ex
  const project:ProjectSnapshot={root,id:"test",name:"Test",entryScene:target,assetRoots:["assets"],files,entities:[],outputs:[],connections:[]};
  const initial=await readTomlDocument(project,target);assert.equal(initial.content,scene);
  await assert.rejects(saveTomlDocument(project,target,"invalid = [",initial.revision));assert.equal(await readFile(path.join(root,target),"utf8"),scene);
- await assert.rejects(saveTomlDocument(project,target," ".repeat(256*1024+1),initial.revision),/256 KiB/);
+ // Scenes may be up to 2 MiB (4,096 instances); other TOML stays at 256 KiB.
+ await assert.rejects(saveTomlDocument(project,target," ".repeat(SCENE_MAX_BYTES+1),initial.revision),/2 MiB/);
  await writeFile(path.join(root,asset),'schema_version=1\nid="changed"');
  await assert.rejects(saveTomlDocument(project,target,scene+"# edit",initial.revision),/changed externally/);
  assert.equal(await readFile(path.join(root,target),"utf8"),scene);

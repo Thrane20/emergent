@@ -1,0 +1,8 @@
+[package]
+name = "emergent-standard-template"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+emergent = { path = "../..", features = ["graphics", "physics", "audio"] }

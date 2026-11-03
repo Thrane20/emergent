@@ -1,0 +1,47 @@
+.shader-shell{padding:0 20px 24px;min-width:0}.shader-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;padding:12px 0}.shader-shell label{display:flex;flex-direction:column;gap:4px;font-size:13px}.shader-shell input,.shader-shell select,.shader-shell textarea{min-width:0;max-width:100%;padding:7px;background:var(--bg,#202830);color:inherit;border:1px solid var(--border,#485463);border-radius:5px}.shader-shell button{padding:7px 12px}.shader-workspace{display:grid;grid-template-columns:minmax(340px,1fr) minmax(380px,1fr);gap:18px;align-items:start}.shader-preview{height:440px;position:relative;overflow:hidden}.shader-preview canvas{display:block;width:100%;height:100%}.shader-controls{max-height:calc(100vh - 170px);overflow:auto;padding:16px}.shader-controls fieldset{border:0;padding:0;min-width:0}.shader-node,.shader-parameter{padding:12px;border:1px solid var(--border,#485463);border-radius:7px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:10px 0}.shader-node>b,.shader-parameter>b{grid-column:1/-1}.shader-nodes{padding-left:22px}.shader-outputs{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}.shader-error{color:#ffb0a2;white-space:pre-wrap}.shader-ai{padding:16px;border-top:1px solid var(--border,#485463)}.shader-ai textarea{min-height:90px;width:100%}.shader-conversation{max-height:240px;overflow:auto;white-space:pre-wrap}.shader-shell .panel>p{padding:0 16px}.shader-shell .panel>.shader-toolbar{padding:12px 16px}@media(max-width:950px){.shader-workspace{grid-template-columns:1fr}.shader-controls{max-height:none}.shader-preview{height:350px}}
+
+/* Node graph */
+.shader-workspace{grid-template-columns:minmax(320px,.8fr) minmax(480px,1.5fr)}
+.shader-settings{display:flex;gap:14px;align-items:end;margin-bottom:10px}.shader-settings>label:first-child{flex:1}.shader-shell label.shader-check{flex-direction:row;align-items:center;gap:6px;padding-bottom:8px}
+.shader-graph{display:grid;gap:8px}
+.shader-graph-palette{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}.shader-graph-palette>div{display:flex;flex-wrap:wrap;gap:4px;align-items:center}.shader-graph-palette>div>span{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted);margin-right:2px}.shader-shell .shader-graph-palette button{padding:4px 8px;font-size:11px;border-radius:5px}.shader-graph-count{margin-left:auto;font-size:11px;color:var(--muted)}
+.shader-graph-surface{position:relative;height:min(62vh,620px);overflow:hidden;border:1px solid var(--theme-line,#303a33);border-radius:9px;background-color:var(--theme-well,#0b0f0d);background-image:radial-gradient(var(--theme-line,#2a332e) 1px,transparent 1px);background-size:22px 22px;cursor:grab;touch-action:none;outline:none}.shader-graph-surface:focus-visible{box-shadow:0 0 0 2px var(--theme-accent,#6c9c79)}.shader-graph-surface.wiring{cursor:crosshair}
+.shader-graph-layer{position:absolute;inset:0 auto auto 0;transform-origin:0 0}
+.shader-graph-wires{position:absolute;left:0;top:0;overflow:visible;pointer-events:none}.shader-graph-wires path{fill:none;stroke:var(--aqua,#93d6c0);stroke-width:2;opacity:.8}.shader-graph-wires path.pending{stroke-dasharray:6 4;opacity:1}
+.shader-card{position:absolute;box-sizing:border-box;border:1px solid var(--theme-line-strong,#3a473f);border-radius:8px;background:var(--theme-surface-high,#1d2620);box-shadow:0 6px 16px #0007;font-size:11px;cursor:move;user-select:none}.shader-card.selected{border-color:var(--sage,#b4d4bd);box-shadow:0 0 0 1px var(--sage,#b4d4bd),0 6px 16px #0007}
+.shader-card header{position:relative;height:32px;display:flex;align-items:baseline;gap:6px;padding:8px 22px 0 10px;box-sizing:border-box;border-bottom:1px solid var(--theme-line,#303a33);border-radius:8px 8px 0 0;background:#2a3a33}.shader-card.group-math header{background:#2b3346}.shader-card.group-pattern header{background:#3a3326}.shader-card.surface header{background:#3b2c33}.shader-card header small{color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.shader-card-row{position:relative;height:26px;display:flex;align-items:center;padding-left:14px;color:var(--theme-foreground,#cbd7ce)}
+.shader-card .socket{position:absolute;width:12px;height:12px;border-radius:50%;box-sizing:border-box;background:var(--aqua,#93d6c0);border:2px solid var(--theme-well,#0b0f0d);cursor:crosshair}.shader-card .socket:hover{transform:scale(1.35)}.shader-card .socket.open{background:var(--theme-well,#0b0f0d);border-color:var(--muted,#929c95)}.shader-card .socket.missing{border-color:#e0a294}
+.shader-card header .socket{right:-7px;top:10px}.shader-card-row .socket{left:-7px;top:7px}
+.shader-shell .shader-card-field{display:block;width:calc(100% - 16px);margin:4px 8px;padding:4px 6px;font-size:11px;box-sizing:border-box}
+.shader-graph-hint{position:absolute;left:10px;bottom:6px;margin:0;font-size:10px;color:var(--muted);pointer-events:none}
+.shader-node-inspector{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:end;padding:10px;border:1px solid var(--theme-line,#303a33);border-radius:8px}.shader-node-inspector>b{flex-basis:100%}.shader-node-inspector>p{flex-basis:100%;margin:0;font-size:11px;color:var(--muted)}
+.shader-parameters{display:grid;gap:6px}.shader-parameters .shader-parameter{grid-template-columns:2fr repeat(3,1fr) auto;align-items:end;margin:0;padding:8px}
+
+/* Keep the stage visible while its controls and graph settings scroll independently. */
+.shader-shell{height:100dvh;box-sizing:border-box;display:flex;flex-direction:column;overflow:hidden;padding-bottom:16px}
+.shader-shell>header,.shader-shell>.brain-carousel,.shader-actions,.shader-shell>.shader-error,.shader-status{flex-shrink:0}
+.shader-shell>.brain-carousel{flex:none;width:100%;padding:10px 0 4px}
+.shader-shell .particle-swatch-edit{padding:0}
+.shader-actions{padding:6px 0 10px;align-items:center}
+.shader-shell>.shader-error,.shader-status{margin:0 0 8px;font-size:12px}
+.shader-workspace{flex:1;min-height:0;grid-template-rows:minmax(0,1fr);align-items:stretch}
+.shader-preview-card{min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.shader-preview-card>.panel-head{flex-shrink:0}
+.shader-preview-card>.shader-preview{flex:0 0 auto;height:clamp(140px,37vh,430px);max-height:58%}
+.shader-preview-controls{flex:1;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 14px 14px}
+.shader-preview-controls>p{font-size:12px;line-height:1.5}
+.shader-preview-controls .shader-ai{padding:12px 0 0}
+.shader-preview-controls:focus-visible{outline:2px solid var(--aqua);outline-offset:-2px}
+.shader-controls{min-height:0;max-height:none;overscroll-behavior:contain}
+.shader-graph-view-controls{position:absolute;top:8px;left:8px;z-index:3;display:flex;gap:4px;align-items:center;padding:4px;border:1px solid var(--theme-line-strong,#3a473f);border-radius:6px;background:var(--theme-surface-high,#1d2620);cursor:default;box-shadow:0 2px 8px #0005}
+.shader-shell .shader-graph-view-controls button{padding:5px 8px;font-size:12px}
+.shader-graph-view-controls output{min-width:42px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums}
+@media(max-width:950px){.shader-shell{height:auto;min-height:100dvh;overflow:visible}.shader-workspace{display:flex;flex-direction:column;flex:none}.shader-preview-card{height:650px;max-height:calc(100dvh - 80px)}.shader-controls{overflow:visible}.shader-graph-surface{height:440px}.shader-parameters .shader-parameter{grid-template-columns:minmax(0,2fr) repeat(3,minmax(0,1fr)) auto}}
+
+.shader-shell>.settings-topbar{padding-left:74px}
+@media(max-width:720px){.shader-shell>.settings-topbar{padding-left:60px}}
+.shader-controls{container-type:size}
+.shader-graph-surface{height:clamp(180px,calc(100cqh - 200px),620px)}
+.shader-shell>.shader-error{max-height:100px;overflow:auto}
+@media(max-width:950px){.shader-controls{container-type:normal}.shader-graph-surface{height:440px}}

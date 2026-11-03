@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addNode, brainProblems, childrenOf, moveNode, nodeSummary, parseBrain, parseTrace, removeNode, rootOf, serializeBrain, setNodeField, shiftNode, type BrainDocument, type NodeCatalogue } from "../src/lib/brains";
+import { addNode, brainCreationContext, brainProblems, childrenOf, isEmptyBrainDraft, moveNode, newlyCreatedBrainPath, nodeCatalogue, nodeSummary, parseBrain, parseTrace, removeNode, rootOf, serializeBrain, setNodeField, shiftNode, type BrainDocument, type BrainSummary, type NodeCatalogue } from "../src/lib/brains";
 
 const catalogue: NodeCatalogue = { categories: ["Composition", "Seek & flee"], nodes: [
   { id: "blend", label: "Blend", category: "Composition", role: "composite", status: "available", description: "", fields: [] },
@@ -8,6 +8,14 @@ const catalogue: NodeCatalogue = { categories: ["Composition", "Seek & flee"], n
   { id: "seek", label: "Seek", category: "Seek & flee", role: "steering", status: "available", description: "", fields: [{ name: "group", label: "Group", kind: "text", help: "" }] },
   { id: "pathfind", label: "Pathfind", category: "Seek & flee", role: "steering", status: "planned", description: "", fields: [] },
 ] };
+
+test("node catalogue rejects duplicate IDs, including available and planned entries", () => {
+  assert.equal(nodeCatalogue(catalogue).nodes.length, catalogue.nodes.length);
+  const signal = { ...catalogue.nodes[2], id: "signal", category: "Actions" };
+  for (const status of ["available", "planned"] as const) {
+    assert.throws(() => nodeCatalogue({ categories: ["Actions"], nodes: [signal, { ...signal, status }] }), /IDs must be unique/);
+  }
+});
 
 test("tree edits keep one root, respect arity and never move a node into itself", () => {
   let brain: BrainDocument = { id: "b", name: "Hunter", description: "", nodes: [] };
@@ -42,9 +50,27 @@ test("problems flag missing targets and children; serialisation round-trips", ()
   assert.equal(setNodeField(brain, "s", "group", "").nodes[1].fields.group, undefined, "empty text clears a field");
 });
 
+test("empty brain drafts provide creation context and identify one new valid brain", () => {
+  const draft: BrainDocument = { id: "draft", name: "Wolf hunter", description: "Flank nearby wolves", nodes: [] };
+  assert.equal(isEmptyBrainDraft(undefined, draft), true);
+  assert.equal(isEmptyBrainDraft("assets/brains/saved.brain.toml", draft), false);
+  assert.equal(isEmptyBrainDraft(undefined, { ...draft, nodes: [{ id: "seek", type: "seek", fields: {} }] }), false);
+  const context = brainCreationContext(draft);
+  assert.match(context, /new, unsaved, empty brain/);
+  assert.match(context, /"name":"Wolf hunter"/);
+  assert.match(context, /"description":"Flank nearby wolves"/);
+  const summary = (path: string, error?: string): BrainSummary => ({ path, id: path, name: path, description: "", nodes: 1, ...(error ? { error } : {}) });
+  const before = [summary("assets/brains/existing.brain.toml")];
+  assert.equal(newlyCreatedBrainPath(before, [...before, summary("assets/brains/new.brain.toml")]), "assets/brains/new.brain.toml");
+  assert.equal(newlyCreatedBrainPath(before, [...before, summary("assets/brains/bad.brain.toml", "invalid")]), undefined);
+  assert.equal(newlyCreatedBrainPath(before, [...before, summary("assets/brains/a.brain.toml"), summary("assets/brains/b.brain.toml")]), undefined);
+});
+
 test("preview traces parse and reject malformed frames", () => {
-  const trace = parseTrace("brain-preview 1 agents=1 targets=1 frame_seconds=0.5\n1 0 2 3 0 4\n1.5 0 2 3 0 4.5\n");
-  assert.deepEqual(trace, { agents: 1, targets: 1, frameSeconds: 0.5, frames: [[1, 0, 2, 3, 0, 4], [1.5, 0, 2, 3, 0, 4.5]] });
-  assert.throws(() => parseTrace("brain-preview 1 agents=2 targets=0 frame_seconds=1\n1 2 3\n"), /malformed/);
+  const trace = parseTrace("brain-preview 2 agents=1 targets=1 obstacles=1 frame_seconds=0.5\nobstacles 2 3 0.8\n1 0 2 3 0 4\n1.5 0 2 3 0 4.5\n");
+  assert.deepEqual(trace, { agents: 1, targets: 1, frameSeconds: 0.5, frames: [[1, 0, 2, 3, 0, 4], [1.5, 0, 2, 3, 0, 4.5]], obstacles: [{ x: 2, z: 3, radius: 0.8 }] });
+  assert.equal(parseTrace("brain-preview 2 agents=1 targets=0 obstacles=0 frame_seconds=1\nobstacles\n1 2 3\n").obstacles.length, 0);
+  assert.throws(() => parseTrace("brain-preview 2 agents=2 targets=0 obstacles=0 frame_seconds=1\nobstacles\n1 2 3\n"), /malformed/);
+  assert.throws(() => parseTrace("brain-preview 2 agents=1 targets=0 obstacles=2 frame_seconds=1\nobstacles 1 2 3\n1 2 3\n"), /obstacles are malformed/);
   assert.throws(() => parseTrace("hello"), /Unexpected/);
 });

@@ -243,6 +243,7 @@ impl TerrainSettings {
 pub(crate) struct AuthoredTerrain(pub TerrainField);
 
 /// Dense row-major world-space heights. No entity identity is created during preparation.
+#[derive(Clone)]
 pub struct TerrainField {
     settings: TerrainSettings,
     values: Vec<f32>,

@@ -2,6 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import type { ProjectSnapshot } from "@/lib/project";
+import { parsePrefab } from "@/lib/prefabs";
+import { ObjectIcon } from "./object-icon";
 import { createPortal } from "react-dom";
 import {
   assetTemplates,
@@ -12,14 +15,23 @@ import {
 type Props = {
   projectId: string;
   scenePath?: string;
+  files: ProjectSnapshot["files"];
+  onInstantiate?: (asset: string) => Promise<void>;
   onBeforeOpen?: () => boolean;
   onCreated: (path: string, sceneError?: string) => void;
 };
 
-export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }: Props) {
+export function AddAssetModal({ projectId, scenePath, files, onInstantiate, onBeforeOpen, onCreated }: Props) {
   const nameRef = useRef<HTMLInputElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const [prefabPath, setPrefabPath] = useState<string | null>(null);
+  const prefabs = useMemo(() => files.filter(file => file.path.endsWith(".prefab.toml")).map(file => {
+    try { const prefab = parsePrefab(file.content ?? ""); return { path: file.path, name: prefab.name, parts: prefab.entities.length }; }
+    catch { return { path: file.path, name: file.displayName ?? file.name, parts: null }; }
+  }).sort((a, b) => a.name.localeCompare(b.name)), [files]);
+  const prefab = prefabs.find(item => item.path === prefabPath);
   const [search,setSearch]=useState("");
+  const matchingPrefabs = prefabs.filter(item => search.trim().toLowerCase().split(/\s+/).every(token => `prefabs ${item.name} ${item.path}`.toLowerCase().includes(token)));
   const [open, setOpen] = useState(false);
   const [selectedId, setSelectedId] = useState(assetTemplates[0].id);
   const [name, setName] = useState("");
@@ -37,7 +49,7 @@ export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }:
     document.body.style.overflow = "hidden";
     document.documentElement.style.overflow = "hidden";
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape" && !saving) setOpen(false);
     };
     window.addEventListener("keydown", onKeyDown);
     searchRef.current?.focus();
@@ -46,9 +58,10 @@ export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }:
       document.body.style.overflow = previousBodyOverflow;
       document.documentElement.style.overflow = previousRootOverflow;
     };
-  }, [open]);
+  }, [open, saving]);
 
   const choose = (template: AssetTemplate) => {
+    setPrefabPath(null);
     setSelectedId(template.id);
     setError("");
     if (!name.trim()) setName(template.label);
@@ -64,6 +77,14 @@ export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }:
 
   const create = async (event: React.FormEvent) => {
     event.preventDefault();
+    if(prefabPath){
+      if(!prefab || prefab.parts === null || !onInstantiate){setError("Select a valid prefab and load a scene first.");return;}
+      setSaving(true); setError("");
+      try { await onInstantiate(prefab.path); setOpen(false); }
+      catch(caught){setError(caught instanceof Error ? caught.message : "Could not add prefab.");}
+      finally {setSaving(false);}
+      return;
+    }
     if(particleGenerator){setError("Open the Particle Generator to author this effect.");return;}
     setSaving(true);
     setError("");
@@ -87,7 +108,7 @@ export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }:
 
   return <>
     <div className="asset-tree-actions">
-      <button className="add-asset-button" onClick={() => { if(onBeforeOpen&&!onBeforeOpen())return;setSearch("");setOpen(true); setName(""); }}>
+      <button className="add-asset-button" onClick={() => { if(onBeforeOpen&&!onBeforeOpen())return;setSearch("");setPrefabPath(null);setError("");setOpen(true); setName(""); }}>
         <span>+</span> Add asset
       </button>
     </div>
@@ -101,13 +122,20 @@ export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }:
           <div className="asset-modal-search"><input ref={searchRef} type="search" aria-label="Search asset foundations" placeholder="Search assets, shapes, lights, cameras…" value={search} onChange={event=>setSearch(event.target.value)}/>{search&&<button type="button" aria-label="Clear asset search" onClick={()=>{setSearch("");searchRef.current?.focus();}}>Clear</button>}</div>
           <div className="asset-modal-body">
             <nav className="foundation-tree" aria-label="Asset foundations">
-              {!categories.length&&<p className="asset-search-empty" role="status">No matching assets.</p>}
+              {!categories.length&&!matchingPrefabs.length&&<p className="asset-search-empty" role="status">No matching assets.</p>}
+              <details open>
+                <summary>Prefabs<small>{matchingPrefabs.length}</small></summary>
+                <div>{matchingPrefabs.map(item => <button key={item.path} aria-label={item.name} className={prefabPath === item.path ? "selected" : ""} disabled={saving} onClick={() => {setPrefabPath(item.path);setError("");}}>
+                  <span><ObjectIcon prefab/> {item.name}</span>
+                </button>)}{!matchingPrefabs.length&&<p className="asset-search-empty">{prefabs.length ? "No matching prefabs." : "Drop a scene object into the Prefabs card to create one."}</p>}</div>
+              </details>
               {categories.map(([category, templates]) => <details key={`${search.trim().toLowerCase()}:${category}`} open={search.trim()?true:undefined}>
                 <summary>{category}<small>{templates.length}</small></summary>
                 <div>
                   {templates.map((template) => <button
-                    className={template.id === selected.id ? "selected" : ""}
+                    className={!prefabPath && template.id === selected.id ? "selected" : ""}
                     key={template.id}
+                    disabled={saving}
                     onClick={() => choose(template)}
                   >
                     <span>{template.label}</span>
@@ -118,6 +146,15 @@ export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }:
             </nav>
             <form className="asset-create-form" onSubmit={create}>
               <div className="asset-create-fields">
+                {prefabPath ? <>
+                  <div className="asset-template-title"><span>Prefabs</span></div>
+                  <h3>{prefab?.name ?? "Prefab unavailable"}</h3>
+                  <p>Add the complete object hierarchy as an independent instance at the scene root.</p>
+                  <div className="capability-note"><b>{prefab?.parts ?? "Invalid"} parts</b><span>Each instance gets its own objects and internal references.</span></div>
+                  <div className="asset-path-preview"><span>PREFAB</span><code>{prefabPath}</code></div>
+                  {!onInstantiate&&<p role="status">Load a scene before adding a prefab.</p>}
+                </> : <>
+
                 <div className="asset-template-title">
                 <span className={`capability-badge ${selected.status}`}>{selected.status}</span>
                 <span>{selected.category}</span>
@@ -148,11 +185,12 @@ export function AddAssetModal({ projectId, scenePath, onBeforeOpen, onCreated }:
                 <code>{`${selected.directory}/<unique-id>${selected.extension}`}</code>
               </div>
               </div>
+                </>}
                 {error && <p className="asset-create-error" role="alert">{error}</p>}
               </div>
               <footer>
                 <button type="button" className="asset-cancel" onClick={close}>Cancel</button>
-                {particleGenerator?<Link className="asset-create" href={`/particles${scenePath?`?scene=${encodeURIComponent(scenePath)}`:""}`}>Open Particle Generator ↗</Link>:<button type="submit" className="asset-create" disabled={saving || !name.trim()}>{saving ? "Creating…" : "Create asset"}</button>}
+                {prefabPath?<button type="submit" className="asset-create" disabled={saving || !onInstantiate || !prefab || prefab.parts === null}>{saving ? "Adding…" : "Add prefab to scene"}</button>:particleGenerator?<Link className="asset-create" href={`/particles${scenePath?`?scene=${encodeURIComponent(scenePath)}`:""}`}>Open Particle Generator ↗</Link>:<button type="submit" className="asset-create" disabled={saving || !name.trim()}>{saving ? "Creating…" : "Create asset"}</button>}
               </footer>
             </form>
           </div>
