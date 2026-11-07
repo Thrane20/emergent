@@ -8,12 +8,15 @@ pub struct RaymarchedRenderOptions {
     pub bounds_culling: bool,
     /// Colour rays by iteration count, with exhausted rays shown in magenta.
     pub step_heatmap: bool,
+    /// Pixel-footprint hit tolerance and over-relaxed stepping. Disable for exact comparisons.
+    pub distance_adaptive: bool,
 }
 impl Default for RaymarchedRenderOptions {
     fn default() -> Self {
         Self {
             bounds_culling: true,
             step_heatmap: false,
+            distance_adaptive: true,
         }
     }
 }
@@ -29,26 +32,21 @@ pub struct RaymarchedFrameStats {
 
 // Clip before dividing by W. Near-plane intersections deliberately use the full
 // viewport: projecting only the original corners would under-bound the surface.
-fn projected_bounds(
-    vp: crate::Mat4,
-    lower: crate::Vec3,
-    upper: crate::Vec3,
-    width: u32,
-    height: u32,
-) -> Option<[u32; 4]> {
-    let corners: [_; 8] = std::array::from_fn(|i| {
+fn clip_corners(vp: crate::Mat4, lower: crate::Vec3, upper: crate::Vec3) -> [glam::Vec4; 8] {
+    std::array::from_fn(|i| {
         vp * crate::Vec3::new(
             if i & 1 == 0 { lower.x } else { upper.x },
             if i & 2 == 0 { lower.y } else { upper.y },
             if i & 4 == 0 { lower.z } else { upper.z },
         )
         .extend(1.)
-    });
-    if corners.iter().any(|p| !p.is_finite()) {
-        return Some([0, 0, width, height]);
-    }
-    for plane in 0..6 {
-        if corners.iter().all(|p| {
+    })
+}
+
+/// True when every corner lies outside one clip plane (wgpu 0..1 depth).
+fn corners_outside(corners: &[glam::Vec4; 8]) -> bool {
+    (0..6).any(|plane| {
+        corners.iter().all(|p| {
             let distance = match plane {
                 0 => p.x + p.w,
                 1 => p.w - p.x,
@@ -58,9 +56,29 @@ fn projected_bounds(
                 _ => p.w - p.z,
             };
             distance < -1e-5 * p.w.abs().max(1.)
-        }) {
-            return None;
-        }
+        })
+    })
+}
+
+/// Conservative frustum rejection of a local box under `vp`; non-finite input is kept visible.
+pub(crate) fn box_outside_clip(vp: crate::Mat4, lower: crate::Vec3, upper: crate::Vec3) -> bool {
+    let corners = clip_corners(vp, lower, upper);
+    corners.iter().all(|p| p.is_finite()) && corners_outside(&corners)
+}
+
+fn projected_bounds(
+    vp: crate::Mat4,
+    lower: crate::Vec3,
+    upper: crate::Vec3,
+    width: u32,
+    height: u32,
+) -> Option<[u32; 4]> {
+    let corners = clip_corners(vp, lower, upper);
+    if corners.iter().any(|p| !p.is_finite()) {
+        return Some([0, 0, width, height]);
+    }
+    if corners_outside(&corners) {
+        return None;
     }
     if corners
         .iter()
@@ -223,7 +241,7 @@ impl RaymarchedTerrainPass {
                     self.field.version,
                     self.field.seed,
                     self.field.biome as u32,
-                    u32::from(options.step_heatmap),
+                    u32::from(options.step_heatmap) | u32::from(!options.distance_adaptive) << 1,
                 ],
             }),
         );

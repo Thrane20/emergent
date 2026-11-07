@@ -71,6 +71,49 @@ impl Vertex {
     }
 }
 
+/// Second vertex stream for skinned meshes, so static meshes keep their layout.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct SkinVertex {
+    joints: [u16; 4],
+    weights: [u8; 4],
+}
+
+impl SkinVertex {
+    const ATTRIBUTES: [wgpu::VertexAttribute; 2] =
+        wgpu::vertex_attr_array![4 => Uint16x4, 5 => Unorm8x4];
+
+    fn layout() -> wgpu::VertexBufferLayout<'static> {
+        wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<Self>() as wgpu::BufferAddress,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &Self::ATTRIBUTES,
+        }
+    }
+
+    /// Quantises weights to bytes that sum to exactly 255 (or all zero).
+    fn new(joints: [u16; 4], weights: [f32; 4]) -> Self {
+        let mut bytes = weights.map(|w| (w.clamp(0.0, 1.0) * 255.0).round() as i32);
+        let sum: i32 = bytes.iter().sum();
+        if sum > 0 {
+            let largest = (0..4).max_by_key(|&i| bytes[i]).unwrap_or(0);
+            bytes[largest] += 255 - sum;
+        }
+        Self {
+            joints,
+            weights: bytes.map(|b| b.clamp(0, 255) as u8),
+        }
+    }
+}
+
+/// GPU skin of one geometry handle: influence stream and its joint palette.
+struct GpuSkin {
+    stream: wgpu::Buffer,
+    palette: wgpu::Buffer,
+    bind_group: wgpu::BindGroup,
+    joints: usize,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct ObjectUniform {
@@ -143,7 +186,249 @@ struct GpuMesh {
     overlay: Option<[f32; 4]>,
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
+    /// Indices `0..index_count` use the mesh material; `sections` follow contiguously.
     index_count: u32,
+    material: MaterialUniform,
+    material_bind_group: wgpu::BindGroup,
+    sections: Vec<GpuSection>,
+    /// Local-space bounds of every vertex, used for whole-mesh frustum rejection.
+    lower: Vec3,
+    upper: Vec3,
+    /// Spatial ranges of `0..index_count` for large meshes; empty draws the range whole.
+    clusters: Vec<MeshCluster>,
+    skin: Option<GpuSkin>,
+}
+
+/// One spatially compact run of base-material triangles with its local bounds.
+struct MeshCluster {
+    indices: std::ops::Range<u32>,
+    lower: Vec3,
+    upper: Vec3,
+    /// Grid tiles only: coarser index ranges for steps 2, 4, 8, ... cells, over the same
+    /// vertices. Every level keeps the tile border at full resolution, so neighbouring
+    /// tiles at any mix of levels share identical edges and cannot crack.
+    lods: Vec<std::ops::Range<u32>>,
+    /// Local width of one grid cell (zero for non-grid clusters).
+    cell: f32,
+}
+
+/// Grid tile width in cells; 64×64 cells is 8,192 triangles, matching `CLUSTER_TRIANGLES`.
+const GRID_TILE: u32 = 64;
+/// Coarsest LOD step. Leaves an interior inside each full-resolution tile border.
+const GRID_MAX_STEP: u32 = GRID_TILE / 4;
+/// A coarse cell edge may span at most this many pixels before finer detail is used.
+const LOD_PIXELS: f32 = 4.0;
+
+/// Side length `n` when `indices` are exactly the row-major n×n grid that
+/// `TerrainField::mesh` emits (quad `[i, i+n, i+1, i+1, i+n, i+n+1]`), else `None`.
+fn grid_side(vertex_count: usize, indices: &[u32]) -> Option<u32> {
+    let n = (vertex_count as f64).sqrt().round() as usize;
+    if n < 2 || n * n != vertex_count || indices.len() != (n - 1) * (n - 1) * 6 {
+        return None;
+    }
+    let m = n as u32;
+    indices
+        .as_chunks::<6>()
+        .0
+        .iter()
+        .enumerate()
+        .all(|(q, t)| {
+            let i = ((q / (n - 1)) * n + q % (n - 1)) as u32;
+            *t == [i, i + m, i + 1, i + 1, i + m, i + m + 1]
+        })
+        .then_some(m)
+}
+
+/// Rewrites a recognised grid into tile order and appends each tile's coarse levels.
+fn grid_clusters(n: u32, vertices: &[Vertex], indices: &mut Vec<u32>) -> Vec<MeshCluster> {
+    let cells = n - 1;
+    let tiles = cells.div_ceil(GRID_TILE);
+    let at = |x: u32, z: u32| z * n + x;
+    let position = |x: u32, z: u32| Vec3::from_array(vertices[at(x, z) as usize].position);
+    let mut out = Vec::with_capacity(indices.len() * 3 / 2);
+    let mut clusters = Vec::with_capacity((tiles * tiles) as usize);
+    let mut spans = Vec::with_capacity(clusters.capacity());
+    for tz in 0..tiles {
+        for tx in 0..tiles {
+            let (x0, z0) = (tx * GRID_TILE, tz * GRID_TILE);
+            let (x1, z1) = ((x0 + GRID_TILE).min(cells), (z0 + GRID_TILE).min(cells));
+            let start = out.len() as u32;
+            let (mut lower, mut upper) =
+                (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+            for z in z0..=z1 {
+                for x in x0..=x1 {
+                    lower = lower.min(position(x, z));
+                    upper = upper.max(position(x, z));
+                    if x < x1 && z < z1 {
+                        let i = at(x, z);
+                        out.extend([i, i + n, i + 1, i + 1, i + n, i + n + 1]);
+                    }
+                }
+            }
+            let cell = (position(x1, z0) - position(x0, z0)).length() / (x1 - x0) as f32;
+            clusters.push(MeshCluster {
+                indices: start..out.len() as u32,
+                lower,
+                upper,
+                lods: Vec::new(),
+                cell,
+            });
+            spans.push([x0, x1, z0, z1]);
+        }
+    }
+    let mut step = 2;
+    while step <= GRID_MAX_STEP {
+        for (cluster, &[x0, x1, z0, z1]) in clusters.iter_mut().zip(&spans) {
+            if x1 - x0 > 2 * step && z1 - z0 > 2 * step {
+                let start = out.len() as u32;
+                coarse_tile(&mut out, n, [x0, x1, z0, z1], step);
+                cluster.lods.push(start..out.len() as u32);
+            } else {
+                // Edge tiles too small for this step reuse their finest available level.
+                let finest = cluster.lods.last().unwrap_or(&cluster.indices).clone();
+                cluster.lods.push(finest);
+            }
+        }
+        step *= 2;
+    }
+    *indices = out;
+    clusters
+}
+
+/// Appends one tile at `step`: coarse interior quads plus four zipper strips joining the
+/// interior to the full-resolution tile border. Winding matches the source grid.
+fn coarse_tile(out: &mut Vec<u32>, n: u32, [x0, x1, z0, z1]: [u32; 4], step: u32) {
+    let lattice = |a: u32, b: u32| {
+        let mut v: Vec<u32> = (a + step..b - step).step_by(step as usize).collect();
+        v.push(b - step);
+        v.dedup();
+        v
+    };
+    let (xs, zs) = (lattice(x0, x1), lattice(z0, z1));
+    let mut triangle = |a: [u32; 2], b: [u32; 2], c: [u32; 2]| {
+        let p = |q: [u32; 2]| [i64::from(q[0]), i64::from(q[1])];
+        let (a2, b2, c2) = (p(a), p(b), p(c));
+        let area = (b2[0] - a2[0]) * (c2[1] - a2[1]) - (b2[1] - a2[1]) * (c2[0] - a2[0]);
+        let index = |q: [u32; 2]| q[1] * n + q[0];
+        match area.signum() {
+            -1 => out.extend([index(a), index(b), index(c)]),
+            1 => out.extend([index(a), index(c), index(b)]),
+            _ => {}
+        }
+    };
+    for z in zs.windows(2) {
+        for x in xs.windows(2) {
+            triangle([x[0], z[0]], [x[0], z[1]], [x[1], z[0]]);
+            triangle([x[1], z[0]], [x[0], z[1]], [x[1], z[1]]);
+        }
+    }
+    let (xl, xh, zl, zh) = (xs[0], xs[xs.len() - 1], zs[0], zs[zs.len() - 1]);
+    // Each side: (outer fixed coordinate, inner fixed coordinate, inner run, runs along x).
+    for (outer, inner, run, along_x) in [
+        (z0, zl, &xs, true),
+        (z1, zh, &xs, true),
+        (x0, xl, &zs, false),
+        (x1, xh, &zs, false),
+    ] {
+        let (lo, hi) = if along_x { (x0, x1) } else { (z0, z1) };
+        let point = |fixed: u32, t: u32| if along_x { [t, fixed] } else { [fixed, t] };
+        let (mut i, mut j) = (lo, 0);
+        while i < hi || j + 1 < run.len() {
+            if j + 1 == run.len() || (i < hi && i < run[j + 1]) {
+                triangle(point(outer, i), point(inner, run[j]), point(outer, i + 1));
+                i += 1;
+            } else {
+                triangle(
+                    point(outer, i),
+                    point(inner, run[j]),
+                    point(inner, run[j + 1]),
+                );
+                j += 1;
+            }
+        }
+    }
+}
+
+/// Meshes below twice this many base triangles are culled whole, not per cluster.
+const CLUSTER_TRIANGLES: usize = 8192;
+
+/// Reorders base triangles into an XZ-style grid over the two widest centroid axes so
+/// each cell is a contiguous index range. Upload-time only; triangle order within a
+/// cell is preserved, and section ranges after `indices` are untouched.
+fn cluster_triangles(vertices: &[Vertex], indices: &mut [u32]) -> Vec<MeshCluster> {
+    let triangles = indices.len() / 3;
+    if triangles < CLUSTER_TRIANGLES * 2 {
+        return Vec::new();
+    }
+    let centroid = |t: usize| {
+        (0..3).fold(Vec3::ZERO, |sum, c| {
+            sum + Vec3::from_array(vertices[indices[t * 3 + c] as usize].position)
+        }) / 3.
+    };
+    let (mut min, mut max) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+    for t in 0..triangles {
+        let c = centroid(t);
+        min = min.min(c);
+        max = max.max(c);
+    }
+    let extent = (max - min).max(Vec3::splat(1e-6));
+    // The two widest axes; terrain resolves to X/Z.
+    let narrow = extent.min_position();
+    let [a, b] = match narrow {
+        0 => [1, 2],
+        1 => [0, 2],
+        _ => [0, 1],
+    };
+    let k = ((triangles as f64 / CLUSTER_TRIANGLES as f64).sqrt().ceil() as usize).clamp(1, 64);
+    let cell = |c: Vec3| {
+        let i =
+            |axis: usize| (((c[axis] - min[axis]) / extent[axis] * k as f32) as usize).min(k - 1);
+        i(a) + i(b) * k
+    };
+    let mut starts = vec![0usize; k * k + 1];
+    for t in 0..triangles {
+        starts[cell(centroid(t)) + 1] += 1;
+    }
+    for i in 1..starts.len() {
+        starts[i] += starts[i - 1];
+    }
+    let mut cursor = starts.clone();
+    let mut sorted = vec![0u32; triangles * 3];
+    for t in 0..triangles {
+        let slot = &mut cursor[cell(centroid(t))];
+        sorted[*slot * 3..*slot * 3 + 3].copy_from_slice(&indices[t * 3..t * 3 + 3]);
+        *slot += 1;
+    }
+    indices[..triangles * 3].copy_from_slice(&sorted);
+    starts
+        .windows(2)
+        .filter(|w| w[1] > w[0])
+        .map(|w| {
+            let range = w[0] as u32 * 3..w[1] as u32 * 3;
+            let (lower, upper) = indices[range.start as usize..range.end as usize]
+                .iter()
+                .fold(
+                    (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+                    |(lo, hi), &i| {
+                        let p = Vec3::from_array(vertices[i as usize].position);
+                        (lo.min(p), hi.max(p))
+                    },
+                );
+            MeshCluster {
+                indices: range,
+                lower,
+                upper,
+                lods: Vec::new(),
+                cell: 0.,
+            }
+        })
+        .collect()
+}
+
+/// A material override for one index range, drawn from its own uniform slot.
+struct GpuSection {
+    indices: std::ops::Range<u32>,
+    shader_pipeline: Option<wgpu::RenderPipeline>,
     material: MaterialUniform,
     material_bind_group: wgpu::BindGroup,
 }
@@ -302,6 +587,16 @@ pub struct RenderedFrame {
 pub struct GeometryRenderer {
     gpu_profiler: Option<crate::gpu_profile::GpuProfiler>,
     raymarched_options: crate::RaymarchedRenderOptions,
+    /// Frustum culling for meshes and large-mesh clusters; disable only for comparisons.
+    mesh_culling: bool,
+    /// Directional then point-face light matrices from the last prepared frame.
+    shadow_cull: [Mat4; 1 + POINT_SHADOW_FACES],
+    /// Distance LOD for recognised terrain grids; disable only for comparisons.
+    mesh_lod: bool,
+    /// Main-pass triangles submitted by the last encoded frame.
+    submitted_triangles: std::cell::Cell<u64>,
+    /// Bit per shadow pass (directional, then point faces) that issued at least one draw.
+    shadow_drawn: std::cell::Cell<u32>,
     raymarched_regions: SlotMap<
         RaymarchedTerrainKey,
         (
@@ -325,8 +620,15 @@ pub struct GeometryRenderer {
     surface_layout: wgpu::PipelineLayout,
     shader_time: f32,
     transparent_order: Vec<usize>,
+    /// Per frame: first extra uniform slot of each instance's material sections.
+    section_slots: Vec<usize>,
     overlay_pipeline: wgpu::RenderPipeline,
     shadow_pipeline: wgpu::RenderPipeline,
+    skinned_pipeline: wgpu::RenderPipeline,
+    skinned_shadow_pipeline: wgpu::RenderPipeline,
+    skin_layout: wgpu::BindGroupLayout,
+    /// Reused staging for joint palettes, so palette updates do not allocate.
+    palette_scratch: Vec<[f32; 16]>,
     uniform_layout: wgpu::BindGroupLayout,
     material_layout: wgpu::BindGroupLayout,
     uniform_buffer: wgpu::Buffer,
@@ -760,6 +1062,108 @@ impl GeometryRenderer {
             multiview_mask: None,
             cache: None,
         });
+        let skin_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            label: Some("Emergent joint palette layout"),
+            entries: &[wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: NonZeroU64::new(64),
+                },
+                count: None,
+            }],
+        });
+        let skinned_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("Emergent skinned geometry pipeline"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("Emergent skinned geometry pipeline layout"),
+                    bind_group_layouts: &[
+                        Some(&uniform_layout),
+                        Some(&lighting_layout),
+                        Some(&material_layout),
+                        Some(&skin_layout),
+                    ],
+                    immediate_size: 0,
+                }),
+            ),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vertex_skinned"),
+                compilation_options: Default::default(),
+                buffers: &[Some(Vertex::layout()), Some(SkinVertex::layout())],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fragment_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: config.format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+        let skinned_shadow_pipeline =
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("Emergent skinned shadow pipeline"),
+                layout: Some(
+                    &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                        label: Some("Emergent skinned shadow pipeline layout"),
+                        bind_group_layouts: &[
+                            Some(&uniform_layout),
+                            Some(&shadow_frame_layout),
+                            Some(&skin_layout),
+                        ],
+                        immediate_size: 0,
+                    }),
+                ),
+                vertex: wgpu::VertexState {
+                    module: &shadow_shader,
+                    entry_point: Some("shadow_vertex_skinned"),
+                    compilation_options: Default::default(),
+                    buffers: &[Some(Vertex::layout()), Some(SkinVertex::layout())],
+                },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    front_face: wgpu::FrontFace::Ccw,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: Some(true),
+                    depth_compare: Some(wgpu::CompareFunction::Less),
+                    stencil: Default::default(),
+                    bias: wgpu::DepthBiasState {
+                        constant: 2,
+                        slope_scale: 2.0,
+                        clamp: 0.0,
+                    },
+                }),
+                multisample: Default::default(),
+                fragment: None,
+                multiview_mask: None,
+                cache: None,
+            });
         let depth_view = create_depth_view(&device, size);
         let adapter_info = adapter.get_info();
         let info = RendererInfo {
@@ -775,6 +1179,11 @@ impl GeometryRenderer {
             raymarched_regions: SlotMap::with_key(),
             raymarched_terrain: None,
             raymarched_options: crate::RaymarchedRenderOptions::default(),
+            mesh_culling: true,
+            mesh_lod: true,
+            shadow_cull: [Mat4::IDENTITY; 1 + POINT_SHADOW_FACES],
+            submitted_triangles: std::cell::Cell::new(0),
+            shadow_drawn: std::cell::Cell::new(0),
             particles,
             skybox: None,
             background: crate::EnvironmentDefinition::default().background_color,
@@ -791,8 +1200,13 @@ impl GeometryRenderer {
             surface_layout: pipeline_layout,
             shader_time: 0.,
             transparent_order: Vec::new(),
+            section_slots: Vec::new(),
             overlay_pipeline,
             shadow_pipeline,
+            skinned_pipeline,
+            skinned_shadow_pipeline,
+            skin_layout,
+            palette_scratch: Vec::new(),
             uniform_layout,
             material_layout,
             uniform_buffer,
@@ -911,6 +1325,21 @@ impl GeometryRenderer {
     }
 
     /// Sets terrain-only diagnostics without mutating stored field recipes.
+    /// Enables (default) or bypasses mesh frustum culling. Bypass is for comparisons only.
+    pub fn set_mesh_culling(&mut self, enabled: bool) {
+        self.mesh_culling = enabled;
+    }
+
+    /// Enables (default) or bypasses terrain-grid distance LOD. Bypass is for comparisons only.
+    pub fn set_mesh_lod(&mut self, enabled: bool) {
+        self.mesh_lod = enabled;
+    }
+
+    /// Main-pass triangles submitted by the most recently encoded frame, after culling.
+    pub fn submitted_triangles(&self) -> u64 {
+        self.submitted_triangles.get()
+    }
+
     pub fn set_raymarched_render_options(&mut self, options: crate::RaymarchedRenderOptions) {
         self.raymarched_options = options;
     }
@@ -1006,7 +1435,7 @@ impl GeometryRenderer {
     /// Uploads geometry with a normal-generation policy fixed for the handle's
     /// lifetime. Reinsert geometry to change its shading mode.
     pub fn insert_with_shading(&mut self, geometry: &Geometry, shading: ShadingMode) -> GeometryId {
-        self.upload_material(geometry, shading, &crate::Material::default())
+        self.upload_material(geometry, shading, &crate::Material::default(), &[])
             .expect("constant default material is valid")
     }
 
@@ -1016,6 +1445,18 @@ impl GeometryRenderer {
         geometry: &Geometry,
         material: &crate::Material,
     ) -> Result<GeometryId, GraphicsError> {
+        self.insert_with_sections(geometry, material, &[])
+    }
+
+    /// Like `insert_with_material`, drawing each section's index range with its own material.
+    /// Sections must be contiguous and end at the last index; earlier indices use `material`.
+    /// Shading (flat/smooth normals) follows `material` for the whole shared vertex buffer.
+    pub fn insert_with_sections(
+        &mut self,
+        geometry: &Geometry,
+        material: &crate::Material,
+        sections: &[crate::MaterialSection],
+    ) -> Result<GeometryId, GraphicsError> {
         let shading = if material.terrain.is_none()
             && material.definition().shading == crate::MaterialShading::Flat
         {
@@ -1023,15 +1464,23 @@ impl GeometryRenderer {
         } else {
             ShadingMode::Smooth
         };
-        self.upload_material(geometry, shading, material)
+        self.upload_material(geometry, shading, material, sections)
     }
 
-    fn upload_material(
+    /// Bakes noise volumes, compiles any shader graph and uploads one material's bind group.
+    fn prepare_surface(
         &mut self,
-        geometry: &Geometry,
-        shading: ShadingMode,
         material: &crate::Material,
-    ) -> Result<GeometryId, GraphicsError> {
+        vertices: &[Vertex],
+    ) -> Result<
+        (
+            Option<wgpu::RenderPipeline>,
+            bool,
+            MaterialUniform,
+            wgpu::BindGroup,
+        ),
+        GraphicsError,
+    > {
         let layers: Vec<_> = material
             .terrain
             .as_ref()
@@ -1067,10 +1516,70 @@ impl GeometryRenderer {
             .shader()
             .map(|graph| self.compile_surface(graph))
             .transpose()?;
+        let (uniform, bind_group) = self.upload_noise(material, &layers, side, &pixels, vertices);
+        Ok((
+            shader_pipeline,
+            material.shader().is_some_and(|g| g.transparent),
+            uniform,
+            bind_group,
+        ))
+    }
+
+    fn upload_material(
+        &mut self,
+        geometry: &Geometry,
+        shading: ShadingMode,
+        material: &crate::Material,
+        sections: &[crate::MaterialSection],
+    ) -> Result<GeometryId, GraphicsError> {
         let (mut vertices, mut indices) = tessellate(geometry);
-        if shading == ShadingMode::Flat {
+        let mesh_skin = match geometry {
+            Geometry::Mesh(mesh) => mesh.skin(),
+            _ => None,
+        };
+        // shortcut: skinned meshes keep smooth shading, since flat expansion would detach the
+        // influence stream from its vertices; remap the stream if flat skinned meshes are needed.
+        if shading == ShadingMode::Flat && mesh_skin.is_none() {
             (vertices, indices) = flatten_triangles(&vertices, &indices);
         }
+        let base = sections
+            .first()
+            .map_or(indices.len() as u32, |s| s.indices.start);
+        let mut end = base;
+        for section in sections {
+            if section.indices.start != end
+                || section.indices.end <= section.indices.start
+                || !(section.indices.end - section.indices.start).is_multiple_of(3)
+            {
+                return Err(GraphicsError::Material(
+                    "Material sections must be contiguous whole-triangle ranges.".into(),
+                ));
+            }
+            end = section.indices.end;
+        }
+        if end as usize != indices.len() || !base.is_multiple_of(3) {
+            return Err(GraphicsError::Material(
+                "Material sections must end at the last mesh index.".into(),
+            ));
+        }
+        let grid = if sections.is_empty() && indices.len() / 3 >= CLUSTER_TRIANGLES * 2 {
+            grid_side(vertices.len(), &indices)
+        } else {
+            None
+        };
+        // Skinned meshes are not clustered or culled: bind-pose bounds do not hold once posed.
+        let clusters = match grid {
+            _ if mesh_skin.is_some() => Vec::new(),
+            Some(n) => grid_clusters(n, &vertices, &mut indices),
+            None => cluster_triangles(&vertices, &mut indices[..base as usize]),
+        };
+        let (lower, upper) = vertices.iter().fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(lo, hi), v| {
+                let p = Vec3::from_array(v.position);
+                (lo.min(p), hi.max(p))
+            },
+        );
         let vertex_buffer = self
             .device
             .create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -1085,17 +1594,76 @@ impl GeometryRenderer {
                 contents: bytemuck::cast_slice(&indices),
                 usage: wgpu::BufferUsages::INDEX,
             });
-        let (material_uniform, material_bind_group) =
-            self.upload_noise(material, &layers, side, &pixels, &vertices);
+        let (shader_pipeline, mut transparent, material_uniform, material_bind_group) =
+            self.prepare_surface(material, &vertices)?;
+        let mut gpu_sections = Vec::with_capacity(sections.len());
+        for section in sections {
+            let (shader_pipeline, section_transparent, material, material_bind_group) =
+                self.prepare_surface(&section.material, &vertices)?;
+            // shortcut: a mesh with any transparent section is depth-sorted as a whole.
+            transparent |= section_transparent;
+            gpu_sections.push(GpuSection {
+                indices: section.indices.clone(),
+                shader_pipeline,
+                material,
+                material_bind_group,
+            });
+        }
+        let skin = mesh_skin.map(|skin| {
+            let stream: Vec<SkinVertex> = skin
+                .joints
+                .iter()
+                .zip(&skin.weights)
+                .map(|(&j, &w)| SkinVertex::new(j, w))
+                .collect();
+            let stream = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Emergent skin influences"),
+                    contents: bytemuck::cast_slice(&stream),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+            let palette: Vec<[[f32; 4]; 4]> = skin
+                .rest_palette
+                .iter()
+                .map(|m| m.to_cols_array_2d())
+                .collect();
+            let palette = self
+                .device
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Emergent joint palette"),
+                    contents: bytemuck::cast_slice(&palette),
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                });
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Emergent joint palette"),
+                layout: &self.skin_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: palette.as_entire_binding(),
+                }],
+            });
+            GpuSkin {
+                stream,
+                palette,
+                bind_group,
+                joints: skin.rest_palette.len(),
+            }
+        });
         let key = self.geometry.insert(GpuMesh {
+            skin,
             shader_pipeline,
-            transparent: material.shader().is_some_and(|g| g.transparent),
+            transparent,
             overlay: None,
             vertex_buffer,
             index_buffer,
-            index_count: indices.len() as u32,
+            index_count: base,
             material: material_uniform,
             material_bind_group,
+            sections: gpu_sections,
+            lower,
+            upper,
+            clusters,
         });
         Ok(GeometryId {
             renderer: self.renderer_id,
@@ -1306,6 +1874,17 @@ impl GeometryRenderer {
         let mut uniforms = [MaterialUniform::zeroed(); 4];
         for (index, layer) in layers.iter().enumerate() {
             uniforms[index] = Self::material_uniform(layer, vertices);
+            // Triplanar x scales by tiling.x and z by tiling.y; wrap the world offset by
+            // each image period in f64 so far chunks keep f32 texture precision.
+            let scale = f64::from(uniforms[index].diffuse[1]);
+            for axis in 0..2 {
+                let period = 1. / (scale * f64::from(uniforms[index].texture_tiling[axis]));
+                uniforms[index].texture_tiling[2 + axis] = if period.is_finite() && period > 0. {
+                    material.projection_offset[axis].rem_euclid(period) as f32
+                } else {
+                    0.
+                };
+            }
             uniforms[index].bounds_min[3] = f32::from(
                 terrain.is_some() && layer.definition().shading == crate::MaterialShading::Flat,
             );
@@ -1418,10 +1997,21 @@ impl GeometryRenderer {
         geometry: &Geometry,
         material: &crate::Material,
     ) -> Result<(), GraphicsError> {
+        self.replace_material_sections(id, geometry, material, &[])
+    }
+
+    /// `replace_material` for geometry uploaded with `insert_with_sections`.
+    pub fn replace_material_sections(
+        &mut self,
+        id: GeometryId,
+        geometry: &Geometry,
+        material: &crate::Material,
+        sections: &[crate::MaterialSection],
+    ) -> Result<(), GraphicsError> {
         if !self.contains(id) {
             return Err(GraphicsError::MissingGeometry(id));
         }
-        let prepared = self.insert_with_material(geometry, material)?;
+        let prepared = self.insert_with_sections(geometry, material, sections)?;
         let mesh = self
             .geometry
             .remove(prepared.key)
@@ -1513,6 +2103,39 @@ impl GeometryRenderer {
         Ok(pipeline)
     }
 
+    /// Replaces a skinned geometry's joint palette (model-space joint × inverse bind,
+    /// as produced by `Skeleton::palette`). Writes straight into its GPU buffer.
+    pub fn set_skin_palette(
+        &mut self,
+        geometry: GeometryId,
+        palette: &[Mat4],
+    ) -> Result<(), GraphicsError> {
+        let skin = self
+            .geometry
+            .get(geometry.key)
+            .filter(|_| geometry.renderer == self.renderer_id)
+            .ok_or(GraphicsError::MissingGeometry(geometry))?
+            .skin
+            .as_ref()
+            .ok_or_else(|| GraphicsError::Material("Geometry has no skin.".into()))?;
+        if palette.len() != skin.joints || !palette.iter().all(|m| m.is_finite()) {
+            return Err(GraphicsError::Material(
+                "Joint palette must match the skin's joint count and be finite.".into(),
+            ));
+        }
+        self.palette_scratch.clear();
+        self.palette_scratch
+            .extend(palette.iter().map(|m| m.to_cols_array()));
+        // shortcut: one write per skinned mesh per frame; pack palettes into one buffer
+        // if many characters make the per-call overhead measurable.
+        self.queue.write_buffer(
+            &skin.palette,
+            0,
+            bytemuck::cast_slice(&self.palette_scratch),
+        );
+        Ok(())
+    }
+
     pub fn remove(&mut self, geometry: GeometryId) -> bool {
         geometry.renderer == self.renderer_id && self.geometry.remove(geometry.key).is_some()
     }
@@ -1526,9 +2149,11 @@ impl GeometryRenderer {
         if geometry.renderer != self.renderer_id {
             return None;
         }
-        self.geometry
-            .get(geometry.key)
-            .map(|mesh| mesh.vertex_buffer.size() + mesh.index_buffer.size())
+        self.geometry.get(geometry.key).map(|mesh| {
+            mesh.vertex_buffer.size()
+                + mesh.index_buffer.size()
+                + mesh.skin.as_ref().map_or(0, |s| s.stream.size())
+        })
     }
 
     pub fn resize(&mut self, size: PhysicalSize<u32>) {
@@ -1569,7 +2194,13 @@ impl GeometryRenderer {
     ) -> Result<ShadowPasses, GraphicsError> {
         self.validate_instances(instances)?;
         let prepared = self.prepare_lights(lights)?;
-        self.ensure_uniform_capacity(instances.len())?;
+        self.section_slots.clear();
+        let mut slots = instances.len();
+        for instance in instances {
+            self.section_slots.push(slots);
+            slots += self.geometry[instance.geometry.key].sections.len();
+        }
+        self.ensure_uniform_capacity(slots)?;
         self.transparent_order.clear();
         self.transparent_order
             .extend(instances.iter().enumerate().filter_map(|(i, instance)| {
@@ -1663,9 +2294,22 @@ impl GeometryRenderer {
             let offset = index * self.uniform_stride as usize;
             let bytes = bytemuck::bytes_of(&uniform);
             self.uniform_bytes[offset..offset + bytes.len()].copy_from_slice(bytes);
+            for (k, section) in self.geometry[instance.geometry.key]
+                .sections
+                .iter()
+                .enumerate()
+            {
+                let mut uniform = uniform;
+                uniform.material = section.material;
+                uniform.material.camera = camera;
+                uniform.material.shader_time[0] = self.shader_time;
+                let offset = (self.section_slots[index] + k) * self.uniform_stride as usize;
+                let bytes = bytemuck::bytes_of(&uniform);
+                self.uniform_bytes[offset..offset + bytes.len()].copy_from_slice(bytes);
+            }
         }
-        if !instances.is_empty() {
-            let byte_count = instances.len() * self.uniform_stride as usize;
+        if slots > 0 {
+            let byte_count = slots * self.uniform_stride as usize;
             self.queue
                 .write_buffer(&self.uniform_buffer, 0, &self.uniform_bytes[..byte_count]);
         }
@@ -1685,6 +2329,7 @@ impl GeometryRenderer {
             .chain(prepared.point_matrices)
             .enumerate()
         {
+            self.shadow_cull[index] = matrix;
             let offset = index * self.shadow_matrix_stride as usize;
             self.shadow_matrix_bytes[offset..offset + 64]
                 .copy_from_slice(bytemuck::bytes_of(&matrix.to_cols_array_2d()));
@@ -1692,6 +2337,97 @@ impl GeometryRenderer {
         self.queue
             .write_buffer(&self.shadow_matrix_buffer, 0, &self.shadow_matrix_bytes);
         Ok(prepared.passes)
+    }
+
+    /// Camera eye (world) and radians per pixel for LOD selection; `None` for orthographic.
+    fn lod_view(&self) -> Option<(Vec3, f32)> {
+        match self.projection {
+            CameraProjection::Perspective {
+                vertical_fov_radians,
+                ..
+            } => Some((
+                self.view_matrix.inverse().transform_point3(Vec3::ZERO),
+                2. * (vertical_fov_radians * 0.5).tan() / self.config.height.max(1) as f32,
+            )),
+            // shortcut: orthographic views draw full detail; add pixel-size LOD if large ortho terrain needs it.
+            _ => None,
+        }
+    }
+
+    /// Whole-mesh rejection against one pass's clip space (`vp` already includes the model).
+    fn culled(&self, mesh: &GpuMesh, vp: Mat4) -> bool {
+        self.mesh_culling
+            && mesh.skin.is_none()
+            && crate::raymarched_terrain_graphics::box_outside_clip(vp, mesh.lower, mesh.upper)
+    }
+
+    /// Draws the base-material range, skipping invisible clusters and merging adjacent
+    /// visible ones into single draws. Returns the number of indices submitted.
+    fn draw_base(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        mesh: &GpuMesh,
+        vp: Mat4,
+        model: Mat4,
+        lod: Option<(Vec3, f32)>,
+    ) -> u32 {
+        if mesh.clusters.is_empty() || !self.mesh_culling && !self.mesh_lod {
+            pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+            return mesh.index_count;
+        }
+        // Largest axis scale converts local cell widths and radii to world metres.
+        let scale = model
+            .x_axis
+            .truncate()
+            .length()
+            .max(model.y_axis.truncate().length())
+            .max(model.z_axis.truncate().length());
+        let mut run: Option<std::ops::Range<u32>> = None;
+        let mut drawn = 0;
+        for cluster in &mesh.clusters {
+            let visible = !self.mesh_culling
+                || !crate::raymarched_terrain_graphics::box_outside_clip(
+                    vp,
+                    cluster.lower,
+                    cluster.upper,
+                );
+            let range = match lod {
+                Some((eye, pixel)) if self.mesh_lod && !cluster.lods.is_empty() => {
+                    let center = model.transform_point3((cluster.lower + cluster.upper) * 0.5);
+                    let radius = (cluster.upper - cluster.lower).length() * 0.5 * scale;
+                    let distance = (eye.distance(center) - radius).max(0.);
+                    // Coarsest level whose cell edge stays within LOD_PIXELS at this distance.
+                    let budget = distance * pixel * LOD_PIXELS / (cluster.cell * scale);
+                    let level = (budget.max(1.).log2().floor() as usize).min(cluster.lods.len());
+                    if level == 0 {
+                        cluster.indices.clone()
+                    } else {
+                        cluster.lods[level - 1].clone()
+                    }
+                }
+                _ => cluster.indices.clone(),
+            };
+            match (&mut run, visible) {
+                (Some(r), true) if r.end == range.start => r.end = range.end,
+                (_, true) => {
+                    if let Some(r) = run.replace(range) {
+                        drawn += r.end - r.start;
+                        pass.draw_indexed(r, 0, 0..1);
+                    }
+                }
+                (_, false) => {
+                    if let Some(r) = run.take() {
+                        drawn += r.end - r.start;
+                        pass.draw_indexed(r, 0, 0..1);
+                    }
+                }
+            }
+        }
+        if let Some(r) = run {
+            drawn += r.end - r.start;
+            pass.draw_indexed(r, 0, 0..1);
+        }
+        drawn
     }
 
     fn encode_frame(
@@ -1706,6 +2442,9 @@ impl GeometryRenderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Emergent geometry frame encoder"),
             });
+        self.shadow_drawn.set(0);
+        // Shadows use the camera's LOD choice so they match the visible surface.
+        let lod = self.lod_view();
         for face in 0..=passes.point_faces {
             if face == 0 && !passes.directional {
                 continue;
@@ -1731,6 +2470,7 @@ impl GeometryRenderer {
                 multiview_mask: None,
             });
             pass.set_pipeline(&self.shadow_pipeline);
+            let mut skinned_bound = false;
             pass.set_bind_group(
                 1,
                 &self.shadow_frame_bind_group,
@@ -1740,16 +2480,37 @@ impl GeometryRenderer {
                 let offset = u32::try_from(index as u64 * self.uniform_stride)
                     .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
                 let mesh = &self.geometry[instance.geometry.key];
-                if mesh.overlay.is_some() {
+                let light = self.shadow_cull[face] * instance.model;
+                if mesh.overlay.is_some() || self.culled(mesh, light) {
                     continue;
                 }
-                if mesh.material.params[2] < 0.5 {
-                    continue;
+                if let Some(skin) = &mesh.skin {
+                    pass.set_pipeline(&self.skinned_shadow_pipeline);
+                    pass.set_bind_group(2, &skin.bind_group, &[]);
+                    pass.set_vertex_buffer(1, skin.stream.slice(..));
+                    skinned_bound = true;
+                } else if skinned_bound {
+                    pass.set_pipeline(&self.shadow_pipeline);
+                    skinned_bound = false;
                 }
-                pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                if mesh.material.params[2] >= 0.5 && mesh.index_count > 0 {
+                    pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
+                    if self.draw_base(&mut pass, mesh, light, instance.model, lod) > 0 {
+                        self.shadow_drawn.set(self.shadow_drawn.get() | 1 << face);
+                    }
+                }
+                for (k, section) in mesh.sections.iter().enumerate() {
+                    if section.material.params[2] < 0.5 {
+                        continue;
+                    }
+                    self.shadow_drawn.set(self.shadow_drawn.get() | 1 << face);
+                    let offset =
+                        self.slot_offset(self.section_slots[index] + k, instances.len())?;
+                    pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
+                    pass.draw_indexed(section.indices.clone(), 0, 0..1);
+                }
             }
         }
         {
@@ -1795,6 +2556,8 @@ impl GeometryRenderer {
             pass.set_scissor_rect(0, 0, self.config.width, self.config.height);
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(1, &self.lighting_bind_group, &[]);
+            let view_projection = self.view_projection();
+            self.submitted_triangles.set(0);
             for index in (0..instances.len())
                 .filter(|&i| !self.geometry[instances[i].geometry.key].transparent)
                 .chain(self.transparent_order.iter().copied())
@@ -1803,15 +2566,47 @@ impl GeometryRenderer {
                 let offset = u32::try_from(index as u64 * self.uniform_stride)
                     .map_err(|_| GraphicsError::TooManyInstances(instances.len()))?;
                 let mesh = &self.geometry[instance.geometry.key];
-                if mesh.overlay.is_some() {
+                let mvp = view_projection * instance.model;
+                if mesh.overlay.is_some() || self.culled(mesh, mvp) {
                     continue;
                 }
-                pass.set_pipeline(mesh.shader_pipeline.as_ref().unwrap_or(&self.pipeline));
-                pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
-                pass.set_bind_group(2, &mesh.material_bind_group, &[]);
+                // shortcut: skinned meshes draw with the standard surface; shader graphs on
+                // skinned meshes need a skinned variant of each compiled graph pipeline.
+                let skinned = mesh.skin.as_ref().map(|_| &self.skinned_pipeline);
+                if let Some(skin) = &mesh.skin {
+                    pass.set_bind_group(3, &skin.bind_group, &[]);
+                    pass.set_vertex_buffer(1, skin.stream.slice(..));
+                }
                 pass.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
                 pass.set_index_buffer(mesh.index_buffer.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..mesh.index_count, 0, 0..1);
+                if mesh.index_count > 0 {
+                    pass.set_pipeline(
+                        skinned
+                            .or(mesh.shader_pipeline.as_ref())
+                            .unwrap_or(&self.pipeline),
+                    );
+                    pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
+                    pass.set_bind_group(2, &mesh.material_bind_group, &[]);
+                    let drawn = self.draw_base(&mut pass, mesh, mvp, instance.model, lod);
+                    self.submitted_triangles
+                        .set(self.submitted_triangles.get() + u64::from(drawn / 3));
+                }
+                for (k, section) in mesh.sections.iter().enumerate() {
+                    let offset =
+                        self.slot_offset(self.section_slots[index] + k, instances.len())?;
+                    pass.set_pipeline(
+                        skinned
+                            .or(section.shader_pipeline.as_ref())
+                            .unwrap_or(&self.pipeline),
+                    );
+                    pass.set_bind_group(0, &self.uniform_bind_group, &[offset]);
+                    pass.set_bind_group(2, &section.material_bind_group, &[]);
+                    pass.draw_indexed(section.indices.clone(), 0, 0..1);
+                    self.submitted_triangles.set(
+                        self.submitted_triangles.get()
+                            + u64::from((section.indices.end - section.indices.start) / 3),
+                    );
+                }
             }
         }
         self.particles
@@ -1954,6 +2749,18 @@ impl GeometryRenderer {
             self.encode_frame(instances, &profiler.target, passes, Some(&profiler.queries))?;
         let commands = encoder.finish();
         let encode_cpu_us = encode.elapsed().as_secs_f64() * 1e6;
+        let shadow_passes = active[..crate::gpu_profile::SHADOW_SLOTS]
+            .iter()
+            .filter(|used| **used)
+            .count() as u32;
+        // Metal writes no timestamps for a pass without draws (e.g. every caster culled);
+        // such passes contribute zero instead of failing counter validation.
+        for (slot, used) in active[..crate::gpu_profile::SHADOW_SLOTS]
+            .iter_mut()
+            .enumerate()
+        {
+            *used &= self.shadow_drawn.get() & 1 << slot != 0;
+        }
         let completion = std::time::Instant::now();
         let submission = self.queue.submit(Some(commands));
         // Metal counter resolves need host-observed sampling completion (wgpu #9414).
@@ -1974,10 +2781,7 @@ impl GeometryRenderer {
         Ok(Some(crate::GpuFrameProfile {
             main_gpu_us: times[crate::gpu_profile::SHADOW_SLOTS],
             shadows_gpu_us: times[..crate::gpu_profile::SHADOW_SLOTS].iter().sum(),
-            shadow_passes: active[..crate::gpu_profile::SHADOW_SLOTS]
-                .iter()
-                .filter(|used| **used)
-                .count() as u32,
+            shadow_passes,
             prepare_cpu_us,
             encode_cpu_us,
             completion_cpu_us: completion.elapsed().as_secs_f64() * 1e6,
@@ -2170,6 +2974,11 @@ impl GeometryRenderer {
             }
         }
         Ok(())
+    }
+
+    fn slot_offset(&self, slot: usize, instances: usize) -> Result<u32, GraphicsError> {
+        u32::try_from(slot as u64 * self.uniform_stride)
+            .map_err(|_| GraphicsError::TooManyInstances(instances))
     }
 
     fn ensure_uniform_capacity(&mut self, required: usize) -> Result<(), GraphicsError> {
@@ -2818,5 +3627,140 @@ mod tests {
         assert_eq!(align_up(64, 256), 256);
         assert_eq!(align_up(256, 256), 256);
         assert_eq!(align_up(257, 256), 512);
+    }
+
+    fn grid(n: u32) -> (Vec<super::Vertex>, Vec<u32>) {
+        let vertices = (0..n * n)
+            .map(|i| super::Vertex {
+                position: [(i % n) as f32, ((i * 7) % 5) as f32, (i / n) as f32],
+                color: [1.; 4],
+                normal: [0., 1., 0.],
+                uv: [0.; 2],
+            })
+            .collect();
+        let mut indices = Vec::new();
+        for z in 0..n - 1 {
+            for x in 0..n - 1 {
+                let i = z * n + x;
+                indices.extend([i, i + n, i + 1, i + 1, i + n, i + n + 1]);
+            }
+        }
+        (vertices, indices)
+    }
+
+    #[test]
+    fn clusters_partition_every_triangle_with_containing_bounds() {
+        let (vertices, mut indices) = grid(200);
+        let mut original: Vec<[u32; 3]> = indices.chunks(3).map(|t| [t[0], t[1], t[2]]).collect();
+        let clusters = super::cluster_triangles(&vertices, &mut indices);
+        assert!(clusters.len() > 1);
+        assert_eq!(clusters.first().unwrap().indices.start, 0);
+        assert_eq!(clusters.last().unwrap().indices.end as usize, indices.len());
+        for pair in clusters.windows(2) {
+            assert_eq!(pair[0].indices.end, pair[1].indices.start);
+        }
+        for cluster in &clusters {
+            assert_eq!(cluster.indices.start % 3, 0);
+            for &i in &indices[cluster.indices.start as usize..cluster.indices.end as usize] {
+                let p = Vec3::from_array(vertices[i as usize].position);
+                assert!(p.cmpge(cluster.lower).all() && p.cmple(cluster.upper).all());
+            }
+        }
+        // Same triangles (winding intact), only reordered.
+        let mut reordered: Vec<[u32; 3]> = indices.chunks(3).map(|t| [t[0], t[1], t[2]]).collect();
+        original.sort_unstable();
+        reordered.sort_unstable();
+        assert_eq!(original, reordered);
+    }
+
+    /// Signed doubled area in grid units for `[x, z]` vertex indices on an n-wide grid.
+    fn doubled_area(n: u32, t: &[u32]) -> i64 {
+        let p = |i: u32| [i64::from(i % n), i64::from(i / n)];
+        let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+    }
+
+    #[test]
+    fn grid_lod_levels_tile_exactly_with_full_resolution_borders() {
+        let n = 64 * 2 + 41; // two full tiles plus a 40-cell partial edge tile per axis
+        let (vertices, mut indices) = grid(n);
+        assert_eq!(super::grid_side(vertices.len(), &indices), Some(n));
+        let clusters = super::grid_clusters(n, &vertices, &mut indices);
+        assert_eq!(clusters.len(), 9);
+        for cluster in &clusters {
+            assert_eq!(cluster.lods.len(), 4);
+            let tile = &indices[cluster.indices.start as usize..cluster.indices.end as usize];
+            let tile_area: i64 = tile.chunks(3).map(|t| doubled_area(n, t)).sum();
+            let boundary = |range: &std::ops::Range<u32>| {
+                let mut edges = std::collections::HashMap::<(u32, u32), i32>::new();
+                for t in indices[range.start as usize..range.end as usize].chunks(3) {
+                    // Every triangle keeps the source winding and is non-degenerate.
+                    assert!(doubled_area(n, t) < 0, "winding/degenerate triangle {t:?}");
+                    for (a, b) in [(t[0], t[1]), (t[1], t[2]), (t[2], t[0])] {
+                        *edges.entry((a.min(b), a.max(b))).or_default() += 1;
+                    }
+                }
+                assert!(edges.values().all(|&c| c <= 2), "overlapping triangles");
+                let mut outer: Vec<_> = edges
+                    .into_iter()
+                    .filter(|&(_, c)| c == 1)
+                    .map(|(e, _)| e)
+                    .collect();
+                outer.sort_unstable();
+                outer
+            };
+            let border = boundary(&cluster.indices);
+            for level in &cluster.lods {
+                let area: i64 = indices[level.start as usize..level.end as usize]
+                    .chunks(3)
+                    .map(|t| doubled_area(n, t))
+                    .sum();
+                assert_eq!(area, tile_area, "coarse level must cover the tile exactly");
+                assert_eq!(
+                    boundary(level),
+                    border,
+                    "coarse border must match full resolution"
+                );
+            }
+        }
+        // The coarsest level of a full tile is far smaller than the full tile.
+        let full = &clusters[0];
+        let coarse = full.lods.last().unwrap();
+        assert!((coarse.end - coarse.start) * 10 < full.indices.end - full.indices.start);
+    }
+
+    #[test]
+    fn non_grid_meshes_are_not_treated_as_grids() {
+        let (vertices, mut indices) = grid(130);
+        indices.swap(0, 1);
+        assert_eq!(super::grid_side(vertices.len(), &indices), None);
+        assert_eq!(super::grid_side(vertices.len() - 1, &indices), None);
+    }
+
+    #[test]
+    fn small_meshes_are_not_clustered() {
+        let (vertices, mut indices) = grid(64);
+        let before = indices.clone();
+        assert!(super::cluster_triangles(&vertices, &mut indices).is_empty());
+        assert_eq!(indices, before);
+    }
+
+    #[test]
+    fn box_culling_rejects_only_fully_outside_boxes() {
+        use crate::raymarched_terrain_graphics::box_outside_clip;
+        let vp = super::perspective_rh(45.0_f32.to_radians(), 1.0, 0.1, 100.0)
+            * super::look_at_rh(Vec3::ZERO, Vec3::NEG_Z, Vec3::Y);
+        let unit = |c: Vec3| (c - Vec3::splat(0.5), c + Vec3::splat(0.5));
+        let (lo, hi) = unit(Vec3::new(0., 0., -10.));
+        assert!(!box_outside_clip(vp, lo, hi));
+        let (lo, hi) = unit(Vec3::new(0., 0., 10.)); // behind the camera
+        assert!(box_outside_clip(vp, lo, hi));
+        let (lo, hi) = unit(Vec3::new(50., 0., -10.)); // far right
+        assert!(box_outside_clip(vp, lo, hi));
+        let (lo, hi) = unit(Vec3::new(0., 0., -200.)); // beyond far plane
+        assert!(box_outside_clip(vp, lo, hi));
+        // Straddling the near plane and camera stays visible.
+        assert!(!box_outside_clip(vp, Vec3::splat(-1.), Vec3::splat(1.)));
+        assert!(!box_outside_clip(vp, Vec3::splat(f32::NAN), Vec3::ONE));
     }
 }

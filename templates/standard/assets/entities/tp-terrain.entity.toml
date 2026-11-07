@@ -1,0 +1,12 @@
+schema_version = 1
+id = "tp-terrain"
+name = "Hills"
+kind = "terrain"
+
+[terrain]
+resolution = 64
+size = 40
+height = 3
+
+[physics]
+body = "static"

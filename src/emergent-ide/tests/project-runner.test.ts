@@ -6,7 +6,7 @@ import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { projectRunManager } from "../src/lib/project-runner";
 import type { ProjectSnapshot, ProjectFile } from "../src/lib/project";
-import { sharedTargetDir } from "../src/lib/workspace";
+import { projectTargetDir } from "../src/lib/workspace";
 
 test("Run passes the selected scene to Cargo and rejects invalid selections before spawning",async t=>{
   const root=await mkdtemp(path.join(os.tmpdir(),"emergent-run-"));
@@ -33,6 +33,6 @@ test("Run passes the selected scene to Cargo and rejects invalid selections befo
     for(let attempt=0;attempt<200&&projectRunManager.status().state!=="succeeded";attempt++)await setTimeout(10);
     const result=projectRunManager.status();assert.equal(result.state,"succeeded",result.output);
     const line=result.output.split("\n").find(line=>line.startsWith("ARGS="));assert.ok(line);
-    assert.deepEqual(JSON.parse(line.slice(5)),["run","--manifest-path",path.join(root,"Cargo.toml"),"--target-dir",sharedTargetDir,"--","--run-scene",selected]);
+    assert.deepEqual(JSON.parse(line.slice(5)),["run","--manifest-path",path.join(root,"Cargo.toml"),"--target-dir",projectTargetDir(root),"--","--run-scene",selected]);
   }
 });

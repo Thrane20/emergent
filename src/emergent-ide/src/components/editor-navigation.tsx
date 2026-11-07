@@ -12,22 +12,22 @@ export function useEditorNavigationGuard(guard:()=>boolean){
 }
 
 const editors=[
- {path:"/lighting",name:"Lighting",icon:"lighting"},
- {path:"/terrain",name:"Terrain Builder",icon:"terrain"},
- {path:"/objects",name:"Object Creator",icon:"create"},
- {path:"/object-builder",name:"Object Builder",icon:"build"},
- {path:"/models",name:"Model Parts",icon:"parts"},
- {path:"/shaders",name:"Shader Editor",icon:"shader"},
- {path:"/materials",name:"Material Generator",icon:"material"},
- {path:"/images",name:"Image Generator",icon:"image"},
- {path:"/particles",name:"Particle Generator",icon:"particle"},
- {path:"/tweens",name:"Tween Editor",icon:"tween"},
- {path:"/audio",name:"Audio",icon:"audio"},
- {path:"/map",name:"Scene map",icon:"map"},
- {path:"/brains",name:"Brain Editor",icon:"brain"},
- {path:"/locomotion",name:"Locomotion",icon:"locomotion"},
- {path:"/ui",name:"UI Designer",icon:"ui"},
- {path:"/plugins",name:"Plugins",icon:"plugin"},
+ {path:"/terrain",label:"Terrain",name:"Terrain Builder",icon:"terrain"},
+ {path:"/objects",label:"Create",name:"Object Creator",icon:"create"},
+ {path:"/object-builder",label:"Builder",name:"Object Builder",icon:"build"},
+ {path:"/models",label:"Parts",name:"Model Parts",icon:"parts"},
+ {path:"/brains",label:"Brain",name:"Brain Editor",icon:"brain"},
+ {path:"/shaders",label:"Shader",name:"Shader Editor",icon:"shader"},
+ {path:"/materials",label:"Material",name:"Material Generator",icon:"material"},
+ {path:"/images",label:"Image",name:"Image Generator",icon:"image"},
+ {path:"/particles",label:"Particle",name:"Particle Generator",icon:"particle"},
+ {path:"/tweens",label:"Tween",name:"Tween Editor",icon:"tween"},
+ {path:"/audio",label:"Audio",name:"Audio",icon:"audio"},
+ {path:"/map",label:"Map",name:"Scene map",icon:"map"},
+ {path:"/locomotion",label:"Motion",name:"Locomotion",icon:"locomotion"},
+ {path:"/ui",label:"UI",name:"UI Designer",icon:"ui"},
+ {path:"/plugins",label:"Plugins",name:"Plugins",icon:"plugin"},
+ {path:"/lighting",label:"Lighting",name:"Lighting",icon:"lighting"},
 ] as const;
 
 function EditorIcon({name}:{name:string}){
@@ -46,7 +46,7 @@ function EditorIcon({name}:{name:string}){
   map:<><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z" fill="none"/><path d="M9 3v15m6-12v15"/></>,
   audio:<><path d="M3 10v4m4-8v12m4-15v18m4-14v10m4-7v4"/></>,
   tween:<><path d="M3 20V4m0 16h18M4 18C14 18 9 5 20 5"/><circle cx="4" cy="18" r="2"/><circle cx="20" cy="5" r="2"/></>,
-  brain:<><circle cx="12" cy="4" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="12" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M12 6v6M5 17v-2.5h14V17M12 12v5"/></>,
+  brain:<><path d="M12 5a3 3 0 0 0-5.6-1.5A3 3 0 0 0 3.5 8 3.5 3.5 0 0 0 4 14a3.5 3.5 0 0 0 4 5 3 3 0 0 0 4 1Z"/><path d="M12 5a3 3 0 0 1 5.6-1.5A3 3 0 0 1 20.5 8a3.5 3.5 0 0 1-.5 6 3.5 3.5 0 0 1-4 5 3 3 0 0 1-4 1Z"/><path d="M12 5v15M8 9a2 2 0 0 1 2 2m6-2a2 2 0 0 0-2 2m-6 4a2.5 2.5 0 0 0 2.5-1.5M16 15a2.5 2.5 0 0 1-2.5-1.5"/></>,
   ui:<><rect x="2" y="3" width="20" height="18" rx="1"/><path d="M8 3v18M10 7h9M10 11h9M10 15h5"/><rect x="15" y="14" width="4" height="3"/></>,
   locomotion:<><circle cx="7" cy="17" r="3.5"/><circle cx="17" cy="17" r="3.5"/><path d="M3 13l2-5h10l4 5M7 17h10M12 3v4m-4-2h8"/></>,
   plugin:<><path d="M9 2v5m6-5v5M6 7h12v4a6 6 0 0 1-12 0Zm6 10v5"/></>,
@@ -61,14 +61,14 @@ export function EditorRail({scene,view,onView,beforeNavigate,onReload}:{scene?:s
  const pathname=usePathname(),router=useRouter(),guard=useContext(NavigationGuard);
  const canLeave=()=>beforeNavigate?beforeNavigate():guard?.current?.()??true;
  function href(path:string,source=false){const query=new URLSearchParams();if(scene)query.set("scene",scene);if(source)query.set("view","source");return `${path}${query.size?`?${query}`:""}`;}
- function destination(path:string,name:string,icon:string){const active=pathname===path;return <Link key={path} className={`rail-button${active?" active":""}`} href={href(path)} aria-label={name} title={name} aria-current={active?"page":undefined} onNavigate={event=>{if(!canLeave())event.preventDefault();}}><EditorIcon name={icon}/></Link>;}
+ function destination(path:string,name:string,icon:string,label:string){const active=pathname===path;return <Link key={path} className={`rail-button${active?" active":""}`} href={href(path)} aria-label={name} title={name} aria-current={active?"page":undefined} onNavigate={event=>{if(!canLeave())event.preventDefault();}}><EditorIcon name={icon}/><span className="rail-label">{label}</span></Link>;}
  return <nav className="rail editor-rail" aria-label="IDE sections">
-  {(["scene","source"] as const).map(mode=>onView?<button type="button" key={mode} className={`rail-button${view===mode?" active":""}`} title={mode==="scene"?"Scene editor":"Source editor"} aria-label={mode==="scene"?"Scene editor":"Source editor"} aria-pressed={view===mode} onClick={()=>{if(canLeave())onView(mode);}}><EditorIcon name={mode}/></button>:<Link key={mode} className="rail-button" href={href("/",mode==="source")} title={mode==="scene"?"Scene editor":"Source editor"} aria-label={mode==="scene"?"Scene editor":"Source editor"} onNavigate={event=>{if(!canLeave())event.preventDefault();}}><EditorIcon name={mode}/></Link>)}
-  {editors.map(editor=>destination(editor.path,editor.name,editor.icon))}
+  {(["scene","source"] as const).map(mode=>onView?<button type="button" key={mode} className={`rail-button${view===mode?" active":""}`} title={mode==="scene"?"Scene editor":"Source editor"} aria-label={mode==="scene"?"Scene editor":"Source editor"} aria-pressed={view===mode} onClick={()=>{if(canLeave())onView(mode);}}><EditorIcon name={mode}/><span className="rail-label">{mode==="scene"?"Scene":"Source"}</span></button>:<Link key={mode} className="rail-button" href={href("/",mode==="source")} title={mode==="scene"?"Scene editor":"Source editor"} aria-label={mode==="scene"?"Scene editor":"Source editor"} onNavigate={event=>{if(!canLeave())event.preventDefault();}}><EditorIcon name={mode}/><span className="rail-label">{mode==="scene"?"Scene":"Source"}</span></Link>)}
+  {editors.map(editor=>destination(editor.path,editor.name,editor.icon,editor.label))}
   <span className="rail-spacer"/>
-  {destination("/player","Player settings","player")}
-  {destination("/settings","Settings","settings")}
-  <button type="button" className="rail-button" title="Reload project from disk" aria-label="Reload project from disk" onClick={()=>{if(canLeave()){if(onReload)onReload();else router.refresh();}}}><EditorIcon name="reload"/></button>
+  {destination("/player","Player settings","player","Player")}
+  {destination("/settings","Settings","settings","Settings")}
+  <button type="button" className="rail-button" title="Reload project from disk" aria-label="Reload project from disk" onClick={()=>{if(canLeave()){if(onReload)onReload();else router.refresh();}}}><EditorIcon name="reload"/><span className="rail-label">Reload</span></button>
  </nav>;
 }
 

@@ -1,6 +1,6 @@
 import "server-only";
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { sharedTargetDir } from "./workspace";
+import { projectTargetDir } from "./workspace";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
@@ -65,7 +65,7 @@ export class InspectionSessions {
     }
     if (this.active) await this.terminate(this.active);
     const root=terrain?await foundationRoot(project):project.root;
-    const args=terrain?["run","--release","--quiet","--manifest-path",path.join(root,"Cargo.toml"),"--example","terrain_live_preview","--features","graphics","--",stringify(terrain)]:["run","--release","--quiet","--manifest-path",path.join(root,"Cargo.toml"),"--target-dir",sharedTargetDir,"--","--inspect-scene",scene];
+    const args=terrain?["run","--release","--quiet","--manifest-path",path.join(root,"Cargo.toml"),"--example","terrain_live_preview","--features","graphics","--",stringify(terrain)]:["run","--release","--quiet","--manifest-path",path.join(root,"Cargo.toml"),"--target-dir",projectTargetDir(root),"--","--inspect-scene",scene];
     const child=spawn("cargo",args,{cwd:root,shell:false,detached:process.platform!=="win32",stdio:["pipe","pipe","pipe"]});
     const s: Session={id:randomUUID(),projectId:project.id,root:project.root,scene,state:"building",child,latest:null,log:"",error:null,used:Date.now(),started:Date.now(),seq:0,waiters:new Set(),pending:new Map(),parked:null,lease:setInterval(()=>{
       if(Date.now()-s.used>PARKED_IDLE_MS) void this.terminate(s);

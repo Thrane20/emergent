@@ -1,7 +1,7 @@
 //! Scene map: waypoint, zone and metadata components; loader rules and runtime queries.
 use emergent::{
-    Engine, EngineConfig, EngineContext, EntityId, Game, MapError, MetaValue, Project,
-    SceneDefinition, Transform, Vec3, World,
+    Engine, EngineConfig, EngineContext, EntityId, Game, MapError, MetaValue, PrefabDefinition,
+    Project, Quat, SceneDefinition, Transform, Vec3, World,
 };
 use std::{
     fs,
@@ -318,4 +318,81 @@ fn zones_follow_their_objects_and_vanish_when_deleted() {
             .count(),
         0
     );
+}
+
+#[test]
+fn prefab_map_items_follow_each_spawn_and_keep_links_local() {
+    let f = Fixture::new();
+    let path = "assets/airport.prefab.toml";
+    fs::write(
+        f.0.join(path),
+        "schema_version=1\nid='airport'\nname='Airport'\nroot='body'\n\
+         [[entities]]\nid='body'\nasset='assets/point.entity.toml'\n\
+         [[entities]]\nid='stand'\nparent='body'\nasset='assets/point.entity.toml'\n[entities.transform]\ntranslation=[2,0,0]\n\
+         [[entities.components]]\ntype='emergent.zone'\nradius=1\n\
+         [[entities.components]]\ntype='emergent.metadata'\nvalues={aeroway='parking_position'}\n\
+         [[entities]]\nid='taxi'\nparent='body'\nasset='assets/point.entity.toml'\n\
+         [[entities.components]]\ntype='emergent.waypoint'\nlinks=['stand-waypoint']\n\
+         [[entities]]\nid='stand-waypoint'\nparent='body'\nasset='assets/point.entity.toml'\n[entities.transform]\ntranslation=[2,0,0]\n\
+         [[entities.components]]\ntype='emergent.waypoint'\n",
+    ).unwrap();
+    let prefab = PrefabDefinition::load(&Project::load(&f.0).unwrap(), path).unwrap();
+    let mut engine = Engine::new(EngineConfig::default()).unwrap();
+    let a = prefab
+        .instantiate_as(engine.world_mut(), "Airport A")
+        .unwrap();
+    let b = prefab
+        .instantiate_as(engine.world_mut(), "Airport B")
+        .unwrap();
+    engine
+        .world_mut()
+        .set_local_transform(
+            a.root,
+            Transform::new(
+                Vec3::new(10., 0., 20.),
+                Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+                Vec3::ONE,
+            ),
+        )
+        .unwrap();
+    engine
+        .world_mut()
+        .set_local_transform(b.root, Transform::from_translation(Vec3::new(-10., 0., 0.)))
+        .unwrap();
+    engine.run_ticks(&mut Idle, 1).unwrap();
+    let world = engine.world();
+    assert!(
+        (world
+            .global_transform(a.entities["stand"])
+            .unwrap()
+            .translation()
+            - Vec3::new(10., 0., 18.))
+        .length()
+            < 0.001
+    );
+    assert_eq!(
+        world.zones_at(Vec3::new(10., 0., 18.)).collect::<Vec<_>>(),
+        vec![a.entities["stand"]]
+    );
+    assert_eq!(
+        world.zones_at(Vec3::new(-8., 0., 0.)).collect::<Vec<_>>(),
+        vec![b.entities["stand"]]
+    );
+    assert_eq!(
+        world
+            .component::<emergent::Waypoint>(a.entities["taxi"])
+            .unwrap()
+            .unwrap()
+            .links,
+        vec![a.entities["stand-waypoint"]]
+    );
+    assert_eq!(
+        world
+            .component::<emergent::Waypoint>(b.entities["taxi"])
+            .unwrap()
+            .unwrap()
+            .links,
+        vec![b.entities["stand-waypoint"]]
+    );
+    assert_ne!(a.entities["stand"], b.entities["stand"]);
 }

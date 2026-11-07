@@ -17,3 +17,8 @@ test("billing failures remain unavailable rather than a fabricated zero balance"
  for(const credits of [undefined,{current_balance:-1,currency:"USD"},{current_balance:"8.76",currency:"USD"},{current_balance:8.76,currency:"INVALID"}])assert.equal((await new FalBalanceReader(async()=>"key",async()=>Response.json({credits})).get()).state,"unavailable");
  assert.equal((await new FalBalanceReader(async()=>"key",async()=>{throw new Error("secret network error");}).get()).balance,null);
 });
+test("cached-only reads never contact fal",async()=>{
+ let calls=0;const reader=new FalBalanceReader(async()=>"key",async()=>{calls++;return Response.json({credits:{current_balance:2,currency:"USD"}});});
+ assert.equal((await reader.get(false,true)).state,"unchecked");assert.equal(calls,0);
+ await reader.get(true);assert.equal((await reader.get(false,true)).balance,2);assert.equal(calls,1);
+});

@@ -360,6 +360,9 @@ pub struct World {
     mouse_look_query: QueryState<(&'static EntityIdentity, &'static crate::MouseLook)>,
     look_query: QueryState<(&'static EntityIdentity, &'static crate::LookAt)>,
     brain_query: QueryState<(&'static EntityIdentity, &'static mut crate::BrainAgent)>,
+    animator_query: QueryState<(&'static EntityIdentity, &'static mut crate::Animator)>,
+    /// Reused per tick: animator objects turning to face their movement.
+    animator_turns: Vec<(EntityId, f32)>,
     audio_emitter_query: QueryState<(&'static EntityIdentity, &'static mut crate::AudioEmitter)>,
     audio_listener_query: QueryState<(&'static EntityIdentity, &'static crate::AudioListener)>,
     map_zone_query: QueryState<(&'static EntityIdentity, &'static crate::map::Zone)>,
@@ -405,6 +408,7 @@ impl World {
         let mouse_look_query = components.query::<(&EntityIdentity, &crate::MouseLook)>();
         let look_query = components.query::<(&EntityIdentity, &crate::LookAt)>();
         let brain_query = components.query::<(&EntityIdentity, &mut crate::BrainAgent)>();
+        let animator_query = components.query::<(&EntityIdentity, &mut crate::Animator)>();
         let group_query = components.query::<(&EntityIdentity, &crate::Group)>();
         let audio_emitter_query = components.query::<(&EntityIdentity, &mut crate::AudioEmitter)>();
         let audio_listener_query = components.query::<(&EntityIdentity, &crate::AudioListener)>();
@@ -437,6 +441,8 @@ impl World {
             look_query,
             mouse_look_query,
             brain_query,
+            animator_query,
+            animator_turns: Vec::new(),
             audio_emitter_query,
             audio_listener_query,
             map_zone_query,
@@ -509,6 +515,7 @@ impl World {
                     position: Vec3::ZERO,
                     velocity: Vec3::ZERO,
                     measured_velocity: None,
+                    forward: Vec3::NEG_Z,
                     group,
                 });
             }
@@ -552,9 +559,12 @@ impl World {
         scratch.index.clear();
         for i in 0..scratch.entries.len() {
             let id = scratch.entries[i].id;
-            scratch.entries[i].position = self
-                .global_transform(id)
-                .map_or(Vec3::ZERO, |t| t.translation());
+            if let Ok(transform) = self.global_transform(id) {
+                scratch.entries[i].position = transform.translation();
+                scratch.entries[i].forward = transform.matrix().transform_vector3(Vec3::NEG_Z);
+            } else {
+                scratch.entries[i].position = Vec3::ZERO;
+            }
             if self
                 .component::<crate::LocomotionAgent>(id)
                 .ok()
@@ -607,6 +617,53 @@ impl World {
         for (id, mut agent) in self.brain_query.iter_mut(&mut self.components) {
             f(id.id(), &mut agent);
         }
+    }
+
+    /// Advances every animator one tick with its object's world matrix, the physics
+    /// ground below it and its look target, then turns objects to face their movement.
+    pub(crate) fn step_animators(&mut self, dt: f32) {
+        let mut turns = std::mem::take(&mut self.animator_turns);
+        turns.clear();
+        let world_id = self.id;
+        let entities = &self.entities;
+        #[cfg(feature = "physics")]
+        let physics = self.physics.as_ref();
+        let ground = |origin: Vec3, length: f32| -> Option<(Vec3, Vec3)> {
+            #[cfg(feature = "physics")]
+            return physics.and_then(|p| p.ground_ray(origin, length));
+            #[cfg(not(feature = "physics"))]
+            {
+                let _ = (origin, length);
+                None
+            }
+        };
+        let position = |id: EntityId| {
+            (id.world == world_id)
+                .then(|| entities.get(id.key))
+                .flatten()
+                .map(|e| e.global_transform.translation())
+        };
+        for (identity, mut animator) in self.animator_query.iter_mut(&mut self.components) {
+            let id = identity.id();
+            let inputs = crate::animation::AnimatorInputs {
+                world: entities
+                    .get(id.key)
+                    .map_or(Mat4::IDENTITY, |e| e.global_transform.matrix()),
+                ground: Some(&ground),
+                look_target: animator.look_target.and_then(position),
+            };
+            if let Some(yaw) = animator.advance_with(dt, &inputs) {
+                turns.push((id, yaw));
+            }
+        }
+        for &(id, yaw) in &turns {
+            // shortcut: yaw is applied in the parent's space, exact under upright parents.
+            if let Ok(mut local) = self.local_transform(id).copied() {
+                local.rotation = (Quat::from_rotation_y(yaw) * local.rotation).normalize();
+                let _ = self.set_local_transform(id, local);
+            }
+        }
+        self.animator_turns = turns;
     }
 
     pub(crate) fn for_each_audio_emitter(
@@ -839,6 +896,11 @@ impl World {
 
     pub fn is_empty(&self) -> bool {
         self.entities.is_empty()
+    }
+
+    /// Every live entity, in storage order.
+    pub fn entity_ids(&self) -> impl Iterator<Item = EntityId> + '_ {
+        self.entities.keys().map(|key| self.id_for(key))
     }
 
     pub fn behavior_count(&self) -> usize {

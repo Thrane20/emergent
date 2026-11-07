@@ -42,6 +42,12 @@ pub struct Waypoint {
     pub two_way: bool,
     /// Arrival radius in metres.
     pub radius: f32,
+    /// Compass courses (radians, clockwise from the first to the second) to cross this point
+    /// on, and to leave it on. `None`: any course.
+    pub entry: Option<(f32, f32)>,
+    pub exit: Option<(f32, f32)>,
+    /// Height to cross at; a traffic pattern measures it above the runway.
+    pub altitude: Option<f32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -294,6 +294,24 @@ pub(crate) mod runtime {
             self.pending_torques.insert(id, accumulated);
             Ok(())
         }
+        /// First static surface straight below `origin` within `length`: point and normal.
+        /// Dynamic bodies (including the character's own) are ignored.
+        pub(crate) fn ground_ray(&self, origin: Vec3, length: f32) -> Option<(Vec3, Vec3)> {
+            let ray = rapier3d::prelude::Ray::new(
+                Vector::from_array(origin.to_array()),
+                Vector::new(0.0, -1.0, 0.0),
+            );
+            let (_, hit) = self.backend.cast_ray_and_get_normal(
+                &ray,
+                length,
+                true,
+                rapier3d::prelude::QueryFilter::exclude_dynamic(),
+            )?;
+            Some((
+                origin - Vec3::Y * hit.time_of_impact,
+                Vec3::from_array(hit.normal.to_array()),
+            ))
+        }
         pub(crate) fn linear_velocity(&self, id: EntityId) -> Option<Vec3> {
             let entry = self.entries.get(&id)?;
             Some(Vec3::from_array(

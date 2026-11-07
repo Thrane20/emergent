@@ -63,3 +63,15 @@ test("pairs fields round-trip and empty text defaults stay defaults", () => {
   assert.ok(!pairsValue(Object.fromEntries(Array.from({ length: 33 }, (_, i) => [`k${i}`, i]))), "over 32 pairs");
   assert.ok(!pairsValue({ list: [1, 2] }));
 });
+
+test("brain modes parse, stay plain and survive an unrelated field edit", () => {
+  const types = componentTypes(parse(`[[types]]\nid="emergent.brain"\nlabel="Brain"\ndescription="d"\napplies_to="any"\n[[types.fields]]\nname="modes"\nlabel="Modes"\nkind="modes"\ndefault=[]\nhelp="h"`));
+  assert.deepEqual(types[0].fields[0].default, []);
+  const source = `schema_version = 1\nid = "main"\n[[entities]]\nid = "plane"\nasset = "assets/point.entity.toml"\n[[entities.components]]\ntype = "emergent.brain"\nmax_speed = 30\n[[entities.components.modes]]\nname = "park"\nbrain = "assets/brains/park.brain.toml"\nactive = true\non_next = "taxi"\n[[entities.components.modes]]\nname = "taxi"\nbrain = "assets/brains/taxi.brain.toml"\n`;
+  const read = (text: string) => authoredComponents((parse(text).entities as { components: unknown }[])[0].components)[0];
+  const modes = [{ name: "park", brain: "assets/brains/park.brain.toml", active: true, on_next: "taxi" }, { name: "taxi", brain: "assets/brains/taxi.brain.toml" }];
+  assert.deepEqual(read(source).fields.modes, modes);
+  assert.equal(Object.getPrototypeOf((read(source).fields.modes as object[])[0]), Object.prototype, "pages receive plain objects");
+  const edited = replaceInstanceComponent(source, "plane", "emergent.brain", { ...read(source).fields, max_speed: 40 }, true);
+  assert.deepEqual(read(edited).fields, { max_speed: 40, modes });
+});

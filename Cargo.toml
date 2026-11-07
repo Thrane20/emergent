@@ -24,7 +24,7 @@ fast-surface-nets = { version = "=0.2.1", optional = true }
 bevy_ecs = { version = "0.20.0", default-features = false, features = ["std"] }
 bytemuck = { version = "1.25.2", features = ["derive"], optional = true }
 glam = "0.34.1"
-gltf = { version = "=1.4.1", default-features = false, features = ["utils"] }
+gltf = { version = "=1.4.1", default-features = false, features = ["utils", "names"] }
 half = { version = "2.7.1", optional = true }
 noise = { version = "=0.9.0", default-features = false }
 rapier3d = { version = "=0.36.1", optional = true }
@@ -56,6 +56,10 @@ required-features = ["graphics"]
 
 [[example]]
 name = "terrain_gpu_profile"
+required-features = ["graphics"]
+
+[[example]]
+name = "terrain_world_seams"
 required-features = ["graphics"]
 
 [[example]]

@@ -39,7 +39,19 @@ fn surface_smooth(a:f32,b:f32,x:f32)->f32 { let t=clamp((x-a)/max(b-a,0.0001),0.
 // SURFACE_GRAPH_BEGIN
 fn surface_graph(p:vec3<f32>,uv:vec2<f32>,facing:f32)->SurfaceGraph { return SurfaceGraph(vec3<f32>(1.0),0.0,1.0,0.0); }
 // SURFACE_GRAPH_END
-@vertex fn vertex_main(input: VertexInput) -> VertexOutput {
+@group(3) @binding(0) var<storage, read> joint_palette: array<mat4x4<f32>>;
+struct SkinnedInput { @location(0) position: vec3<f32>, @location(1) color: vec4<f32>, @location(2) normal: vec3<f32>, @location(3) uv: vec2<f32>, @location(4) joints: vec4<u32>, @location(5) weights: vec4<f32>, };
+fn skin_matrix(joints: vec4<u32>, weights: vec4<f32>) -> mat4x4<f32> {
+    // Vertices without influences (rigid parts outside any joint) stay in model space.
+    if dot(weights, vec4<f32>(1.0)) < 0.0001 { return mat4x4<f32>(vec4<f32>(1.0,0.0,0.0,0.0),vec4<f32>(0.0,1.0,0.0,0.0),vec4<f32>(0.0,0.0,1.0,0.0),vec4<f32>(0.0,0.0,0.0,1.0)); }
+    return joint_palette[joints.x] * weights.x + joint_palette[joints.y] * weights.y + joint_palette[joints.z] * weights.z + joint_palette[joints.w] * weights.w;
+}
+@vertex fn vertex_skinned(input: SkinnedInput) -> VertexOutput {
+    let skin = skin_matrix(input.joints, input.weights);
+    return shade_vertex(VertexInput((skin * vec4<f32>(input.position, 1.0)).xyz, input.color, (skin * vec4<f32>(input.normal, 0.0)).xyz, input.uv));
+}
+@vertex fn vertex_main(input: VertexInput) -> VertexOutput { return shade_vertex(input); }
+fn shade_vertex(input: VertexInput) -> VertexOutput {
     var output: VertexOutput;
     let position = input.position; // SURFACE_VERTEX
     let world = object.model * vec4<f32>(position, 1.0);
@@ -93,7 +105,7 @@ fn shade(input: VertexOutput, material:MaterialUniform, layer:i32) -> vec4<f32> 
     let masks = mix(vec4<f32>(1.0), noise, material.map_strength);
     var alpha = input.color.a;
     var albedo = select(input.color.rgb, material.albedo.rgb, material.albedo.w > 0.5) * masks.r;
-    let p=input.local_position*material.diffuse.y;
+    let p=(input.local_position+vec3<f32>(material.texture_tiling.z,0.0,material.texture_tiling.w))*material.diffuse.y;
     let dx=dpdx(p);let dy=dpdy(p);
     let tiled_uv=input.uv*material.texture_tiling.xy;
     let uv_dx=dpdx(tiled_uv);let uv_dy=dpdy(tiled_uv);

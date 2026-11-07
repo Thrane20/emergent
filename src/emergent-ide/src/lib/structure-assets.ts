@@ -36,6 +36,8 @@ export async function prepareStructureSave(project:ProjectSnapshot,input:{docume
  const entitySource=stringify(entity);if(Buffer.byteLength(structureSource)>2*1024*1024||Buffer.byteLength(entitySource)>256*1024)throw new Error("Structure exceeds its source size budget.");
  const changes:FileChange[]=[{path:structurePath,before:current?.structureSource??null,content:structureSource},{path:assetPath,before:current?.entitySource??null,content:entitySource}];
  if(library)changes.push({path:library.path,before:library.source,content:library.source});
+ // Part materials must exist; unchanged-content entries guard them like the object material.
+ for(const path of new Set(document.parts.flatMap(part=>part.material?[part.material]:[])))if(path!==library?.path){const part=await readMaterial(project,path);changes.push({path:part.path,before:part.source,content:part.source});}
  let instanceId:string|undefined,sceneRevision:string|undefined;
  if(input.scenePath!==undefined){
   if(typeof input.scenePath!=="string"||!projectScenes(project).some(scene=>scene.path===input.scenePath))throw new Error("Choose a scene in this project.");

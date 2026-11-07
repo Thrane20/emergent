@@ -1,13 +1,26 @@
 # Emergent plan
 
-Last updated: **2026-11-03**. This is the live work queue. Keep it short: move a
+Last updated: **2026-11-07**. This is the live work queue. Keep it short: move a
 finished item into [docs/implementation-status.md](docs/implementation-status.md) in
 the same change that finishes it. Long-range goals and stage gates are in
 [GOALS.MD](GOALS.MD); the documentation map is in [docs/README.md](docs/README.md).
 
 ## Now
 
-Object Builder’s carousel, attribute cards (collapsed AI chat at the bottom, with a taller preview), draft AI conversation, local/global part controls, primitive mesh dimensions, size baking, orthographic X/Y/Z viewer framing, line editing, midpoint multi-selection drag and compact context actions, same-parent grouping, delete/duplicate shortcuts and separate save/placement workflow are delivered; [evidence and remaining validation](docs/platform/object-builder-ui.md).
+Object Builder’s carousel, attribute cards (collapsed AI chat at the bottom, with a taller preview), draft AI conversation, local/global part controls, primitive mesh dimensions, size baking, orthographic X/Y/Z viewer framing, line editing, midpoint multi-selection drag and compact context actions, same-parent grouping, delete/duplicate shortcuts, per-part materials (drag-and-drop swatches, rendered natively as material sections) and separate save/placement workflow are delivered; [evidence and remaining validation](docs/platform/object-builder-ui.md).
+
+- **Skeletal animation (SKEL): follow-ups.** SKEL-1…6 are delivered: skinned GLB/VRM
+  import and GPU skinning, clips and `emergent.animator`, humanoid maps, BVH mocap and
+  retargeting, crossfade and idle/walk/run speed blending with in-place clips, two-bone
+  foot IK on static ground, head look-at, turn to movement, the `biped` locomotion type,
+  Shift-to-run, tick/key scene previews, and a template mannequin with a playable
+  `third-person` scene (WASD, Shift, Space); SKEL-6 adds IDE import of rigged models and
+  BVH takes (engine-checked), a rig report, a skin-weight view and Meshy auto-rig on fal
+  ([spike](docs/research/auto-rig-providers.md)). A live run took a generated character from
+  FLUX → Trellis → Meshy rig to walking and running in the template scene (~$0.25). Open: foot locking (feet slide when clip and actual speed differ), hand
+  IK/FABRIK, IK on moving bodies, non-upright characters, IDE tick previews, real
+  ray-cast cost in the benchmark, hands-on play of the native window, and real mocap
+  takes for the mannequin. [Plan](docs/plans/skeletal-animation.md).
 
 - **Object classification follow-ups.** Stable 32-slot layers/tags, inspector authoring and runtime mask matching are delivered. The object inspector now uses compact cards and a fixed searchable Add component action above Statements, styled through the primary theme colour (purple in Charcoal, with cyan secondary accents). Next: explicit collision-group and camera/brain filtering integration. [Design](docs/design/object-labels.md).
 
@@ -17,6 +30,17 @@ Object Builder’s carousel, attribute cards (collapsed AI chat at the bottom, w
 
 - **First-person follow-ups.** FPS-1 supplies captured mouse look, camera-relative WASD, supporting-contact jumps, a reusable rig and collision walk fixture. Next: hands-on sensitivity/capture calibration, capsule/stair and moving-platform policies. [Design](docs/design/first-person-controller.md).
 
+- **Terrain Performance v2.** Distance-aware ray marching and mesh/cluster frustum
+  culling are delivered ([measurements](docs/benchmarks/terrain-performance/v2/README.md)).
+  Long-step ray tracing and crack-free heightfield distance LOD are delivered too:
+  ray routes −74 to −83%, heightfield 1024 −62 to −64% main GPU p50.
+  Next: LOD popping check and shadow timing, then the meshed-density comparison.
+  [Checklist](docs/plans/terrain.md#current-priority--terrain-performance-v2).
+- **Continuous terrain world.** Stage 1 is complete: `TerrainWorld` descriptor,
+  seamless chunk preparation (shared lattice, halo normals), world-space height-band
+  materials, and a rendered 2 × 2 fixture identical to one merged mesh.
+  Next: stage 2 chunk storage, incremental rendering and visibility. [Design](docs/design/terrain-world.md),
+  [stages](docs/plans/terrain.md#1--seamless-sampling-and-world-assets).
 - **Bounded meshed-density comparison.** GPU pass profiling and native offscreen
   camera routes are delivered. Compare a mesh extracted from the same field with
   direct ray marching, including overhang/cavern quality and collision suitability.
@@ -35,13 +59,16 @@ Object Builder’s carousel, attribute cards (collapsed AI chat at the bottom, w
   flight goals and hold). The boundary profile is loadable but unpowered. [Stage gates](docs/plans/physics-locomotion.md).
   Wheel rig delivered (wheels steer and roll from the car's activity); brake lights wait for runtime material overrides.
   Physical fixed wing FW-1/2/3 delivered (take-off, climb, holds, manual/aerobatics, circuit and PID-power landing on a map zone; editor Circuit preview with phases, Take off/Land brain nodes, MCP preview; ~1 µs per aircraft per tick). Airports (AIR-1/2) delivered: `aeroway` tags on scene-map items (runway, taxiway, holding position, stand, tower), a control tower sequencing arrivals (circuit capacity, holding stack, base-turn spacing, landing clearance, go-around re-sequencing) and departures (taxi, hold short, line up, centreline take-off), right/left circuits, Depart/Arrive brain nodes and Airport map tools. AIR-3a delivered: scene `[wind]`, air-relative flight with crabbed crosswind approaches, towers landing into the wind, and a scene-map airport overlay (landing direction, circuit legs, join point, holding fix, wind) with wind controls and MCP `set_wind`. Next: AIR-3b propeller/control-surface visuals, gusts, live traffic on the map. [Design](docs/design/fixed-wing-physics.md), [airports](docs/design/airport-operations.md).
-  Other types remain queued: reversing, guided missile,
-  bomb drop, helicopter and legged/IK. [Current design](docs/design/locomotion.md).
+  Biped (legged, with SKEL-5 foot IK) is delivered. Other types remain queued: reversing,
+  guided missile, bomb drop, helicopter and quadruped. [Current design](docs/design/locomotion.md).
 - **Brains: follow-ups.** Editor, runtime, preview, starter brains, MCP authoring
   tools, AI creation directly from an empty draft, duplicate catalogue ID validation
   and opt-in altitude arrival completion are delivered. Next: a neighbour grid before
   flocks above ~300 agents (0.53 ms/tick at 256, quadratic), and the remaining planned nodes
   (pathfinding, obstacle avoidance, terrain blocking sight). [Design](docs/design/brain-editor.md).
+  **Brain modes:** delivered (engine, Taxi/Hold course nodes, IDE mode panels, MCP). Next:
+  a run-time control channel so the IDE/MCP can show and switch modes in a running game; scene
+  validation of Switch mode names. [Design brief](docs/design/brain-modes.md).
 - **Models with movable parts (MODEL-1): follow-ups.** Engine import and the Model Parts
   editor are delivered. Next: one live fal split (Tripo Segment and Hi3D) to confirm the
   real output shape, exact triangle clipping for plane cuts, and sharing one texture
@@ -64,11 +91,11 @@ Object Builder’s carousel, attribute cards (collapsed AI chat at the bottom, w
   [Plan](docs/plans/audio.md).
 
 - **Scene map (MAP): follow-ups.** MAP-1 (engine: waypoint, zone and metadata components,
-  zone costs and layers, map queries, A* routes, 4,096-instance scenes) and MAP-2 (the
-  `/map` top-down editor) are delivered. Next MAP-3: brain nodes (in zone, avoid costly
+  zone costs and layers, map queries, A* routes, 4,096-instance scenes), MAP-2 (the
+  `/map` top-down editor), and prefab-local map editing are delivered. Next MAP-3: brain nodes (in zone, avoid costly
   zones, follow waypoint path), an MCP `query_map` tool, zones and links in the 3D viewer,
   and faster validation near the instance limit (the IDE runs the game's debug build).
-  [Design](docs/design/scene-map-editor.md).
+  [Design](docs/design/scene-map-editor.md), [prefab maps](docs/design/prefab-map-editor.md).
 
 ## Known issues
 
@@ -133,7 +160,9 @@ Grouped by area. Each item is open; see the linked plan or design for scope.
   native GLB import and materials, HDR/IBL, post-processing.
 - **Physics** — kinematic bodies, sphere/capsule/convex shapes, triggers and events,
   public queries, joints, character controllers.
-- **Animation** — tween bindings to scene properties from the inspector.
+- **Animation** — tween bindings to scene properties from the inspector; skeletal
+  animation after SKEL-6 (see Now): weight painting/joint placement, MCP import and auto-rig tools, morph targets, animation state graph editor, ragdoll,
+  clip compression, skeleton LOD, compute skinning: [skeletal animation plan](docs/plans/skeletal-animation.md).
 - **Authoring/IDE** — undo/redo, preserve-world reparent, snapping and multi-select,
   text-to-reference-image for Object Creator, model placement in scenes.
 - **Platform** — Windows/Linux native runs, multi-output build and packaging,

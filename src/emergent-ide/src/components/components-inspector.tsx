@@ -4,6 +4,8 @@ import {useEffect,useRef,useState} from "react";
 import {useLiveInspector} from "@/hooks/use-live-inspector";
 import {objectComponentTypes,type AuthoredComponent,type ComponentField,type ComponentPatch,type ComponentType,type ComponentValue} from "@/lib/components";
 import {FieldInput,type FieldOption} from "@/components/field-input";
+import {BrainModesEditor} from "@/components/brain-modes-editor";
+import {fieldsFromModes,modesFromFields,modesProblem} from "@/lib/brain-modes";
 
 type Draft={enabled:boolean;fields:Record<string,ComponentValue>};
 type Instance={id:string;name:string};
@@ -34,7 +36,7 @@ export function ComponentsInspector({types,registryError,kind,authored,defaults,
  return <section className="components-inspector" aria-label="Components">
   {registryError&&<p className="transform-error" role="alert">Component types unavailable: {registryError}</p>}
   {!types&&!registryError&&<p className="transform-note">Loading component types…</p>}
-  {shown.map(type=>{const current=authored.find(component=>component.type===type.id);return <ComponentSection key={type.id} type={type} current={current} added={type.applies_to==="any"} defaults={type.applies_to===kind?defaults:undefined} variant={variant} instances={instances.filter(item=>item.id!==selfId)} brains={brains} profiles={profiles} clips={clips} onApply={patch=>onApply(type.id,patch)} onDirty={onDirty} onBusy={onBusy} disabled={disabled}/>;})}
+  {shown.map(type=>{const current=authored.find(component=>component.type===type.id);return <ComponentSection key={type.id} scope={selfId} type={type} current={current} added={type.applies_to==="any"} defaults={type.applies_to===kind?defaults:undefined} variant={variant} instances={instances.filter(item=>item.id!==selfId)} brains={brains} profiles={profiles} clips={clips} onApply={patch=>onApply(type.id,patch)} onDirty={onDirty} onBusy={onBusy} disabled={disabled}/>;})}
   {actions&&createPortal(<button className="action-primary" type="button" disabled={disabled||adding||!types} onClick={()=>{setSearch("");setAddError("");setChoosing(true);}}>＋ Add component</button>,actions)}
   {choosing&&<dialog ref={dialog} className="component-picker" aria-label="Add component" onCancel={e=>{e.preventDefault();if(!adding){setChoosing(false);setAddError("");}}}>
    <header><h2>Add component</h2><p>Select a component to add to this object.</p></header>
@@ -48,22 +50,27 @@ export function ComponentsInspector({types,registryError,kind,authored,defaults,
  </section>;
 }
 
-function ComponentSection({type,current,added,defaults,variant,instances,brains,profiles,clips,onApply,onDirty,onBusy,disabled}:{type:ComponentType;current:AuthoredComponent|undefined;added:boolean;defaults:Record<string,unknown>|undefined;variant:string|undefined;instances:Instance[];brains:FieldOption[];profiles:FieldOption[];clips:FieldOption[];onApply:(patch:ComponentPatch|null)=>Promise<void>;onDirty:(dirty:boolean)=>void;onBusy:(busy:boolean)=>void;disabled:boolean}){
+function ComponentSection({scope,type,current,added,defaults,variant,instances,brains,profiles,clips,onApply,onDirty,onBusy,disabled}:{scope:string;type:ComponentType;current:AuthoredComponent|undefined;added:boolean;defaults:Record<string,unknown>|undefined;variant:string|undefined;instances:Instance[];brains:FieldOption[];profiles:FieldOption[];clips:FieldOption[];onApply:(patch:ComponentPatch|null)=>Promise<void>;onDirty:(dirty:boolean)=>void;onBusy:(busy:boolean)=>void;disabled:boolean}){
  const initial:Draft={enabled:current?.enabled??true,fields:current?.fields??{}};
- const fields=type.fields.filter(field=>!field.variants?.length||variant!==undefined&&field.variants.includes(variant));
+ // The Brain card edits brain, stack and modes together as mode panels.
+ const brainModes=type.id==="emergent.brain";
+ const fields=type.fields.filter(field=>(!field.variants?.length||variant!==undefined&&field.variants.includes(variant))&&!(brainModes&&["brain","stack","modes"].includes(field.name)));
  // The full patch replaces this component's authored fields; absent fields fall back to the asset or schema default.
  const prepare=(draft:Draft):ComponentPatch=>{
+  if(brainModes){const problem=modesProblem(modesFromFields(draft.fields));if(problem)throw new Error(problem);}
   if(Object.values(draft.fields).some(v=>typeof v==="number"&&!Number.isFinite(v)||Array.isArray(v)&&v.some(n=>typeof n==="number"&&!Number.isFinite(n))))throw new Error("Enter a number.");
   return Object.fromEntries([["enabled",draft.enabled],...type.fields.map(field=>[field.name,draft.fields[field.name]??null])]);
  };
  const save=useLiveInspector(initial,prepare,patch=>onApply(patch),onDirty,onBusy),draft=save.draft,blocked=disabled||save.saving;
  const value=(field:ComponentField)=>draft.fields[field.name]??defaults?.[field.name] as ComponentValue|undefined??field.default;
  const set=(name:string,next:ComponentValue|undefined)=>{const nextFields={...draft.fields};if(next===undefined)delete nextFields[name];else nextFields[name]=next;save.change({...draft,fields:nextFields});};
+ const setMany=(patch:ComponentPatch)=>{const nextFields={...draft.fields};for(const [name,next] of Object.entries(patch)){if(next===null)delete nextFields[name];else nextFields[name]=next;}save.change({...draft,fields:nextFields});};
  const [open,setOpen]=useState(true);
  return <div className={`component-section${open?"":" collapsed"}`} data-component={type.id}>
   <header><h3><ComponentIcon id={type.id}/>{type.label}</h3><label className="component-enabled"><input type="checkbox" aria-label={`${type.label} enabled`} checked={draft.enabled} disabled={blocked} onChange={event=>save.change({...draft,enabled:event.target.checked})}/>Enabled</label><button type="button" className="component-toggle" aria-expanded={open} aria-label={`${open?"Collapse":"Expand"} ${type.label}`} title={open?"Collapse":"Expand"} onClick={()=>setOpen(value=>!value)}><span className="component-chevron" aria-hidden="true">▾</span></button></header>
   <div className="component-body">{type.description&&<p className="transform-note">{type.description}</p>}
   <form onSubmit={event=>event.preventDefault()}><fieldset disabled={blocked}>
+   {brainModes&&<BrainModesEditor scope={scope} modes={modesFromFields(draft.fields)} brains={brains} onChange={modes=>setMany(fieldsFromModes(modes))}/>}
    {fields.map(field=>{const overridden=draft.fields[field.name]!==undefined,label=`${type.label} ${field.label.toLowerCase()}`;return <div className="component-field" key={field.name} title={field.help}>
     <span>{field.label}{field.unit?` (${field.unit})`:""}</span>
     <FieldInput field={field} label={label} value={value(field)} instances={instances} brains={brains} profiles={profiles} clips={clips} onChange={next=>set(field.name,next===""?undefined:next)}/>

@@ -78,3 +78,16 @@
 .prefab-name{display:flex;gap:7px;align-items:center}
 .object-icon{flex:none;vertical-align:middle;color:var(--muted)}.object-icon.prefab-icon{color:var(--theme-primary,var(--sage))}
 .scene-node>.object-icon{margin-right:3px}.node-leaf{display:inline-block;flex:none;width:17px}
+/* Brain component modes: one collapsible panel per mode. */
+.brain-modes{display:grid;gap:4px;margin-bottom:6px}
+.brain-mode{border:1px solid var(--theme-line-strong, #3d5846);border-radius:4px;padding:3px 6px;display:grid;gap:4px}
+.brain-mode[open]{padding-bottom:6px}
+.brain-mode summary{display:flex;gap:6px;align-items:center;cursor:pointer;font-size:11px;color:var(--theme-foreground, #c4ddcc)}
+.brain-mode summary:focus-visible,.brain-mode-actions button:focus-visible,.brain-mode-add:focus-visible{outline:2px solid var(--aqua);outline-offset:1px}
+.brain-mode-brain{margin-left:auto;color:var(--theme-muted, #9fb9a8);font-size:10px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.brain-mode-dot{width:7px;height:7px;flex:none;border-radius:50%;border:1px solid var(--theme-muted, #9fb9a8)}
+.brain-mode-dot.on{background:var(--aqua);border-color:var(--aqua)}
+.brain-mode .component-field input[type=text]{width:100%;min-width:0;padding:5px 6px;border:1px solid var(--theme-line-strong, #3d5846);border-radius:4px;background:var(--theme-surface, #112117);color:var(--theme-foreground, #c4ddcc);font:11px var(--font-ui)}
+.brain-mode-actions{display:flex;gap:4px;justify-content:flex-end}
+.brain-mode-actions button,.brain-mode-add{padding:2px 8px;font-size:10px}
+.brain-mode-add{justify-self:start}

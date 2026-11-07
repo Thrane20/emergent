@@ -112,7 +112,7 @@ name = "Render extraction and passes"
 status = "planned"
 owner = "render"
 depends_on = ["render.cameras", "ecs.schedules"]
-summary = "Read-only world extraction, visibility, culling, batching, and ordered passes."
+summary = "Read-only world extraction, visibility, culling, batching, and ordered passes. Delivered so far: per-instance frustum culling in main and shadow passes, spatial index clusters for meshes of 16k+ triangles, and crack-free distance LOD for recognised terrain grids (GeometryRenderer::set_mesh_culling / set_mesh_lod bypasses, submitted_triangles stats). Extraction, batching and general mesh LOD remain planned."
 
 [[capabilities]]
 id = "geometry.point"
@@ -211,7 +211,7 @@ name = "Ray terrain bounds, diagnostics and preview quality"
 status = "preview"
 owner = "render"
 depends_on = ["terrain.raymarched-prototype"]
-summary = "Conservative clip-plane culling and projected scissor rectangles retain full-viewport fallback for near-plane intersections. Runtime RaymarchedRenderOptions toggles bounds and a step/exhaustion heatmap without changing authored recipes. Last-prepared region/submission/scissor-area statistics and a warmed release capture benchmark are available. Terrain Builder offers Auto/Full/Half quality, with half-resolution movement frames upscaled into the existing 960x540 protocol. Capture wall time includes GPU completion/readback; the separate render.gpu-pass-profiling capability adds GPU timestamps. Gameplay traversal/memory budgets and large-world acceptance remain open."
+summary = "Conservative clip-plane culling and projected scissor rectangles retain full-viewport fallback for near-plane intersections. Runtime RaymarchedRenderOptions toggles bounds, a step/exhaustion heatmap and distance-adaptive tracing (half-pixel hit tolerance, over-relaxed and long gap steps with a safe finish, on by default) without changing authored recipes. Last-prepared region/submission/scissor-area statistics and a warmed release capture benchmark are available. Terrain Builder offers Auto/Full/Half quality, with half-resolution movement frames upscaled into the existing 960x540 protocol. Capture wall time includes GPU completion/readback; the separate render.gpu-pass-profiling capability adds GPU timestamps. Gameplay traversal/memory budgets and large-world acceptance remain open."
 
 [[capabilities]]
 id = "render.gpu-pass-profiling"
@@ -289,10 +289,10 @@ summary = "Headless scalar lerp with linear, sine, quadratic and cubic easing; e
 id = "animation.skeletal"
 category = "animation"
 name = "Skeletal animation"
-status = "planned"
+status = "preview"
 owner = "animation"
 depends_on = ["geometry.meshes", "runtime.fixed-step"]
-summary = "Skeletons, clips, blending, state machines, skinning, and root motion."
+summary = "SKEL-1/2: glTF skins import as sorted, name-addressed skeletons with GPU linear blend skinning (4 influences, colour and shadow passes); glTF animations import as clips played by the emergent.animator component on the fixed tick; SKEL-3: humanoid bone detection, BVH mocap import and offline retargeting via the animator's motion field; SKEL-4: crossfade, ground-speed blend and in-place clips (locomotion drives movement); SKEL-5: two-bone and look-at IK, foot placement on physics ground, turn to movement, biped locomotion type and a template third-person mannequin scene; SKEL-6: IDE rigged-model/BVH import checked by the engine, rig report, skin-weight view and Meshy auto-rig via fal. Clip-driven root motion is planned (docs/plans/skeletal-animation.md)."
 
 [[capabilities]]
 id = "animation.shape-procedural"
@@ -364,7 +364,7 @@ name = "Brains (steering trees)"
 status = "preview"
 owner = "brain"
 depends_on = ["runtime.fixed-step", "world.transforms-3d"]
-summary = "Saved trees of steering nodes (seek/flee, wander, patrol, flocking, formation, avoidance, evaluation and composition) attached with emergent.brain, evaluated deterministically each fixed tick against committed positions; groups via emergent.group; editor preview through the same runtime. Neighbour queries are linear; line of sight, obstacles and pathfinding are planned."
+summary = "Saved trees of steering nodes (seek/flee, wander, patrol, flocking, formation, avoidance, evaluation and composition) attached with emergent.brain, evaluated deterministically each fixed tick against committed positions; groups via emergent.group; editor preview through the same runtime. Named brain modes run together while active and hand over on finish (On next) or abort (On previous), switched by Next/Previous/Switch mode nodes, signals and World::set_brain_mode; aircraft modes use Taxi, Take off, Hold course and Land nodes. Neighbour queries are linear; line of sight, obstacles and pathfinding are planned."
 
 [[capabilities]]
 id = "behaviour.locomotion"
@@ -400,7 +400,7 @@ name = "Physical fixed-wing aircraft"
 status = "preview"
 owner = "locomotion"
 depends_on = ["physics.locomotion-boundary", "navigation.paths"]
-summary = "fixed_wing_physics profiles fly a dynamic box body by forces and torques only: lift from lift-off speed and angle of attack with stall, parasitic and induced drag, spooled thrust, control-surface authority by dynamic pressure, and a wheel model (rolling resistance, brakes, tyre grip, nosewheel steering) on a frictionless collider. FlightGoal: Park, TakeOff, Hold (compass heading/altitude/speed), FlyTo, Taxi, Manual sticks (max bank 0 = aerobatics) and Land on a rectangular scene-map zone via a left-hand circuit, final with fixed nose-up attitude and PID power on a 3° glide path, flare, rollout and go-around. FlightTelemetry per tick; Take off and Land brain nodes; brain movement adapts to FlyTo/Park. Editor and MCP preview fly a Circuit course and report phases and touchdown; about 1 µs per aircraft per tick (release, physics included). Wind, crosswind landings and right-hand circuits remain planned."
+summary = "fixed_wing_physics profiles fly a dynamic box body by forces and torques only: lift from lift-off speed and angle of attack with stall, parasitic and induced drag, spooled thrust, control-surface authority by dynamic pressure, and a wheel model (rolling resistance, brakes, tyre grip, nosewheel steering) on a frictionless collider. FlightGoal: Park, TakeOff, Hold (compass heading/altitude/speed), FlyTo, Taxi, Manual sticks (max bank 0 = aerobatics) and Land on a rectangular scene-map zone via a left-hand circuit, final with fixed nose-up attitude and PID power on a 3° glide path, flare, rollout and go-around. FlightTelemetry per tick; Taxi, Take off, Hold course and Land brain nodes; brain movement adapts to FlyTo/Park. Editor and MCP preview fly a Circuit course and report phases and touchdown; about 1 µs per aircraft per tick (release, physics included). Wind, crosswind landings and right-hand circuits remain planned."
 
 [[capabilities]]
 id = "navigation.airports"
@@ -409,7 +409,7 @@ name = "Airports and control tower"
 status = "preview"
 owner = "locomotion"
 depends_on = ["physics.fixed-wing", "navigation.paths"]
-summary = "Airports are scene-map items tagged aeroway=aerodrome|runway|taxiway|holding_position|parking_position|tower|holding_fix (OpenStreetMap values); runways take circuit=left|right, direction and active tags. FlightGoal::Arrive/Depart (and the Depart airport / Arrive at airport brain nodes) hand physical aircraft to a tower that sequences arrivals (four in the circuit, the rest stacked over a holding fix, base-turn spacing by remaining approach distance, landing clearance only on a clear runway, go-arounds re-sequenced), releases departures from the holding position, routes taxiing over the taxiway network and assigns free stands. Scene-map Airport tools place tagged items. Scene [wind] (speed, from) drives air-relative flight with crabbed crosswind approaches; towers land into the wind with tailwind hysteresis; the scene map overlays the landing direction, circuit legs, join point, holding fix and wind. Gusts, several active runways, live traffic on the map and ground collision avoidance remain planned."
+summary = "Airports are scene-map items tagged aeroway=aerodrome|runway|threshold|taxiway|holding_position|parking_position|tower|holding_fix (OpenStreetMap values; threshold boxes set the landing ends and line-up point, taxiway lines auto-join where they cross or end within 15 m, unlinked stands and holding positions join the nearest line; aerodrome scale tag for miniature airports (circuits, heights, spacing and gates shrink; aircraft speed sets turn size); aeroway=circuit waypoint paths with leg tags and waypoint entry/exit course ranges and altitude replace the generated circuit for a runway end); runways take circuit=left|right, direction and active tags. FlightGoal::Arrive/Depart (and the Depart airport / Arrive at airport brain nodes) hand physical aircraft to a tower that sequences arrivals (four in the circuit, the rest stacked over a holding fix, base-turn spacing by remaining approach distance, landing clearance only on a clear runway, go-arounds re-sequenced), releases departures from the holding position, routes taxiing over the taxiway network and assigns free stands. Scene-map Airport tools place tagged items. Scene [wind] (speed, from) drives air-relative flight with crabbed crosswind approaches; towers land into the wind with tailwind hysteresis; the scene map overlays the landing direction, circuit legs, join point, holding fix and wind. Gusts, several active runways, live traffic on the map and ground collision avoidance remain planned."
 
 [[capabilities]]
 id = "input.actions"
@@ -436,7 +436,7 @@ name = "Navigation and pathfinding"
 status = "preview"
 owner = "navigation"
 depends_on = ["world.transforms-3d"]
-summary = "Scene map (MAP-1): waypoint networks with A* routes weighted by zone travel costs, circle and rotated-rectangle zones with layers and blocked areas, name/value metadata queries, a grid index refreshed each tick. Navmeshes and brain path nodes remain planned."
+summary = "Scene map (MAP-1): waypoint networks with A* routes weighted by zone travel costs, circle and rotated-rectangle zones with layers and blocked areas, name/value metadata queries, a grid index refreshed each tick. The top-down map editor can author scene or prefab-local waypoints, zones and metadata; spawned prefab copies resolve through World transforms. Already-expanded scene copies do not follow later prefab edits. Navmeshes and brain path nodes remain planned."
 
 [[capabilities]]
 id = "ui.assets"
@@ -648,7 +648,7 @@ name = "Headless terrain preparation"
 status = "preview"
 owner = "terrain"
 depends_on = ["geometry.meshes", "procedural.noise"]
-summary = "TerrainSettings validates/serializes independent-patch recipes, defaulting to algorithm v2 mountain massifs with uneven summits/saddles/shoulders while preserving explicit v1 output. generate returns an owned TerrainField with world-space heights and a smooth Mesh conversion; from_heights validates frozen authored samples. Perlin and diamond-square, controlled main peaks/ridges, domain warp, bounded conservative thermal erosion. This is preparation outside the game loop; no new identity owner, streaming, saved terrain loader, collider or seamless edge contract."
+summary = "TerrainSettings validates/serializes independent-patch recipes, defaulting to algorithm v2 mountain massifs with uneven summits/saddles/shoulders while preserving explicit v1 output. generate returns an owned TerrainField with world-space heights and a smooth Mesh conversion; from_heights validates frozen authored samples. Perlin and diamond-square, controlled main peaks/ridges, domain warp, bounded conservative thermal erosion. This is preparation outside the game loop; no new identity owner, streaming, saved terrain loader or collider. Continuous worlds: TerrainWorld (versioned, bounded, centred chunk grid) prepares owned 129-sample TerrainChunks on one global i64 lattice with halo central-difference normals, so neighbouring chunk borders match exactly; chunk-local meshes with f64 origins. height_band_weights and Material::terrain_blend give world-continuous height-band materials (triplanar images with a wrapped world projection offset; noise-map layers rejected); a rendered 2x2 fixture matches one merged mesh. No chunk storage, chunk LOD selection, streaming or collision yet."
 
 
 [[capabilities]]

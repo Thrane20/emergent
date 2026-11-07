@@ -26,6 +26,7 @@ pub mod locomotion;
 pub mod map;
 mod model;
 mod motion;
+mod taxi;
 pub mod tower;
 pub mod wind;
 #[cfg(feature = "graphics")]
@@ -49,11 +50,26 @@ mod raymarched_terrain;
 mod raymarched_terrain_graphics;
 #[cfg(feature = "graphics")]
 pub use raymarched_terrain_graphics::{RaymarchedFrameStats, RaymarchedRenderOptions};
+mod animation;
+mod bvh;
+mod humanoid;
+mod ik;
+mod retarget;
 mod scene;
+mod skeleton;
+pub use animation::{
+    AnimationChannel, AnimationClip, Animator, AnimatorInputs, ChannelProperty, Interpolation,
+};
+pub use bvh::{Motion, BVH_MAX_BYTES, BVH_MAX_FRAMES};
+pub use humanoid::{detect_bone, HumanoidBone, HumanoidMap};
+pub use ik::{look_at, two_bone};
+pub use retarget::{retarget, RETARGET_FPS};
+pub use skeleton::{Skeleton, SkeletonError, SKELETON_MAX_JOINTS};
 #[cfg(feature = "graphics")]
 mod skybox_graphics;
 mod structure;
 mod terrain;
+mod terrain_world;
 mod texture;
 mod tween;
 pub mod ui;
@@ -72,8 +88,8 @@ pub use behavior::{
 pub use bevy_ecs;
 pub use bevy_ecs::component::Component;
 pub use brain::{
-    BrainAgent, BrainDefinition, BrainSettings, CompiledBrain, Group, GroupNames, Look,
-    PublishedSignals, Signal,
+    BrainAgent, BrainDefinition, BrainMode, BrainModeError, BrainSettings, CompiledBrain, Group,
+    GroupNames, Look, PublishedSignals, Signal,
 };
 pub use camera::{Camera, CameraError, CameraProjection};
 pub use component::{ComponentField, ComponentRegistry, ComponentType, ComponentValues, FieldKind};
@@ -81,8 +97,10 @@ pub use engine::{
     Engine, EngineConfig, EngineContext, EngineError, FrameAdvance, Game, SchedulePhase,
     SimulationTime,
 };
-pub use geometry::{Color, Geometry, GeometryError, Line, Mesh, MeshVertex, Point, Polygon};
-pub use glam::{EulerRot, Mat4, Quat, Vec2, Vec3};
+pub use geometry::{
+    Color, Geometry, GeometryError, Line, Mesh, MeshSkin, MeshVertex, Point, Polygon,
+};
+pub use glam::{EulerRot, Mat4, Quat, Vec2, Vec3, Vec4};
 #[cfg(feature = "graphics")]
 pub use graphics::{
     CubeRenderer, GeometryId, GeometryInstance, GeometryRenderer, GraphicsError, LightInstance,
@@ -126,20 +144,24 @@ pub use physics::{
 };
 
 pub use material::{
-    Material, MaterialDefinition, MaterialError, MaterialLayer, MaterialNoiseMap, MaterialShading,
-    MaterialTextureMap, TerrainPaint,
+    Material, MaterialDefinition, MaterialError, MaterialLayer, MaterialNoiseMap, MaterialSection,
+    MaterialSections, MaterialShading, MaterialTextureMap, TerrainPaint,
 };
 pub use model::{
     ImportedModel, ModelError, MODEL_MAX_BYTES, MODEL_MAX_TRIANGLES, MODEL_MAX_VERTICES,
 };
 
 pub use terrain::{TerrainBase, TerrainField, TerrainPreset, TerrainSettings, TERRAIN_RESOLUTIONS};
+pub use terrain_world::{
+    height_band_weights, ChunkCoord, TerrainChunk, TerrainWorld, TERRAIN_CHUNK_CELLS,
+};
 
 pub use texture::{TextureImage, TEXTURE_MAX_BYTES, TEXTURE_MAX_PIXELS};
 pub use tween::{lerp, Easing, Tween, TweenDefinition, TweenError, TweenPlayback, TweenSettings};
 
 pub use structure::{
-    PolygonMesh, StructureDefinition, StructureError, StructurePart, StructureTransform,
+    PolygonMesh, StructureDefinition, StructureError, StructureMaterialSection, StructurePart,
+    StructureTransform,
 };
 
 pub use particles::{

@@ -20,8 +20,10 @@ export function FieldInput({field,label,value,instances,brains=[],profiles=[],cl
   case "brain":return select(brains,typeof value==="string"?value:undefined);
   case "locomotion":return select(profiles,typeof value==="string"?value:undefined);
   case "audio":return select(clips,typeof value==="string"?value:undefined);
+  // The inspector edits modes in BrainModesEditor; elsewhere they show read-only.
+  case "modes":{const modes=Array.isArray(value)?value.filter((m):m is Record<string,string|boolean>=>!!m&&typeof m==="object"&&!Array.isArray(m)):[];return <span aria-label={label}>{modes.length?modes.map(m=>`${m.name}${m.active===true?" (on)":""}`).join(", "):"None"}</span>;}
   case "pairs":return <PairsInput label={label} value={pairsValue(value)?value:{}} onChange={onChange}/>;
-  case "text":return <input type="text" aria-label={label} maxLength={64} value={typeof value==="string"?value:""} placeholder={typeof field.default==="string"?field.default:""} onChange={event=>onChange(event.target.value)}/>;
+  case "text":return <input type="text" aria-label={label} maxLength={field.max ?? 64} value={typeof value==="string"?value:""} placeholder={typeof field.default==="string"?field.default:""} onChange={event=>onChange(event.target.value)}/>;
   case "choice":return <select aria-label={label} value={typeof value==="string"?value:typeof field.default==="string"?field.default:""} onChange={event=>onChange(event.target.value)}>{(field.options??[]).map(option=><option key={option} value={option}>{option.replaceAll("_"," ")}</option>)}</select>;
   case "entities":case "brains":{
    const options=field.kind==="brains"?brains:instances;

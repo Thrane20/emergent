@@ -476,6 +476,125 @@ fn brain_take_off_and_land_nodes_fly_the_aircraft() {
 }
 
 #[test]
+fn a_low_take_off_height_still_takes_off() {
+    // Regression: a fixed 10 m finish window made any take_off height ≤ 10 m finish on the ground.
+    let f = Fixture::new("");
+    fs::create_dir_all(f.0.join("assets/brains")).unwrap();
+    fs::write(f.0.join("assets/brains/hop.brain.toml"), "schema_version=1\nid='hop'\nkind='brain'\n[[nodes]]\nid='up'\ntype='take_off'\nheight=10\n").unwrap();
+    let brain = "[[entities.components]]\ntype='emergent.brain'\nbrain='assets/brains/hop.brain.toml'\nmax_speed=60\n";
+    let scene = f.scene_with(0.0, brain).unwrap();
+    let mut engine = Engine::new(EngineConfig::default()).unwrap();
+    let plane = scene.instantiate(engine.world_mut()).unwrap().entities["plane"];
+    let mut highest = 0.0f32;
+    for _ in 0..60 {
+        fly(&mut engine, plane, 1.0, |t| {
+            highest = highest.max(t.altitude)
+        });
+    }
+    assert!(highest > 9.0, "climbed towards 10 m: {highest}");
+}
+
+#[test]
+fn brain_modes_park_taxi_take_off_and_hold_course_on_the_towers_clearance() {
+    let f = Fixture::new("");
+    fs::write(
+        f.0.join("assets/point.entity.toml"),
+        "schema_version = 1\nid = 'point'\nkind = 'entity'\n",
+    )
+    .unwrap();
+    fs::create_dir_all(f.0.join("assets/brains")).unwrap();
+    let brain = |name: &str, nodes: &str| {
+        fs::write(
+            f.0.join(format!("assets/brains/{name}.brain.toml")),
+            format!("schema_version=1\nid='{name}'\nkind='brain'\n{nodes}"),
+        )
+        .unwrap();
+        format!("assets/brains/{name}.brain.toml")
+    };
+    // Parked until the tower's "cleared" signal; then taxi to the holding point 80 m ahead,
+    // take off to 60 m and hold the heading it faced at 80 m.
+    let park = brain("park", "[[nodes]]\nid='p'\ntype='priority'\n[[nodes]]\nid='heard'\nparent='p'\ntype='on_signal'\nname='cleared'\nhold=1\n[[nodes]]\nid='go'\nparent='heard'\ntype='switch_mode'\nmode='taxi'\nexclusive=true\n[[nodes]]\nid='stop'\nparent='p'\ntype='brake'\n");
+    let taxi = brain("taxi", "[[nodes]]\nid='t'\ntype='taxi'\ngroup='holding'\n");
+    let takeoff = brain(
+        "takeoff",
+        "[[nodes]]\nid='up'\ntype='take_off'\nheight=60\n",
+    );
+    let cruise = brain(
+        "cruise",
+        "[[nodes]]\nid='h'\ntype='hold_course'\nheight=80\n",
+    );
+    // The tower clears the plane on its first tick; the plane hears it on the next.
+    let tower = brain(
+        "tower",
+        "[[nodes]]\nid='say'\ntype='signal'\nname='cleared'\ncooldown=1000\n",
+    );
+    let mode = |name: &str, brain: &str, extra: &str| {
+        format!("[[entities.components.modes]]\nname='{name}'\nbrain='{brain}'\n{extra}\n")
+    };
+    let extra = format!(
+        "[[entities.components]]\ntype='emergent.brain'\nmax_speed=60\n{}{}{}{}[[entities]]\nid='tower'\nasset='assets/point.entity.toml'\n[[entities.components]]\ntype='emergent.brain'\nbrain='{tower}'\n[[entities]]\nid='hold_short'\nasset='assets/point.entity.toml'\n[entities.transform]\ntranslation=[0,0,-80]\n[[entities.components]]\ntype='emergent.group'\nname='holding'\n",
+        mode("park", &park, "active=true"),
+        mode("taxi", &taxi, "on_next='takeoff'"),
+        mode("takeoff", &takeoff, "on_next='cruise'"),
+        mode("cruise", &cruise, ""),
+    );
+    let scene = f.scene_with(0.0, &extra).unwrap();
+    let mut engine = Engine::new(EngineConfig::default()).unwrap();
+    let plane = scene.instantiate(engine.world_mut()).unwrap().entities["plane"];
+    let active = |engine: &Engine| {
+        engine
+            .world()
+            .brain_modes(plane)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, on)| *on)
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(active(&engine), ["park"]);
+    let mut seen: Vec<String> = vec!["park".into()];
+    let (mut highest, mut taxi_end, mut last) = (0.0f32, None, FlightTelemetry::default());
+    for _ in 0..240 {
+        last = fly(&mut engine, plane, 1.0, |t| {
+            highest = highest.max(t.altitude)
+        });
+        let now = active(&engine);
+        assert!(now.len() <= 1, "one mode at a time: {now:?}");
+        if let Some(name) = now.first().filter(|n| seen.last() != Some(*n)) {
+            if seen.last().map(String::as_str) == Some("taxi") {
+                taxi_end = Some(
+                    engine
+                        .world()
+                        .global_transform(plane)
+                        .unwrap()
+                        .translation(),
+                );
+            }
+            seen.push(name.clone());
+        }
+        if seen.last().map(String::as_str) == Some("cruise") && highest > 75.0 {
+            break;
+        }
+    }
+    assert_eq!(seen, ["park", "taxi", "takeoff", "cruise"]);
+    let stopped = taxi_end.expect("taxied");
+    assert!(
+        emergent::Vec3::new(stopped.x, 0.0, stopped.z + 80.0).length() < 6.0,
+        "stopped at the holding point: {stopped}"
+    );
+    assert!(highest > 59.0, "climbed: {highest}");
+    let held = fly(&mut engine, plane, 40.0, |_| {});
+    assert!(
+        held.airborne && (held.altitude - 80.0).abs() < 10.0,
+        "holds 80 m: {held:?} (last {last:?})"
+    );
+    assert!(
+        angle_error(held.heading, 0.0) < 10.0,
+        "on the heading it faced: {held:?}"
+    );
+}
+
+#[test]
 fn crosswind_landings_crab_onto_the_centreline_and_headwinds_shorten_the_roll() {
     // 6 m/s from the west across a northbound runway (blowing towards +X).
     let f = Fixture::new("");

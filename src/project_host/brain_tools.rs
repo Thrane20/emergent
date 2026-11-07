@@ -37,7 +37,7 @@ pub fn validate(
         _ => return Err("usage: --validate-brain <path> [--candidate <file>]".into()),
     };
     let brain = candidate(project, registry, path, file)?;
-    println!(
+    outln!(
         "Brain '{}' validated: {} nodes",
         brain.name,
         brain.node_count()
@@ -103,7 +103,7 @@ pub fn preview(
         }
     }
     let trace = simulate(&brain, &config)?;
-    println!(
+    outln!(
         "brain-preview 2 agents={} targets={} obstacles={} frame_seconds={}",
         trace.agents,
         trace.targets,
@@ -118,14 +118,14 @@ pub fn preview(
             let _ = write!(line, " {:.3} {:.3} {:.3}", centre.x, centre.z, radius);
         }
     }
-    println!("{line}");
+    outln!("{line}");
     for frame in &trace.frames {
         line.clear();
         for p in frame {
             use std::fmt::Write;
             let _ = write!(line, "{:.3} {:.3} {:.3} ", p.x, p.y, p.z);
         }
-        println!("{}", line.trim_end());
+        outln!("{}", line.trim_end());
     }
     Ok(())
 }

@@ -13,6 +13,8 @@ use crate::{EngineError, EntityId, Input, Key, Vec3, World};
 pub struct CharacterController {
     /// Horizontal speed in metres per second.
     pub speed: f32,
+    /// Speed while Shift is held; 0 leaves Shift unused.
+    pub run_speed: f32,
     /// Upward speed applied by Space when the body has supporting ground contact; 0 disables jumping.
     pub jump_speed: f32,
     /// Move relative to where the active camera looks (third person), or along world axes.
@@ -193,7 +195,12 @@ pub(crate) fn step(world: &mut World, input: Input, dt: Duration) -> Result<(), 
             let (forward, right) = basis(world, controller.camera_relative);
             let wish = forward * (input.axis(Key::S, Key::W) + input.axis(Key::Down, Key::Up))
                 + right * (input.axis(Key::A, Key::D) + input.axis(Key::Left, Key::Right));
-            let velocity = wish.normalize_or_zero() * controller.speed;
+            let speed = if controller.run_speed > 0.0 && input.held(Key::Shift) {
+                controller.run_speed
+            } else {
+                controller.speed
+            };
+            let velocity = wish.normalize_or_zero() * speed;
             let jump = (controller.jump_speed > 0.0 && input.pressed(Key::Space))
                 .then_some(controller.jump_speed);
             let dynamic = matches!(world.component::<crate::PhysicsBody>(id)?,

@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::fmt;
 
-use glam::{Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 use crate::Primitive;
 
@@ -235,6 +235,18 @@ impl MeshVertex {
 pub struct Mesh {
     vertices: Vec<MeshVertex>,
     indices: Vec<u32>,
+    skin: Option<Box<MeshSkin>>,
+}
+
+/// Per-vertex joint influences for linear blend skinning (SKEL-1).
+#[derive(Clone, Debug, PartialEq)]
+pub struct MeshSkin {
+    /// Up to four palette indices per vertex.
+    pub joints: Vec<[u16; 4]>,
+    /// Matching weights; a vertex whose weights are all zero is drawn unskinned.
+    pub weights: Vec<[f32; 4]>,
+    /// Palette shown until a pose is supplied: the skeleton's rest pose.
+    pub rest_palette: Vec<Mat4>,
 }
 
 impl Mesh {
@@ -265,7 +277,11 @@ impl Mesh {
                 return Err(GeometryError::DegenerateMeshTriangle { triangle });
             }
         }
-        Ok(Self { vertices, indices })
+        Ok(Self {
+            vertices,
+            indices,
+            skin: None,
+        })
     }
 
     pub fn vertices(&self) -> &[MeshVertex] {
@@ -274,6 +290,30 @@ impl Mesh {
 
     pub fn indices(&self) -> &[u32] {
         &self.indices
+    }
+
+    pub fn skin(&self) -> Option<&MeshSkin> {
+        self.skin.as_deref()
+    }
+
+    /// Attaches joint influences; one per vertex, indices inside the palette.
+    pub fn with_skin(mut self, skin: MeshSkin) -> Result<Self, GeometryError> {
+        let palette = skin.rest_palette.len();
+        if skin.joints.len() != self.vertices.len()
+            || skin.weights.len() != self.vertices.len()
+            || !(1..=crate::SKELETON_MAX_JOINTS).contains(&palette)
+            || skin.joints.iter().flatten().any(|&j| j as usize >= palette)
+            || skin
+                .weights
+                .iter()
+                .flatten()
+                .any(|w| !w.is_finite() || *w < 0.0)
+            || !skin.rest_palette.iter().all(|m| m.is_finite())
+        {
+            return Err(GeometryError::InvalidSkin);
+        }
+        self.skin = Some(Box::new(skin));
+        Ok(self)
     }
 
     pub fn cube(half_extent: f32) -> Result<Self, GeometryError> {
@@ -393,6 +433,7 @@ pub enum GeometryError {
     DegenerateMeshTriangle {
         triangle: usize,
     },
+    InvalidSkin,
 }
 
 impl fmt::Display for GeometryError {
@@ -459,6 +500,9 @@ impl fmt::Display for GeometryError {
             Self::DegenerateMeshTriangle { triangle } => {
                 write!(formatter, "mesh triangle {triangle} has no usable surface area")
             }
+            Self::InvalidSkin => formatter.write_str(
+                "mesh skin needs one finite, non-negative influence set per vertex within a 1-256 joint palette",
+            ),
         }
     }
 }

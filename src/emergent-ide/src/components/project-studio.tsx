@@ -13,6 +13,7 @@ import { ProjectChat } from "@/components/project-chat";
 import { ProjectRunControl } from "@/components/project-run-control";
 import { StatementsPanel } from "@/components/statements-panel";
 import { ModelPreview } from "@/components/model-preview";
+import { RigImport, RigPanel } from "@/components/rig-panel";
 import { MaterialInspector } from "@/components/material-inspector";
 import type { MaterialSettings } from "@/lib/material-settings";
 import { PhysicsInspector } from "@/components/physics-inspector";
@@ -374,6 +375,7 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
                 ? <details open className="tree-branch tree-project"><summary>{project.name}</summary><TreeContents node={fileTree} selected={selected.path} onSelect={selectFile} /></details>
                 : <p className="empty">No match for “{query}”.</p>}
               </div></details>
+            <RigImport projectId={project.id} onImported={path=>{if(!canNavigate())return;setQuery("");setSelectedPath(path);setInstanceId(null);setView("preview");router.refresh();}} />
             <AddAssetModal files={project.files} onInstantiate={currentPlacement ? asset => instantiatePrefab(asset, null, currentPlacement.revision) : undefined} onBeforeOpen={canNavigate} projectId={project.id} scenePath={scenes.some((scene) => scene.path === scenePath) ? scenePath : scenes[0]?.path} onCreated={(path, warning) => {
               setSceneError(warning ?? "");
               setQuery("");
@@ -389,7 +391,7 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
           <div className="canvas-toolbar">
             {selected.path.endsWith(".entity.toml")&&selected.content&&/^kind\s*=\s*["']particle-effect["']/m.test(selected.content)&&<Link className="quiet-button" href={`/particles?asset=${encodeURIComponent(selected.path)}&scene=${encodeURIComponent(activeScenePath??project.entryScene)}`} onClick={event=>{if(!canNavigate())event.preventDefault();}}>Open Particle Generator ↗</Link>}
             {selected.kind==="tween"&&<Link className="quiet-button" href={`/tweens?asset=${encodeURIComponent(selected.path)}&scene=${encodeURIComponent(activeScenePath??project.entryScene)}`} onClick={event=>{if(!canNavigate())event.preventDefault();}}>Open Tween Editor ↗</Link>}
-            <div className="view-switch">{(["scene", ...((selectedNoise || selected.kind==="model" || selected.name==="object.asset.json") ? ["preview" as const] : []), "source","toml"] as View[]).map((item) => <button disabled={item==="toml"&&!tomlEditable} key={item} className={view === item ? "selected" : ""} onClick={() => {if(item!==view&&canNavigate())setView(item);}}>{item==="toml"?"TOML":capitalize(item)}</button>)}</div>
+            <div className="view-switch">{(["scene", ...((selectedNoise || selected.kind==="model" || selected.name==="object.asset.json" || !!previewSource(selected)) ? ["preview" as const] : []), "source","toml"] as View[]).map((item) => <button disabled={item==="toml"&&!tomlEditable} key={item} className={view === item ? "selected" : ""} onClick={() => {if(item!==view&&canNavigate())setView(item);}}>{item==="toml"?"TOML":capitalize(item)}</button>)}</div>
           </div>
           {(sceneError || inspectionError) && <p className="scene-load-error" role="alert">{sceneError || inspectionError}</p>}
           {externalNotice && <p className="scene-external-change" role="status">{externalNotice}</p>}
@@ -398,7 +400,7 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
           </section>}
           {placeAt&&currentPlacement&&<PlaceHereModal projectId={project.id} scenePath={currentPlacement.path} revision={currentPlacement.revision} files={project.files} hit={placeAt} surfaceName={currentPlacement.instances.find(item=>item.id===placeAt.id)?.name??placeAt.id} onClose={()=>setPlaceAt(null)}/>}
           {view === "scene" && !inspection && <div className="scene-empty">{inspectionLoading ? "Starting scene inspection…" : inspectionError ? "Scene inspection could not start. Use Load to retry." : "Choose a scene to inspect it."}</div>}
-          {view === "preview" && (selectedNoise?<div className="noise-overview" ref={setNoisePreviewTarget}/>:<AssetPreview project={project} file={selected} />)}
+          {view === "preview" && (selectedNoise?<div className="noise-overview" ref={setNoisePreviewTarget}/>:<AssetPreview project={project} file={selected} onImported={path=>{setSelectedPath(path);setInstanceId(null);setView("preview");router.refresh();}} />)}
           {view === "source" && (/\.(entity|tween)\.toml$/.test(selected.path) ? <TomlEditor key={`source:${selected.path}:${tomlEpoch}`} projectId={project.id} path={selected.path} onDirty={markTomlDirty} onBusy={markTomlBusy} onSaved={()=>{router.refresh();setInspectorReload(value=>value+1);}}/> : <SourceView file={selected} />)}
           {view==="toml"&&tomlEditable&&tomlPath&&<>
             {selectedInstance&&<label className="toml-document-picker">TOML document<select aria-label="TOML document" value={tomlScope} disabled={tomlBusy} onChange={event=>{if(canNavigate())setTomlScope(event.target.value);}}><option value="scene">Scene overrides</option><option value="asset">Entity asset</option></select></label>}
@@ -450,13 +452,21 @@ export function ProjectStudio({ project, aiSettings,initialScene=project.entrySc
   );
 }
 
-function AssetPreview({ project, file }: { project: ProjectSnapshot; file: ProjectFile }) {
-  let modelPath = file.path.endsWith(".glb") ? file.path : null;
+/** The model (or BVH take) a file previews: the file itself, a model entity's `model`, or a generated object's descriptor. */
+function previewSource(file: ProjectFile): string | null {
+  if (/\.(glb|vrm|bvh)$/i.test(file.path)) return file.path;
   if (file.name === "object.asset.json" && file.content) {
-    try { const descriptor = JSON.parse(file.content); if (typeof descriptor.model === "string") modelPath = descriptor.model; } catch { /* Invalid descriptors still have a source view. */ }
+    try { const descriptor = JSON.parse(file.content); if (typeof descriptor.model === "string") return descriptor.model; } catch { /* Invalid descriptors still have a source view. */ }
   }
-  if (modelPath) return <div className="model-overview"><ModelPreview key={modelPath} name={file.name} src={`/api/project-asset?projectId=${encodeURIComponent(project.id)}&path=${encodeURIComponent(modelPath)}`} /></div>;
-  return <SourceView file={file} />;
+  if (file.path.endsWith(".entity.toml") && file.content && /^kind\s*=\s*["']model["']/m.test(file.content)) return /^model\s*=\s*["']([^"']+)["']/m.exec(file.content)?.[1] ?? null;
+  return null;
+}
+
+function AssetPreview({ project, file, onImported }: { project: ProjectSnapshot; file: ProjectFile; onImported: (path: string) => void }) {
+  const source = previewSource(file);
+  if (!source) return <SourceView file={file} />;
+  const url = source.endsWith(".bvh") ? undefined : `/api/project-asset?projectId=${encodeURIComponent(project.id)}&path=${encodeURIComponent(source)}`;
+  return <div className="model-overview">{url ? <ModelPreview key={source} name={file.name} src={url} /> : <SourceView file={file} />}<RigPanel key={`rig:${source}`} projectId={project.id} path={source} assetUrl={url} onImported={onImported} /></div>;
 }
 
 function SourceView({ file }: { file: ProjectFile }) {

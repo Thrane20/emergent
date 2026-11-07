@@ -26,8 +26,9 @@ function zoneStyle(cost:number,blocked:boolean){
  return {fill:"rgba(120,170,230,.12)",stroke:"#8ab4e8"};
 }
 
-export function SceneMapEditor({projectId,projectName,scenes,initialScene}:{projectId:string;projectName:string;scenes:string[];initialScene:string}){
+export function SceneMapEditor({projectId,projectName,scenes,prefabs,initialScene}:{projectId:string;projectName:string;scenes:string[];prefabs:{path:string;name:string}[];initialScene:string}){
  const [scene,setScene]=useState(initialScene),[map,setMap]=useState<SceneMapModel|null>(null),[types,setTypes]=useState<ComponentType[]>([]);
+ const isPrefab=scene.endsWith(".prefab.toml");
  const [view,setView]=useState<MapView>({x:0,z:0,height:60}),[size,setSize]=useState({width:800,height:600}),fitted=useRef("");
  const [toolId,setToolId]=useState("select"),[selected,setSelected]=useState<string|null>(null),[parent,setParent]=useState(""),[linkFrom,setLinkFrom]=useState<string|null>(null);
  const [overlay,setOverlay]=useState(true),[draft,setDraft]=useState<Draft|null>(null),[hover,setHover]=useState<[number,number]|null>(null),[busy,setBusy]=useState(""),[error,setError]=useState("");
@@ -125,7 +126,7 @@ export function SceneMapEditor({projectId,projectName,scenes,initialScene}:{proj
    if(event.target instanceof HTMLElement&&event.target.closest("input,textarea,select"))return;
    if(event.key==="Escape"){setDraft(null);setLinkFrom(null);}
    if(event.key==="Enter")finishPath();
-   if((event.key==="Delete"||event.key==="Backspace")&&selected&&!busy){const item=byId.get(selected);if(item&&window.confirm(`Delete ${item.name}${instances.some(other=>other.parent===item.id)?" and everything under it":""}?`)){setSelected(null);void act({action:"delete",id:selected},"Deleting…");}}
+   if((event.key==="Delete"||event.key==="Backspace")&&selected&&selected!==map?.root&&!busy){const item=byId.get(selected);if(item&&window.confirm(`Delete ${item.name}${instances.some(other=>other.parent===item.id)?" and everything under it":""}?`)){setSelected(null);void act({action:"delete",id:selected},"Deleting…");}}
   };
   window.addEventListener("keydown",key);return()=>window.removeEventListener("keydown",key);
  });
@@ -140,7 +141,7 @@ export function SceneMapEditor({projectId,projectName,scenes,initialScene}:{proj
  const waypointOptions=instances.filter(instance=>waypointLinks(instance)).map(instance=>({id:instance.id,name:instance.name}));
 
  return <main className="object-shell brain-shell map-shell">
-  <header className="settings-topbar"><Link className="brand" href="/"><span className="brand-mark">E</span><span>Emergent</span><b>IDE</b></Link><span className="settings-breadcrumb">{projectName} / <b>Scene map</b></span><Link href={`/?scene=${encodeURIComponent(scene)}`} className="quiet-button">Open scene ↗</Link></header>
+  <header className="settings-topbar"><Link className="brand" href="/"><span className="brand-mark">E</span><span>Emergent</span><b>IDE</b></Link><span className="settings-breadcrumb">{projectName} / <b>Map</b></span>{!isPrefab&&<Link href={`/?scene=${encodeURIComponent(scene)}`} className="quiet-button">Open scene ↗</Link>}</header>
   <div className="brain-layout map-layout">
    <aside className="panel brain-library map-tools" aria-label="Map tools">
     <div className="panel-head"><h2>Tools</h2></div>
@@ -149,14 +150,14 @@ export function SceneMapEditor({projectId,projectName,scenes,initialScene}:{proj
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d={item.icon}/></svg><span>{item.label}</span></button></Fragment>)}
     </div>
     <p className="brain-hint map-hint">{tool.hint}{tool.id==="link"&&linkFrom?` From: ${byId.get(linkFrom)?.name}.`:""}</p>
-    <label className="map-field"><span>Scene</span><select value={scene} onChange={event=>{setScene(event.target.value);setSelected(null);setDraft(null);}}>{scenes.map(path=><option key={path} value={path}>{path.replace(/^.*\//,"").replace(/\.scene\.toml$/,"")}</option>)}</select></label>
-    <label className="map-field"><span>Place under</span><select value={parent} onChange={event=>setParent(event.target.value)}><option value="">Scene root</option>{instances.map(instance=><option key={instance.id} value={instance.id}>{instance.name}</option>)}</select></label>
+    <label className="map-field"><span>Map source</span><select value={scene} onChange={event=>{setScene(event.target.value);setMap(null);setSelected(null);setParent("");setDraft(null);}}><optgroup label="Scenes">{scenes.map(path=><option key={path} value={path}>{path.replace(/^.*\//,"").replace(/\.scene\.toml$/,"")}</option>)}</optgroup><optgroup label="Prefabs">{prefabs.map(prefab=><option key={prefab.path} value={prefab.path} title={prefab.path}>{prefab.name}</option>)}</optgroup></select></label>
+    <label className="map-field"><span>Place under</span><select value={parent} onChange={event=>setParent(event.target.value)}><option value="">{isPrefab?"Prefab root":"Scene root"}</option>{instances.filter(instance=>instance.id!==map?.root).map(instance=><option key={instance.id} value={instance.id}>{instance.name}</option>)}</select></label>
     <label className="map-field map-check"><input type="checkbox" checked={overlay} onChange={event=>setOverlay(event.target.checked)}/><span>Airport overlay</span></label>
-    {map&&<WindControls key={`${scene}:${map.wind?.speed??0}:${map.wind?.from??0}`} wind={map.wind} busy={Boolean(busy)} onApply={wind=>void act({action:"wind",wind},"Saving the wind…")}/>}
+    {map&&!isPrefab&&<WindControls key={`${scene}:${map.wind?.speed??0}:${map.wind?.from??0}`} wind={map.wind} busy={Boolean(busy)} onApply={wind=>void act({action:"wind",wind},"Saving the wind…")}/>}
     <div className="map-legend" aria-label="Zone colours"><span><i className="cost-low"/>preferred</span><span><i className="cost-neutral"/>normal</span><span><i className="cost-high"/>avoided</span><span><i className="cost-blocked"/>blocked</span></div>
    </aside>
    <section className="panel brain-workspace map-workspace">
-    <div className="panel-head"><div className="brain-title"><b>{scene.replace(/^.*\//,"").replace(/\.scene\.toml$/,"")}</b><span className="kind-badge">{instances.filter(isMapItem).length} MAP ITEMS</span></div>
+    <div className="panel-head"><div className="brain-title"><b>{prefabs.find(prefab=>prefab.path===scene)?.name??scene.replace(/^.*\//,"").replace(/\.(scene|prefab)\.toml$/,"")}</b><span className="kind-badge">{isPrefab?"PREFAB":"SCENE"}</span><span className="kind-badge">{instances.filter(isMapItem).length} MAP ITEMS</span></div>
      <div className="view-switch"><span className="map-readout">{hover?`x ${hover[0].toFixed(1)}  z ${hover[1].toFixed(1)} · `:""}height {view.height.toFixed(0)} m</span>
       <button type="button" onClick={()=>setView(current=>({...current,height:Math.max(current.height/1.5,2)}))} aria-label="Zoom in">＋</button><button type="button" onClick={()=>setView(current=>({...current,height:Math.min(current.height*1.5,20000)}))} aria-label="Zoom out">－</button>
       <button type="button" disabled={!map} onClick={()=>{if(map)fit(map);}}>Fit</button>
@@ -170,7 +171,8 @@ export function SceneMapEditor({projectId,projectName,scenes,initialScene}:{proj
        <marker id="map-circuit-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0 10 5 0 10z" fill="#e6cf93"/></marker>
        <marker id="map-landing-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0 10 5 0 10z" fill="#93d6c0"/></marker></defs>
       <g className="map-grid">{grid.lines.map((line,i)=>{const [sx,sy]=screen(line.v?line.p:0,line.v?0:line.p);return line.v?<line key={i} x1={sx} x2={sx} y1={0} y2={size.height} className={line.major?"major":""}/>:<line key={i} y1={sy} y2={sy} x1={0} x2={size.width} className={line.major?"major":""}/>;})}</g>
-      <g className="map-backdrop">{instances.filter(instance=>!isMapItem(instance)).map(instance=>instance.outline.length>=3
+      {map?.topDown&&(()=>{const [x0,y0]=screen(...map.topDown.min),[x1,y1]=screen(...map.topDown.max);return <image className="map-top-down" href={map.topDown.image} x={x0} y={y0} width={x1-x0} height={y1-y0} preserveAspectRatio="none"/>;})()}
+      <g className={`map-backdrop${map?.topDown?" over-image":""}`}>{instances.filter(instance=>!isMapItem(instance)).map(instance=>instance.outline.length>=3
        ?<polygon key={instance.id} points={instance.outline.map(([x,z])=>screen(x,z).join(",")).join(" ")}><title>{instance.name}</title></polygon>
        :<circle key={instance.id} className="map-object-point" cx={screen(...at(instance))[0]} cy={screen(...at(instance))[1]} r={3}><title>{instance.name}</title></circle>)}</g>
       <g className="map-zones">{instances.map(instance=>{const shape=zoneShape(instance);if(!shape)return null;const [x,z]=position(instance),[sx,sy]=screen(x,z),style=zoneStyle(shape.cost,shape.blocked),chosen=instance.id===selected;
@@ -185,12 +187,15 @@ export function SceneMapEditor({projectId,projectName,scenes,initialScene}:{proj
        {airport.runways.map(runway=>{
         const [tx,ty]=screen(...runway.threshold),[ex,ey]=screen(...runway.farEnd);
         const arrow=<line className="map-landing" x1={tx} y1={ty} x2={tx+(ex-tx)*0.45} y2={ty+(ey-ty)*0.45} markerEnd="url(#map-landing-arrow)"/>;
-        if(!runway.active||runway.circuit.length<6)return <g key={runway.id} className="inactive">{arrow}</g>;
+        if(!runway.active)return <g key={runway.id} className="inactive">{arrow}</g>;
+        const landing=<text x={tx} y={ty} dy={18} className="map-airport-label">{`Landing ${Math.round(runway.heading)}°${runway.rightCircuit?" · right circuit":""}`}</text>;
+        // A drawn traffic pattern replaces the generated circuit: its waypoints are on the map.
+        if(runway.circuit.length<6)return <g key={runway.id}>{arrow}{landing}</g>;
         // Circuit points: final turn, threshold, far end, join, base turn, final turn.
         const legs=[["Final",0,1],["Base",4,5],["Downwind",3,4]] as const,points=runway.circuit.map(([x,z])=>screen(x,z));
         const leg=(from:number,to:number)=>[points[from],points[to]] as const;
         return <g key={runway.id}>
-         {arrow}<text x={tx} y={ty} dy={18} className="map-airport-label">{`Landing ${Math.round(runway.heading)}°${runway.rightCircuit?" · right circuit":""}`}</text>
+         {arrow}{landing}
          <line className="map-circuit join" x1={points[2][0]} y1={points[2][1]} x2={points[3][0]} y2={points[3][1]}/>
          {[[3,4],[4,5],[0,1]].map(([from,to])=>{const [[ax,ay],[bx,by]]=leg(from,to);return <line key={from} className="map-circuit" x1={ax} y1={ay} x2={bx} y2={by} markerEnd="url(#map-circuit-arrow)"/>;})}
          {legs.map(([label,from,to])=>{const [[ax,ay],[bx,by]]=leg(from,to);return <text key={label} x={(ax+bx)/2} y={(ay+by)/2} className="map-airport-label">{label}</text>;})}
@@ -207,23 +212,23 @@ export function SceneMapEditor({projectId,projectName,scenes,initialScene}:{proj
      </svg>
      {map?.wind&&map.wind.speed>0&&<div className="map-wind" aria-label={`Wind ${map.wind.speed} m/s from ${Math.round(map.wind.from)}°`}><svg viewBox="-20 -20 40 40" aria-hidden="true"><circle r="18"/><path d="M0 14 L0 -12 M-6 -5 L0 -13 L6 -5" transform={`rotate(${map.wind.from+180})`}/></svg><span>{map.wind.speed} m/s<br/>from {Math.round(map.wind.from)}°</span></div>}
      <div className="map-scale" aria-hidden="true"><i style={{width:grid.step}}/>{grid.metres>=1000?`${grid.metres/1000} km`:`${grid.metres} m`}</div>
-     {!map&&!error&&<p className="map-loading">Loading the scene…</p>}
+     {!map&&!error&&<p className="map-loading">Loading the map…</p>}
     </div>
    </section>
    <aside className="panel brain-inspector" aria-label="Map item">
     <div className="panel-head"><h2>{selectedItem?.name??"Map item"}</h2>{selectedItem&&<span className="kind-badge">{zoneShape(selectedItem)?"ZONE":waypointLinks(selectedItem)?"WAYPOINT":"OBJECT"}</span>}</div>
-    {selectedItem?<MapInspector key={`${selectedItem.id}:${map?.revision}`} item={selectedItem} types={types} waypoints={waypointOptions.filter(option=>option.id!==selectedItem.id)} parentName={selectedItem.parent?byId.get(selectedItem.parent)?.name:undefined} busy={Boolean(busy)}
+    {selectedItem?<MapInspector key={`${selectedItem.id}:${map?.revision}`} item={selectedItem} types={types} waypoints={waypointOptions.filter(option=>option.id!==selectedItem.id)} parentName={selectedItem.parent?byId.get(selectedItem.parent)?.name:undefined} busy={Boolean(busy)} protectedRoot={selectedItem.id===map?.root}
      onRename={name=>void act({action:"rename",id:selectedItem.id,name},"Renaming…")}
      onFields={(type,fields)=>void act({action:"component",id:selectedItem.id,type,fields},"Saving…")}
      onDelete={()=>{if(window.confirm(`Delete ${selectedItem.name}?`)){setSelected(null);void act({action:"delete",id:selectedItem.id},"Deleting…");}}}/>
-     :<div className="brain-node-form"><p className="transform-note">Pick a tool on the left and click the map to add waypoints, paths and zones. They go straight into the scene (undo with Undo). Select one to edit its shape, cost, links and metadata.</p><p className="transform-note">Drag empty space (or with the right mouse button) to pan; scroll to change height.</p></div>}
+     :<div className="brain-node-form"><p className="transform-note">Pick a tool on the left and click the map to add waypoints, paths and zones. They save into the selected {isPrefab?"prefab":"scene"} (undo with Undo). Select one to edit its shape, cost, links and metadata.</p><p className="transform-note">Drag empty space (or with the right mouse button) to pan; scroll to change height.</p></div>}
    </aside>
   </div>
  </main>;
 }
 
 /** Fields of the selected item's map components, built from the engine's registry. Changes save after a short pause. */
-function MapInspector({item,types,waypoints,parentName,busy,onRename,onFields,onDelete}:{item:MapInstance;types:ComponentType[];waypoints:{id:string;name:string}[];parentName?:string;busy:boolean;onRename:(name:string)=>void;onFields:(type:string,fields:Record<string,ComponentValue|null>|null)=>void;onDelete:()=>void}){
+function MapInspector({item,types,waypoints,parentName,busy,protectedRoot,onRename,onFields,onDelete}:{item:MapInstance;types:ComponentType[];waypoints:{id:string;name:string}[];parentName?:string;busy:boolean;protectedRoot:boolean;onRename:(name:string)=>void;onFields:(type:string,fields:Record<string,ComponentValue|null>|null)=>void;onDelete:()=>void}){
  const [name,setName]=useState(item.name),pending=useRef<{type:string;fields:Record<string,ComponentValue|null>}|null>(null),timer=useRef<ReturnType<typeof setTimeout>|null>(null);
  const flush=useCallback(()=>{if(timer.current)clearTimeout(timer.current);timer.current=null;const next=pending.current;pending.current=null;if(next)onFields(next.type,next.fields);},[onFields]);
  // Save anything still waiting when the selection changes or the map reloads.
@@ -246,7 +251,7 @@ function MapInspector({item,types,waypoints,parentName,busy,onRename,onFields,on
       <FieldInput field={field} label={field.label} value={value} instances={waypoints} onChange={next=>change(type,field.name,field.kind==="entities"&&Array.isArray(next)&&!next.length?null:next)}/><span/></label>;})}
    </section>;})}
   {!present.includes("emergent.metadata")&&<button type="button" className="quiet-button" disabled={busy} onClick={()=>onFields("emergent.metadata",{})}>Add metadata</button>}
-  <section className="brain-apply"><button type="button" className="quiet-button" disabled={busy} onClick={onDelete}>Delete</button></section>
+  <section className="brain-apply"><button type="button" className="quiet-button" disabled={busy||protectedRoot} onClick={onDelete}>Delete</button></section>
  </div>;
 }
 

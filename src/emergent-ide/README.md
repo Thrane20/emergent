@@ -219,6 +219,49 @@ EMERGENT_PROJECT_PATH=/absolute/path/to/game pnpm dev
 
 The selected path must contain `emergent.toml` and `assets/`.
 
+## Debug run
+
+**Debug** (next to Run) opens `/debug`: the selected scene running inside the IDE, for watching
+AI and physics as they happen. Run still opens the separate game window.
+
+- The game runs as `cargo run --release -- --debug-scene <scene>` (`src/project_host/debug.rs`),
+  exactly as loaded for Run. It renders from the game's own camera off-screen and streams 960×540
+  frames at up to 30 Hz over the inspection packet format. Your project needs one release build
+  first, which inspection shares.
+- **Controls:** Pause/Resume, Step (one tick), +1 s (60 ticks), and speed ¼×–4×.
+- **Keys and mouse:** click the game view to send keys (W A S D, Q, E, arrows, Space, Shift) and
+  capture the mouse; its movement drives mouse look as in the game window (batched about 30 times
+  a second). Escape releases the mouse; leaving the view releases keys too. The engine has no
+  mouse-button input yet, so clicks are not sent.
+- **Scene graph** (left): select an object to see its live values about 10 times a second
+  (right): transform and velocity; each brain mode with its tree and the nodes that produced
+  output this tick highlighted; the brain's intent; and for aircraft, flight telemetry and the
+  tower's stage. Problems the engine otherwise handles silently are shown as warnings, e.g. a
+  Land node whose target is not a runway.
+- Objects created while the game runs (projectiles, spawned agents) join the graph in aqua
+  italics as `spawned-N`, under their parent when it has one, and drop out when deleted (at most
+  500 are listed). They can be selected like scene objects.
+- **A− A+ / ☰− ☰+** in the graph header change its text size and row spacing to fit more rows;
+  this browser remembers them.
+- Leaving the page stops the run; a run nobody watches for 30 s stops itself. One debug run at a
+  time.
+
+## Resident game tool server
+
+The IDE's engine tools (scene validation, map layout, component export, brain and locomotion
+checks and simulations, transforms) run on one resident `--tool-server` process per project
+instead of a `cargo run` per call (`src/lib/tool-server.ts`). Each `cargo run` spent about 0.9 s
+confirming nothing needed rebuilding; adding a runway in the scene map took 2.4 s and now takes
+about 0.4 s, removing one 1.2 s and now 0.15 s (debug game build, Apple M3 Pro, a copy of a real
+project).
+
+- The server re-reads the project for every request, so scene and asset edits need no restart.
+- It is rebuilt and restarted when a `.rs` file or a manifest changes in the game, its plugins or
+  the engine. The first call after that waits for the build, as `cargo run` did.
+- Requests are answered one at a time. Windowed and long-running commands (`--run-scene`,
+  `--preview-scene`, `--inspect-scene`) still use `cargo run`.
+- `EMERGENT_TOOL_SERVER=0` goes back to `cargo run` per call.
+
 ## Persistent inspection
 
 Open the **Scene** tab to inspect the selected scene automatically. This starts the linked project's
@@ -742,14 +785,16 @@ calls).
 
 ### Scene map
 
-Open `/map` or choose **Scene map** in the rail: the current scene from above, with object
-outlines drawn by the engine (`--map-layout`). Drag empty space to pan and scroll to change
+Open `/map` or choose **Scene map** in the rail. **Map source** selects a scene or prefab;
+the top-down outlines come from the engine (`--map-layout`). Drag empty space to pan and scroll to change
 height. Pick a tool and click the map: **Waypoint**, **Waypoint path** (click points, Enter
 to finish; they're linked and grouped), **Link** (click two waypoints), **Circle zone**
 (drag the radius) and **Rectangle zone** (drag corners). **Select** moves items and Delete
 removes them. The inspector edits names, zone shape, travel cost, blocked and layers,
-waypoint links and metadata pairs. Edits go straight into the scene and **Undo** reverts
-the last one. Games query the result with `World::zones_at`, `cost_at`, `segment_cost`,
+waypoint links and metadata pairs. Edits go straight into the selected scene or prefab
+and **Undo** reverts the last one. New prefab items belong to its root by default;
+each runtime instance resolves their positions into world coordinates. Games query
+the result with `World::zones_at`, `cost_at`, `segment_cost`,
 `items_where`, `nearest_waypoint` and `waypoint_path`.
 `scripts/map-smoke.ts` drives it against a scratch project (`MAP_SMOKE_PROJECT`).
 

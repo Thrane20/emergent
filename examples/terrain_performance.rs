@@ -62,6 +62,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         renderer.set_raymarched_render_options(emergent::RaymarchedRenderOptions {
             bounds_culling: false,
             step_heatmap: false,
+            ..Default::default()
         });
         let full = renderer.render_lit_rgba(&[], &[])?;
         let difference = cropped
@@ -79,6 +80,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         renderer.set_raymarched_render_options(emergent::RaymarchedRenderOptions {
             bounds_culling: !std::env::args().any(|arg| arg == "--no-culling"),
             step_heatmap: false,
+            ..Default::default()
         });
         for _ in 0..8 {
             renderer.render_lit_rgba(&[], &[])?;

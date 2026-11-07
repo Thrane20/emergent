@@ -9,12 +9,35 @@ use crate::component::ComponentRegistry;
 use crate::plugin::{Plugin, PluginRuntimes};
 use crate::{Engine, EngineConfig, EngineContext, Game, LoadedScene, Project, SceneDefinition};
 
+thread_local! {
+    /// Set while the tool server runs a request: tool output goes here instead of stdout.
+    static CAPTURE: std::cell::RefCell<Option<String>> = const { std::cell::RefCell::new(None) };
+}
+/// Tool output: stdout for a one-shot command, the reply buffer under `--tool-server`.
+pub(crate) fn emit(args: std::fmt::Arguments<'_>) {
+    CAPTURE.with(|capture| match capture.borrow_mut().as_mut() {
+        Some(buffer) => {
+            let _ = std::fmt::Write::write_fmt(buffer, args);
+        }
+        None => print!("{args}"),
+    });
+}
+macro_rules! out {
+    ($($arg:tt)*) => { $crate::project_host::emit(format_args!($($arg)*)) };
+}
+macro_rules! outln {
+    () => { $crate::project_host::emit(format_args!("\n")) };
+    ($($arg:tt)*) => {{ $crate::project_host::emit(format_args!($($arg)*)); $crate::project_host::emit(format_args!("\n")); }};
+}
+
 mod audio_tools;
 mod brain_tools;
+mod debug;
 mod inspection;
 mod inspection_tools;
 mod locomotion_tools;
 mod map_tools;
+mod model_tools;
 mod scene_tools;
 mod visual;
 
@@ -113,7 +136,7 @@ impl<G: Game> Game for TickLimit<G> {
     }
 }
 
-const USAGE: &str = "usage: [--smoke | --headless | --run-scene <scene> [--smoke] | --preview-scene <scene> --preview-output <png> | --inspect-scene <scene> | --validate-scene <scene> [--candidate <file>] | --validate-scenes <scene>... | --inspect-audio <path> [--candidate <file>] | --export-components | --scene-transforms <scene> | --map-layout <scene> | --convert-global <scene> <id> <file> [--position-only] | --export-brain-nodes | --validate-brain ... | --simulate-brain ... | --export-ui-widgets | --validate-ui <path> [--candidate <file>] | --export-locomotion | --validate-locomotion ... | --simulate-locomotion ...]";
+const USAGE: &str = "usage: [--smoke | --headless | --tool-server | --run-scene <scene> [--smoke] | --preview-scene <scene> --preview-output <png> [--preview-ticks <n> [--preview-keys W,Shift]] | --inspect-scene <scene> | --debug-scene <scene> | --validate-scene <scene-or-prefab> [--candidate <file>] | --validate-scenes <scene>... | --inspect-audio <path> [--candidate <file>] | --inspect-model <path.glb|path.bvh> | --export-components | --scene-transforms <scene> | --map-layout <scene-or-prefab> | --convert-global <scene> <id> <file> [--position-only] | --export-brain-nodes | --validate-brain ... | --simulate-brain ... | --export-ui-widgets | --validate-ui <path> [--candidate <file>] | --export-locomotion | --validate-locomotion ... | --simulate-locomotion ...]";
 
 /// Runs the project named by `manifest_dir` (pass `env!("CARGO_MANIFEST_DIR")`) using the
 /// process arguments. With no arguments it opens the entry scene in a window.
@@ -122,7 +145,71 @@ pub fn main<G: ProjectGame>(manifest_dir: &str) -> Result<(), Box<dyn Error>> {
     // Report bad plugins as an error here so `components()` can rely on them later.
     crate::plugin::registry(G::plugins())?;
     check_plugins(&project, G::plugins())?;
-    dispatch::<Plugged<G>>(project)
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args == ["--tool-server"] {
+        return serve::<Plugged<G>>(manifest_dir);
+    }
+    dispatch::<Plugged<G>>(project, &args)
+}
+
+/// Commands the tool server answers: data in, text out, no window, no session.
+const SERVED: &[&str] = &[
+    "--export-brain-nodes",
+    "--validate-brain",
+    "--simulate-brain",
+    "--export-ui-widgets",
+    "--validate-ui",
+    "--export-locomotion",
+    "--validate-locomotion",
+    "--simulate-locomotion",
+    "--inspect-audio",
+    "--inspect-model",
+    "--export-components",
+    "--scene-transforms",
+    "--map-layout",
+    "--convert-global",
+    "--validate-scenes",
+    "--validate-scene",
+];
+
+/// `--tool-server`: answers tool commands without a process (and cargo) per call. Each request is
+/// one line of tab-separated arguments; each reply is `ok <bytes>` or `err <bytes>`, a newline,
+/// then that many bytes of output or error. The project is re-read per request so scene and asset
+/// edits are seen; Rust changes need a new server (the IDE restarts it).
+fn serve<G: ProjectGame>(manifest_dir: &str) -> Result<(), Box<dyn Error>> {
+    use std::io::{BufRead, Write};
+    let stdin = std::io::stdin();
+    let mut stdout = std::io::stdout().lock();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        let args: Vec<String> = line.split('\t').map(str::to_owned).collect();
+        let result = if args
+            .first()
+            .is_some_and(|first| SERVED.contains(&first.as_str()))
+        {
+            CAPTURE.with(|capture| *capture.borrow_mut() = Some(String::new()));
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                Project::load(manifest_dir)
+                    .map_err(|error| error.to_string())
+                    .and_then(|project| {
+                        dispatch::<G>(project, &args).map_err(|error| error.to_string())
+                    })
+            }))
+            .unwrap_or_else(|_| Err("the tool panicked".into()));
+            let output = CAPTURE.with(|capture| capture.borrow_mut().take().unwrap_or_default());
+            outcome.map(|()| output)
+        } else {
+            Err(format!("not a tool-server command: {line}"))
+        };
+        let (status, body) = match &result {
+            Ok(output) => ("ok", output.as_bytes()),
+            Err(error) => ("err", error.as_bytes()),
+        };
+        writeln!(stdout, "{status} {}", body.len())?;
+        stdout.write_all(body)?;
+        stdout.flush()?;
+    }
+    Ok(())
 }
 
 /// The compiled plugins must be exactly the `emergent.toml` plugins that have code.
@@ -155,8 +242,7 @@ fn check_plugins(project: &Project, compiled: &[&dyn Plugin]) -> Result<(), Stri
     Ok(())
 }
 
-fn dispatch<G: ProjectGame>(project: Project) -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+fn dispatch<G: ProjectGame>(project: Project, args: &[String]) -> Result<(), Box<dyn Error>> {
     let registry = G::components;
     let entry = || -> Result<String, Box<dyn Error>> {
         Ok(project
@@ -173,7 +259,7 @@ fn dispatch<G: ProjectGame>(project: Project) -> Result<(), Box<dyn Error>> {
         .as_slice()
     {
         ["--export-brain-nodes"] => {
-            print!("{}", crate::brain::export_node_catalogue_with(&registry())?);
+            out!("{}", crate::brain::export_node_catalogue_with(&registry())?);
             Ok(())
         }
         ["--validate-brain", rest @ ..] => {
@@ -183,12 +269,12 @@ fn dispatch<G: ProjectGame>(project: Project) -> Result<(), Box<dyn Error>> {
             brain_tools::preview(&project, &registry(), &args[args.len() - rest.len()..])
         }
         ["--export-ui-widgets"] => {
-            print!("{}", crate::ui::export_widget_catalogue()?);
+            out!("{}", crate::ui::export_widget_catalogue()?);
             Ok(())
         }
         ["--validate-ui", path] => {
             let ui = crate::ui::UiDefinition::load(&project, path)?;
-            println!("UI '{}' validated: {} nodes", ui.name, ui.nodes.len());
+            outln!("UI '{}' validated: {} nodes", ui.name, ui.nodes.len());
             Ok(())
         }
         ["--validate-ui", path, "--candidate", file] => {
@@ -197,11 +283,11 @@ fn dispatch<G: ProjectGame>(project: Project) -> Result<(), Box<dyn Error>> {
                 .take(256 * 1024 + 1)
                 .read_to_string(&mut source)?;
             let ui = crate::ui::UiDefinition::from_source(path, &source)?;
-            println!("UI '{}' validated: {} nodes", ui.name, ui.nodes.len());
+            outln!("UI '{}' validated: {} nodes", ui.name, ui.nodes.len());
             Ok(())
         }
         ["--export-locomotion"] => {
-            print!(
+            out!(
                 "{}",
                 crate::locomotion::export_type_catalogue_with(&registry())?
             );
@@ -216,8 +302,9 @@ fn dispatch<G: ProjectGame>(project: Project) -> Result<(), Box<dyn Error>> {
         ["--inspect-audio", rest @ ..] => {
             audio_tools::inspect(&project, &args[args.len() - rest.len()..])
         }
+        ["--inspect-model", path] => model_tools::inspect(&project, path),
         ["--export-components"] => {
-            print!("{}", registry().export_toml()?);
+            out!("{}", registry().export_toml()?);
             Ok(())
         }
         ["--scene-transforms", scene] => scene_tools::report(&project, &registry(), scene),
@@ -236,17 +323,18 @@ fn dispatch<G: ProjectGame>(project: Project) -> Result<(), Box<dyn Error>> {
                     SceneDefinition::load_with(&project, scene, &registry())?;
                 }
             }
-            println!("Scene candidates validated");
+            outln!("Scene candidates validated");
             Ok(())
         }
         ["--inspect-scene", scene] => inspection::run::<G>(&project, scene),
+        ["--debug-scene", scene] => debug::run::<G>(&project, scene),
         ["--validate-scene", scene] => {
             if scene.ends_with(".prefab.toml") {
                 crate::PrefabDefinition::load_with(&project, scene, &registry())?;
             } else {
                 SceneDefinition::load_with(&project, scene, &registry())?;
             }
-            println!("Scene candidate validated without construction or simulation");
+            outln!("Scene candidate validated without construction or simulation");
             Ok(())
         }
         ["--validate-scene", scene, "--candidate", file] => {
@@ -259,13 +347,35 @@ fn dispatch<G: ProjectGame>(project: Project) -> Result<(), Box<dyn Error>> {
             } else {
                 SceneDefinition::from_source_with(&project, scene, &source, &registry())?;
             }
-            println!("Scene candidate validated without construction or simulation");
+            outln!("Scene candidate validated without construction or simulation");
             Ok(())
         }
         ["--run-scene", scene] => visual::run_scene::<G>(&project, None, scene),
         ["--run-scene", scene, "--smoke"] => visual::run_scene::<G>(&project, Some(120), scene),
-        ["--preview-scene", scene, "--preview-output", output] => {
-            visual::preview::<G>(&project, scene, std::path::Path::new(output))
+        ["--preview-scene", scene, "--preview-output", output] => visual::preview::<G>(
+            &project,
+            scene,
+            std::path::Path::new(output),
+            0,
+            crate::KeySet::EMPTY,
+        ),
+        ["--preview-scene", scene, "--preview-output", output, "--preview-ticks", ticks, rest @ ..] =>
+        {
+            let ticks: u64 = ticks
+                .parse()
+                .ok()
+                .filter(|t| *t <= 60 * 120)
+                .ok_or("--preview-ticks takes 0 to 7200 fixed ticks")?;
+            let keys = match rest {
+                [] => crate::KeySet::EMPTY,
+                ["--preview-keys", list] => list.split(',').try_fold(crate::KeySet::EMPTY, |set, name| {
+                    crate::Key::from_name(name.trim())
+                        .map(|key| set.with(key))
+                        .ok_or_else(|| format!("Unknown key {name:?}; use W, A, S, D, Q, E, Space, Shift or arrows"))
+                })?,
+                _ => return Err(USAGE.into()),
+            };
+            visual::preview::<G>(&project, scene, std::path::Path::new(output), ticks, keys)
         }
         [] => visual::run::<G>(&project, None),
         ["--smoke"] => visual::run::<G>(&project, Some(120)),

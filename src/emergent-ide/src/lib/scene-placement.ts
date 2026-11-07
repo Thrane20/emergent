@@ -61,10 +61,11 @@ async function assetSource(project: ProjectSnapshot, relative: string, limit=256
 }
 
 async function snapshot(project: ProjectSnapshot, path: string) {
-  if (!path.endsWith(".scene.toml")) throw new Error("Choose a scene file.");
+  if (!path.endsWith(".scene.toml") && !path.endsWith(".prefab.toml")) throw new Error("Choose a scene or prefab file.");
   const source = await assetSource(project, path, SCENE_MAX_BYTES);
   const document = parse(source);
   if (document.schema_version !== 1 || !Array.isArray(document.entities) || document.entities.length > SCENE_MAX_INSTANCES) throw new Error(`Scene must use schema 1 and at most ${SCENE_MAX_INSTANCES} instances.`);
+  if (path.endsWith(".prefab.toml") && (typeof document.root !== "string" || document.entities.filter(entry => table(entry).parent === undefined).length !== 1 || !document.entities.some(entry => table(entry).id === document.root && table(entry).parent === undefined))) throw new Error("Prefab needs one root matching its root ID.");
   const labels=await readObjectLabels(project);
   const hash = createHash("sha256").update(JSON.stringify([path,source,labels.revision]));
   const environment=lightingSettings(document.environment);
@@ -320,7 +321,7 @@ async function commitPlacement(project:ProjectSnapshot,path:string,revision:stri
 }
 
 /**
- * The single guarded scene write: revision check, text-preserving edit, native Rust validation,
+ * The single guarded scene or prefab write: revision check, text-preserving edit, native Rust validation,
  * revision recheck, then atomic publication. `dryRun` stops after validation and publishes nothing.
  */
 export async function commitSceneEdit(project:ProjectSnapshot,path:string,revision:string,edit:(source:string)=>string|Promise<string>,options:{check?:()=>Promise<void>;dryRun?:boolean;removal?:boolean}={}) {

@@ -1,5 +1,5 @@
 .map-layout{grid-template-columns:220px minmax(0,1fr) 300px}
-.map-tools{display:flex;flex-direction:column}
+.map-tools{display:flex;flex-direction:column;overflow-y:auto}
 .map-tool-list{display:grid;gap:4px;padding:10px 12px}
 .map-tool{display:flex;align-items:center;gap:8px;padding:7px 9px;border:1px solid transparent;border-radius:5px;background:var(--theme-surface, #121a15);color:var(--theme-foreground, #e6efe9);font:12px var(--font-ui);text-align:left;cursor:pointer}
 .map-tool svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
@@ -24,6 +24,8 @@
 .map-grid line{stroke:rgba(255,255,255,.05)}
 .map-grid line.major{stroke:rgba(255,255,255,.12)}
 .map-backdrop polygon{fill:rgba(170,180,170,.18);stroke:rgba(200,210,200,.35);stroke-width:1}
+.map-backdrop.over-image polygon{fill:none;stroke:rgba(200,210,200,.25)}
+.map-top-down{image-rendering:pixelated;pointer-events:none}
 .map-object-point{fill:none;stroke:rgba(200,210,200,.5)}
 .map-zones .selected circle,.map-zones .selected rect{stroke:#fff1aa;stroke-width:2.5}
 .map-label{fill:#e6efe9;font:11px var(--font-ui);paint-order:stroke;stroke:#0d1410;stroke-width:3px;pointer-events:none}

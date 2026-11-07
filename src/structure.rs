@@ -38,6 +38,15 @@ pub struct StructurePart {
     #[serde(default)]
     pub transform: StructureTransform,
     pub mesh: PolygonMesh,
+    /// Library material asset path overriding the object's material for this part only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<String>,
+}
+/// Index range drawn with a part material override; the rest uses the object's material.
+#[derive(Clone, Debug, PartialEq)]
+pub struct StructureMaterialSection {
+    pub material: String,
+    pub indices: std::ops::Range<u32>,
 }
 /// A durable authoring hierarchy, not a runtime object store. Parts compile into one mesh.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -220,6 +229,11 @@ impl StructureDefinition {
     }
     /// Validates and assembles part transforms into a single ordinary mesh resource.
     pub fn mesh(&self) -> Result<Mesh, StructureError> {
+        self.assemble().map(|(mesh, _)| mesh)
+    }
+    /// Like `mesh`, with triangles grouped so parts without a material override come first
+    /// and each overriding material owns one contiguous index range.
+    pub fn assemble(&self) -> Result<(Mesh, Vec<StructureMaterialSection>), StructureError> {
         if self.schema_version != 1
             || !identifier(&self.id)
             || !name(&self.name)
@@ -234,6 +248,12 @@ impl StructureDefinition {
         for (i, p) in self.parts.iter().enumerate() {
             if !identifier(&p.id) || !name(&p.name) || by_id.insert(p.id.as_str(), i).is_some() {
                 return Err(invalid("Part IDs must be unique, with valid names."));
+            }
+            if p.material
+                .as_ref()
+                .is_some_and(|m| m.trim().is_empty() || m.len() > 512)
+            {
+                return Err(invalid("Part material must be a library asset path."));
             }
             if p.transform
                 .translation
@@ -300,9 +320,9 @@ impl StructureDefinition {
             return Err(invalid("Part parenting creates a cycle."));
         }
         let mut vertices = Vec::with_capacity(count);
-        let mut indices = Vec::new();
-        for (part, matrix) in self.parts.iter().zip(matrices) {
-            let offset = vertices.len() as u32;
+        let mut offsets = Vec::with_capacity(self.parts.len());
+        for (part, matrix) in self.parts.iter().zip(&matrices) {
+            offsets.push(vertices.len() as u32);
             for point in &part.mesh.vertices {
                 let point = matrix.transform_point3(Vec3::from_array(*point));
                 if !point.is_finite() || point.abs().max_element() > 1000000. {
@@ -313,19 +333,41 @@ impl StructureDefinition {
                         .map_err(|e| StructureError(e.to_string()))?,
                 );
             }
+        }
+        let mut order: Vec<usize> = (0..self.parts.len()).collect();
+        order.sort_by_key(|&i| self.parts[i].material.as_deref());
+        let mut indices = Vec::new();
+        let mut sections: Vec<StructureMaterialSection> = Vec::new();
+        for i in order {
+            let part = &self.parts[i];
+            let start = indices.len() as u32;
             for face in 0..part.mesh.faces.len() {
                 let mut triangles = part.mesh.triangulate_face(face)?;
-                if matrix.determinant() < 0. {
+                if matrices[i].determinant() < 0. {
                     for tri in triangles.as_chunks_mut::<3>().0 {
                         tri.swap(1, 2);
                     }
                 }
-                indices.extend(triangles.into_iter().map(|index| offset + index));
+                indices.extend(triangles.into_iter().map(|index| offsets[i] + index));
                 if indices.len() > 131072 * 3 {
                     return Err(invalid("Structure exceeds 131072 triangles."));
                 }
             }
+            let end = indices.len() as u32;
+            if let Some(material) = &part.material {
+                match sections.last_mut() {
+                    Some(last) if &last.material == material => last.indices.end = end,
+                    _ => sections.push(StructureMaterialSection {
+                        material: material.clone(),
+                        indices: start..end,
+                    }),
+                }
+            }
         }
-        Mesh::new(vertices, indices).map_err(|e| StructureError(e.to_string()))
+        sections.retain(|s| !s.indices.is_empty());
+        Ok((
+            Mesh::new(vertices, indices).map_err(|e| StructureError(e.to_string()))?,
+            sections,
+        ))
     }
 }

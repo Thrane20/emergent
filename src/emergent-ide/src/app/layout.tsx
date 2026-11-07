@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import {DEFAULT_THEME,themeScript} from "@/lib/theme";
+import {Fira_Code,JetBrains_Mono} from "next/font/google";
+import {DEFAULT_FONT,DEFAULT_THEME,themeScript} from "@/lib/theme";
 import {EditorFrame} from "@/components/editor-navigation";
 import "./globals.css";
 import "./object-creator.css";
@@ -22,6 +23,7 @@ import "./audio.css";
 import "./scene-map.css";
 import "./themes.css";
 import "./editor-navigation.css";
+import "./debug.css";
 
 const krypton = localFont({
   src: "./fonts/MonaspaceKryptonVar.woff2",
@@ -29,6 +31,8 @@ const krypton = localFont({
   weight: "200 800",
   display: "swap",
 });
+const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
+const fira = Fira_Code({ subsets: ["latin"], variable: "--font-fira", display: "swap" });
 
 export const metadata: Metadata = {
   title: "Emergent IDE",
@@ -40,8 +44,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     <html
       lang="en"
       data-theme={DEFAULT_THEME}
+      data-font={DEFAULT_FONT}
       suppressHydrationWarning
-      className={`${krypton.variable} h-full antialiased`}
+      className={`${krypton.variable} ${jetbrains.variable} ${fira.variable} h-full antialiased`}
     >
       <head><script dangerouslySetInnerHTML={{__html:themeScript}}/></head>
       <body className="min-h-full flex flex-col"><EditorFrame>{children}</EditorFrame></body>

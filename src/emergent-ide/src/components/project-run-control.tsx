@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import type { ProjectRunSnapshot, ProjectRunState } from "@/lib/project-runner";
 
@@ -72,6 +73,7 @@ export function ProjectRunControl({ projectId, scenePath, disabled = false }: Pr
       <span>{isActive(state) ? "■" : "▶"}</span>
       {pending ? "Working…" : runLabel(state)}
     </button>
+    {scenePath && <Link className="run-button debug-button" href={`/debug?scene=${encodeURIComponent(scenePath)}`} title="Run this scene in the IDE with pause, step, the scene graph and live values">⚙ Debug</Link>}
     {(error || isTerminal(state)) && <span className={`run-result ${error ? "failed" : state}`} title={detail}>{error || runResult(state)}</span>}
   </div>;
 }

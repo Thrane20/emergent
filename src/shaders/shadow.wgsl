@@ -21,3 +21,22 @@ struct VertexInput {
 fn shadow_vertex_main(input: VertexInput) -> @builtin(position) vec4<f32> {
     return frame.light_view_projection * object.model * vec4<f32>(input.position, 1.0);
 }
+
+@group(2) @binding(0) var<storage, read> joint_palette: array<mat4x4<f32>>;
+
+struct SkinnedInput {
+    @location(0) position: vec3<f32>,
+    @location(4) joints: vec4<u32>,
+    @location(5) weights: vec4<f32>,
+};
+
+@vertex
+fn shadow_vertex_skinned(input: SkinnedInput) -> @builtin(position) vec4<f32> {
+    var position = vec4<f32>(input.position, 1.0);
+    if dot(input.weights, vec4<f32>(1.0)) >= 0.0001 {
+        let j = input.joints;
+        let w = input.weights;
+        position = (joint_palette[j.x] * w.x + joint_palette[j.y] * w.y + joint_palette[j.z] * w.z + joint_palette[j.w] * w.w) * position;
+    }
+    return frame.light_view_projection * object.model * position;
+}

@@ -12,15 +12,17 @@ Airports are ordinary scene-map items carrying metadata, using the `aeroway` key
 
 | Item | Map item | Tags | Meaning |
 | --- | --- | --- | --- |
-| Aerodrome | circle or rectangle zone | `aeroway=aerodrome`, optional `name`, `pattern_height` (m, default 300) | The airport's boundary. Aeroway items inside its footprint belong to it. |
+| Aerodrome | circle or rectangle zone | `aeroway=aerodrome`, optional `name`, `pattern_height` (full-size m, default 300), `scale` (0.01–10, default 1) | The airport's boundary. Aeroway items inside its footprint belong to it. `scale` makes a miniature airport (see below). |
 | Runway | rectangle zone | `aeroway=runway`, optional `circuit=left\|right` (default left), `direction=forward\|reverse\|both` (default both) | Landing along the zone's local −Z (forward) or +Z (reverse). The threshold is the near end. |
-| Taxiway | linked waypoints (a path) | `aeroway=taxiway` | The ground network. Routes are the cheapest path through it, so zone costs and blocks apply. |
-| Holding position | waypoint linked into the taxiways, near a runway end | `aeroway=holding_position` | Departures wait here before entering the runway. |
-| Stand | waypoint | `aeroway=parking_position` | Parking. Holds one aircraft. |
-| Tower | any object | `aeroway=tower` | Marks the airport as controlled. Without one, aircraft still use the airport but do not sequence. |
+| Threshold | rectangle zone over a runway end | `aeroway=threshold` | Landings aim from its outer edge and take-offs line up in it. When a runway has any, only the ends with one are used (overriding `direction`); one at each end lets the wind choose. |
+| Taxiway | waypoint lines | `aeroway=taxiway` | The ground network. Lines need not be linked to each other: they join where they cross, and a line end joins another line within 15 m. Routes are the cheapest path through it, so zone costs and blocks apply. |
+| Holding position | waypoint near a runway end | `aeroway=holding_position` | Departures wait here before entering the runway. If unlinked, it joins the nearest taxiway line. |
+| Stand | rectangle zone (or waypoint) | `aeroway=parking_position` | Parking at its centre. Holds one aircraft. If unlinked, it joins the closest point on the nearest taxiway line. |
+| Tower | any object, usually a rectangle zone | `aeroway=tower` | Marks the airport as controlled. Without one, aircraft still use the airport but do not sequence. |
+| Traffic pattern | linked waypoint path, ending on final before a threshold box | `aeroway=circuit`, `leg=entry\|downwind\|base\|final`; waypoint `entry_from`/`entry_to`, `exit_from`/`exit_to` (compass °, clockwise), `altitude` (m above the runway) | Replaces the generated circuit for that runway end. Aircraft cross each point within its entry range and leave within its exit range. |
 | Holding fix | waypoint | `aeroway=holding_fix` (optional) | Where arrivals wait when the circuit is full. Defaults to a point 3 km out on the extended centreline. |
 
-Without any aerodrome zone, every aeroway item in the scene forms one implicit airport. The scene-map editor gets an **Airport** tool group that places these items with the tags already set (Aerodrome, Runway, Taxiway path, Holding position, Stand, Tower). The inspector edits the tags like any other metadata.
+Without any aerodrome zone, every aeroway item in the scene forms one implicit airport. The scene-map editor gets an **Airport** tool group that places these items with the tags already set (Aerodrome circle, Runway, Threshold, Stand and Tower boxes, Taxiway lines, Holding position). The inspector edits the tags like any other metadata.
 
 ## Orders and the tower
 
@@ -157,3 +159,65 @@ IDE: a unit test for the airport tool builds, and a browser check drawing a runw
 - Live traffic on the map while the game runs (the overlay shows the plan, not aircraft).
 - Radio-style tower messages.
 - Several active runways.
+
+## Delivered: drawn airports (thresholds, taxiway lines, box stands)
+
+**Code.**
+- `src/taxi.rs`: each airport's ground network, built from its items whenever the map generation changes. Drawn links count (one-way stays one-way); crossing lines are split and joined at the crossing; a taxiway line end within 15 m of another line joins it; unlinked stands and holding positions join the closest point on the nearest line. Edge costs use `World::segment_cost`. Dijkstra with reused buffers; building is O(segments²) once per map change.
+- `src/tower.rs`: `runway_geometry` moves the threshold to a threshold box's outer edge for that landing end, so the pilot, the tower and the map overlay all use the shortened runway. `active_runway` uses only ends with a threshold box when any exist. Taxi routes come from the airport's `TaxiGraph`.
+- IDE: Threshold, Stand and Tower are box tools; the Taxiway tool's hint describes auto-joining; MCP instructions describe the new tags.
+
+**Validated.** `tests/airport.rs` (10 pass): the threshold box makes the runway land northbound from 20 m in (usable length 880 m); a departure from a box stand routes over four never-linked lines (a crossing and a 10 m end join) to an unlinked holding position and starts its roll inside the threshold box; an arrival touches down past the box and parks on a box stand. The seven earlier airport tests pass unchanged. IDE `scene-map.test.ts` (6 pass).
+
+**Limits.** Moving taxiway items while the game runs does not move the network until the map changes. Aircraft park at a stand's centre with whatever heading they arrive on. Occupancy uses the usable (shortened) runway.
+
+## Delivered: drawn traffic patterns
+
+**Model.**
+- `emergent.waypoint` gains optional `entry_from`/`entry_to`, `exit_from`/`exit_to` (compass degrees, clockwise, so 350→10 wraps through north) and `altitude`. Registry fields can now be `optional` (unset means no constraint).
+- A pattern is a waypoint path tagged `aeroway=circuit`, followed along its stored links from the point nothing links to. It attaches to the runway end whose threshold box is nearest its last point. Each point's `leg` tag (entry, downwind, base, final) sets the phase flown towards it; unlabelled points carry the previous label. A missing altitude carries the previous one, starting at pattern height.
+- `tower::Patterns` caches them per map generation; aircraft share them through `Arc<[PatternFix]>` (no per-tick allocation).
+
+**Pilot** (`fixed_wing::Pilot::fly_pattern`).
+- A point with an entry range is crossed on a committed course inside the range (the one nearest the direct bearing), tracking the line through it. Without enough room to turn onto it, the aircraft flies out to a point five turn radii back and returns. After two failed tries it flies straight at the point, so a pattern drawn too tight can't loop forever.
+- After a point with an exit range, it turns onto the exit course nearest the next point before heading on.
+- The tower's rules are unchanged because legs are labelled: downwind is extended past the last downwind point while turning base is held; clearance and go-arounds work as before. After the last point the normal final approach takes over, so the final point should sit on the extended centreline near the 3° glide path.
+- A go-around rejoins the pattern at its first downwind point.
+
+**IDE.** A **Traffic pattern** tool draws the path with default legs (entry, downwind…, base, final). The inspector edits the courses and altitude. With a pattern drawn, the airport overlay shows the landing direction but not the generated circuit.
+
+**Validated.** `tests/airport.rs` (12 pass):
+- An aircraft flies a pattern drawn on the side opposite the generated circuit. It loops once to cross the first downwind point on course, crosses the downwind end, base and final points within their ranges, lands with no go-around past the threshold box and parks.
+- The overlay omits the generated circuit only when a pattern is drawn.
+
+A unit test covers ranges wrapping through north. The full Rust suite and the IDE map tests pass. `fixed_wing_bench` is unchanged at about 1.1 µs per aircraft (release, Apple M3 Pro).
+
+**Limits.** Turns start at a point, not before it, so points closer together than the aircraft's turn radius (about 300 m for the default profile) cause loops. The overlay doesn't draw the pattern's legs (its waypoints and links are on the map).
+
+## Delivered: miniature airports
+
+Game airports are often far smaller than real ones, while the circuit was sized for a real aircraft: at least 400 m out, 300 m up, with the holding fix 3 km away.
+
+**Scale.**
+- An aerodrome's `scale` tag (0.01–10, default 1) gives `Runway::scale` to every runway inside it. Aerodrome distances are full-size metres times the scale.
+- Scaled with it:
+  - the circuit's minimum spacing, pattern height (including an explicit `pattern_height`), touchdown aim cap and holding-fix distance;
+  - the tower's spacing, slow-down, departure-gap and holding-stack distances, runway occupancy margins, line-up points and taxi reach;
+  - the pilot's go-around, base-descent and clearance distances and its stabilised-approach gates (with floors a small aircraft needs);
+  - the taxiway join distance.
+- Not scaled: each aircraft's turn radius and speeds, which come from its profile. A miniature airport needs slow aircraft (e.g. lift-off at 6 m/s turns in about 18 m); a fast one still flies wide.
+
+**Pilot changes that also apply at full scale.**
+- Taxi speed is at most 40% of lift-off speed, so small aircraft can make their ground turns. This doesn't change the default profile, since 8 m/s is already lower.
+- The stabilised-approach check for distance from the centreline applies only once the aircraft is within 30° of the runway heading. The glide-path check is unchanged. At miniature scale, the turn onto final starts below the height gate, and the old check sent every approach around.
+
+**Map overlay.** The circuit is drawn for the widest-turning physical aircraft in the scene (the room the airport needs), falling back to the default profile when the scene has none.
+
+**Validated.**
+- `tests/airport.rs` (13 pass): a 20 kg aircraft lifting off at 6 m/s arrives at a `scale=0.1` airfield with a 90 m runway. It flies the circuit within 120 m of the runway and under 45 m high, lands with no go-around, taxis and parks on a box stand.
+- A `map_tools` unit test (physics + graphics) shows the overlay circuit for a 0.1-scale field is over 500 m out for the default aircraft and under 100 m with the slow aircraft in the scene.
+- The full Rust suite and the IDE map tests pass. `fixed_wing_bench` is unchanged at 1.1 µs per aircraft.
+
+**Fixed on the way.** Zones drawn under a scaled or turned parent (such as a prefab whose root is an airport model at scale 4) were stored with their world size as local fields, so they came out larger by the parent's scale. They are now stored as `width`/`depth`/`radius` ÷ the parent's world scale, with its yaw taken off (`localZone`, the inverse of the map's `zoneShape`). The Runway tool's minimum width is now 1 m (was 10).
+
+**Limits.** The overlay shows one aircraft's circuit; faster aircraft in the same scene fly wider. Climb-out still reaches 50 m before turning after take-off (the pilot doesn't know the airport's scale on departure).

@@ -37,7 +37,7 @@ test("projects are created, switched, duplicated and saved without touching othe
   assert.equal(snapshot.id, created.project.id, "readProjectSnapshot follows the active project");
   assert.equal(snapshot.name, "Forest Game");
   assert.equal(snapshot.entryScene, "assets/scenes/main.scene.toml");
-  assert.deepEqual(snapshot.files.filter(file => file.kind === "scene").map(file => file.path), ["assets/scenes/first-person.scene.toml", "assets/scenes/main.scene.toml", "assets/scenes/shader-showcase.scene.toml"]);
+  assert.deepEqual(snapshot.files.filter(file => file.kind === "scene").map(file => file.path), ["assets/scenes/first-person.scene.toml", "assets/scenes/main.scene.toml", "assets/scenes/shader-showcase.scene.toml", "assets/scenes/third-person.scene.toml"]);
   const cargo = parse(await readFile(path.join(root, "Cargo.toml"), "utf8")) as { package: { name: string }; dependencies: { emergent: { path: string } }; workspace?: object };
   assert.equal(cargo.package.name, "emergent-forest-game");
   assert.equal(await readFile(path.join(root, "Cargo.lock"), "utf8"), await readFile(engineLockfile, "utf8"), "starts from the engine's resolved versions");

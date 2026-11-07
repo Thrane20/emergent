@@ -70,6 +70,6 @@ pub(super) fn inspect(project: &Project, args: &[String]) -> Result<(), Box<dyn 
     summary.insert("peak".into(), f64::from(peak).into());
     summary.insert("waveform".into(), outline(&blocks, WAVEFORM_POINTS).into());
     summary.insert("stream".into(), asset.streams().into());
-    print!("{}", toml::to_string(&summary)?);
+    out!("{}", toml::to_string(&summary)?);
     Ok(())
 }

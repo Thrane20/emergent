@@ -7,12 +7,13 @@ type Cache={fingerprint:string;result?:FalBalance;at:number;pending?:Promise<Fal
 export class FalBalanceReader{
  private cache?:Cache;
  constructor(private credentials=objectApiKey,private transport:typeof fetch=fetch,private now=Date.now){}
- async get(force=false):Promise<FalBalance>{
+ async get(force=false,cachedOnly=false):Promise<FalBalance>{
   const key=await this.credentials();
   if(!key){this.cache=undefined;return {state:"no-key",balance:0,currency:"USD",message:"No fal API key configured. Add one in Settings.",checkedAt:null};}
   const fingerprint=createHash("sha256").update(key).digest("hex");
   if(this.cache?.fingerprint!==fingerprint)this.cache={fingerprint,at:0};
   const cache=this.cache;
+  if(cachedOnly)return cache.result??{state:"unchecked",balance:null,currency:"USD",message:"fal balance not checked yet. Press refresh.",checkedAt:null};
   if(cache.pending)return cache.pending;
   const ttl=cache.result?.state==="ready"?60000:15000;
   if(cache.result&&this.now()-cache.at<(force?5000:ttl))return cache.result;

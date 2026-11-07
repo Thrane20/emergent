@@ -549,18 +549,19 @@ struct ValidatedEntity {
     physics: Option<crate::PhysicsBody>,
     pending_physics: Option<PhysicsFile>,
     material: Option<crate::Material>,
+    material_sections: Option<crate::MaterialSections>,
     terrain_field: Option<crate::TerrainField>,
     particles: Option<crate::ParticleEffect>,
     controller: Option<crate::CharacterController>,
     spin: Option<crate::Spin>,
+    animator: Option<crate::Animator>,
+    /// Instance ID the animator's head looks at; resolved at construction.
+    animator_look: Option<String>,
     /// Target instance ID, speed and stop distance; resolved to a handle at construction.
     follow: Option<(String, f32, f32)>,
     group: Option<String>,
-    /// The main brain then any stacked brains, with the component's settings.
-    brain: Option<(
-        Vec<std::sync::Arc<crate::BrainDefinition>>,
-        crate::BrainSettings,
-    )>,
+    /// The modes (legacy: the main brain then any stacked brains), with the component's settings.
+    brain: Option<BrainSource>,
     locomotion: Option<crate::locomotion::Model>,
     /// Steering wheel IDs, rolling wheel IDs, radius; resolve to handles at construction.
     wheels: Option<(Vec<String>, Vec<String>, f32)>,
@@ -573,7 +574,7 @@ struct ValidatedEntity {
     audio_emitter: Option<crate::AudioEmitter>,
     audio_listener: Option<crate::AudioListener>,
     /// Link target IDs, two-way, arrival radius; targets resolve to handles at construction.
-    waypoint: Option<(Vec<String>, bool, f32)>,
+    waypoint: Option<(Vec<String>, crate::Waypoint)>,
     zone: Option<crate::Zone>,
     metadata: Option<crate::Metadata>,
     ui_surface: Option<crate::UiSurface>,
@@ -706,6 +707,34 @@ pub struct LoadedScene {
     pub active_camera: Option<EntityId>,
     /// Enabled project components, in scene order.
     pub components: Vec<SceneComponent>,
+}
+
+/// A brain component's modes with their loaded brains, and its settings.
+type BrainSource = (
+    Vec<(std::sync::Arc<crate::BrainDefinition>, ModeSource)>,
+    crate::BrainSettings,
+);
+
+/// One brain mode as authored, before its brain is compiled for the scene.
+#[derive(Clone, Debug)]
+struct ModeSource {
+    name: String,
+    active: bool,
+    on_next: Option<usize>,
+    on_previous: Option<usize>,
+    keep_running: bool,
+}
+
+impl ModeSource {
+    fn new(name: String, active: bool) -> Self {
+        Self {
+            name,
+            active,
+            on_next: None,
+            on_previous: None,
+            keep_running: false,
+        }
+    }
 }
 
 pub(crate) fn identifier(id: &str) -> bool {
@@ -983,10 +1012,33 @@ impl SceneDefinition {
                     Some(field) => Some(Geometry::Mesh(field.mesh(Color::WHITE)?)),
                     None => geometry,
                 };
+                let mut material_sections = None;
                 let geometry = match &definition.structure {
-                    Some(path) => Some(Geometry::Mesh(
-                        crate::StructureDefinition::load(project, path)?.mesh()?,
-                    )),
+                    Some(path) => {
+                        let (mesh, sections) =
+                            crate::StructureDefinition::load(project, path)?.assemble()?;
+                        if !sections.is_empty() {
+                            let mut resolved = Vec::with_capacity(sections.len());
+                            for section in sections {
+                                let material = crate::MaterialDefinition {
+                                    asset: Some(section.material),
+                                    ..Default::default()
+                                }
+                                .resolve(project)?;
+                                if material.terrain.is_some() {
+                                    return Err(
+                                        "Part materials cannot be terrain materials.".into()
+                                    );
+                                }
+                                resolved.push(crate::MaterialSection {
+                                    indices: section.indices,
+                                    material,
+                                });
+                            }
+                            material_sections = Some(crate::MaterialSections(resolved));
+                        }
+                        Some(Geometry::Mesh(mesh))
+                    }
                     None => geometry,
                 };
                 if definition.model.is_some() && (geometry.is_some() || definition.kind != "model")
@@ -998,9 +1050,18 @@ impl SceneDefinition {
                     .as_deref()
                     .map(|path| crate::ImportedModel::load(project, path))
                     .transpose()?;
-                let (geometry, model_texture) = match model {
-                    Some(model) => (Some(Geometry::Mesh(model.mesh)), model.texture),
-                    None => (geometry, None),
+                let (geometry, model_texture, model_rig) = match model {
+                    Some(model) => (
+                        Some(Geometry::Mesh(model.mesh)),
+                        model.texture,
+                        model.skeleton.map(|skeleton| {
+                            (
+                                std::sync::Arc::new(skeleton),
+                                std::sync::Arc::from(model.clips),
+                            )
+                        }),
+                    ),
+                    None => (geometry, None, None),
                 };
                 let particles = definition
                     .particles
@@ -1030,6 +1091,8 @@ impl SceneDefinition {
                 let (mut waypoint, mut zone, mut metadata) = (None, None, None);
                 let mut ui_surface = None;
                 let mut mouse_look = None;
+                let mut animator = None;
+                let mut animator_look = None;
                 let mut project_components = Vec::new();
                 let mut seen = HashSet::new();
                 for component in &instance.components {
@@ -1066,6 +1129,7 @@ impl SceneDefinition {
                         crate::component::CHARACTER_CONTROLLER => {
                             controller = Some(crate::CharacterController {
                                 speed: number("speed"),
+                                run_speed: number("run_speed"),
                                 jump_speed: number("jump_speed"),
                                 camera_relative: values.bool("camera_relative").unwrap_or(true),
                                 force: number("force"),
@@ -1129,6 +1193,93 @@ impl SceneDefinition {
                         }
                         crate::component::GROUP => {
                             group = values.entity("name").map(str::to_string);
+                        }
+                        crate::component::ANIMATOR => {
+                            let (skeleton, clips): &(
+                                std::sync::Arc<crate::Skeleton>,
+                                std::sync::Arc<[crate::AnimationClip]>,
+                            ) = model_rig
+                                .as_ref()
+                                .ok_or("emergent.animator requires a skinned model")?;
+                            let motion = values.entity("motion").unwrap_or_default();
+                            let mut all = clips.to_vec();
+                            // Comma-separated: one mocap take per file is the norm.
+                            for motion in motion.split(',').map(str::trim).filter(|m| !m.is_empty())
+                            {
+                                let (source, source_clips) = if motion.ends_with(".bvh") {
+                                    let take = crate::Motion::load(project, motion)?;
+                                    (take.skeleton, vec![take.clip])
+                                } else {
+                                    let model = crate::ImportedModel::load(project, motion)?;
+                                    let skeleton = model
+                                        .skeleton
+                                        .ok_or("emergent.animator motion model has no skeleton")?;
+                                    (skeleton, model.clips)
+                                };
+                                let (source_map, target_map) = (
+                                    crate::HumanoidMap::detect(&source),
+                                    crate::HumanoidMap::detect(skeleton),
+                                );
+                                for clip in &source_clips {
+                                    all.push(crate::retarget(
+                                        &source,
+                                        &source_map,
+                                        clip,
+                                        skeleton,
+                                        &target_map,
+                                    )?);
+                                }
+                            }
+                            let blend = values.entity("blend").unwrap_or_default();
+                            let speeds: Vec<f32> =
+                                if values.bool("in_place").unwrap_or(false) || !blend.is_empty() {
+                                    all.iter_mut().map(|c| c.make_in_place(skeleton)).collect()
+                                } else {
+                                    Vec::new()
+                                };
+                            let mut entries = Vec::new();
+                            for entry in blend.split(',').map(str::trim).filter(|e| !e.is_empty()) {
+                                let (name, speed) = match entry.split_once(':') {
+                                    Some((name, speed)) => (
+                                        name.trim(),
+                                        speed.trim().parse::<f32>().map_err(|_| {
+                                            format!("Blend speed {speed:?} is not a number")
+                                        })?,
+                                    ),
+                                    None => (
+                                        entry,
+                                        all.iter()
+                                            .position(|c| c.name() == entry)
+                                            .map_or(0.0, |i| speeds[i]),
+                                    ),
+                                };
+                                entries.push((name, speed));
+                            }
+                            let clips: std::sync::Arc<[crate::AnimationClip]> = all.into();
+                            let name = values.entity("clip").unwrap_or_default();
+                            let clip = if name.is_empty() {
+                                clips.first().map(|c| c.name())
+                            } else {
+                                Some(name)
+                            };
+                            let mut playing =
+                                crate::Animator::new(skeleton.clone(), clips.clone(), clip)?;
+                            playing.speed = number("speed");
+                            playing.looping = values.bool("loop").unwrap_or(true);
+                            playing.playing = values.bool("playing").unwrap_or(true);
+                            playing.set_blend(&entries)?;
+                            playing.turn_rate = number("turn_rate").to_radians();
+                            playing.foot_ik = values.bool("foot_ik").unwrap_or(true);
+                            let look = values.entity("look_at").unwrap_or_default();
+                            if look == instance.id {
+                                return Err(
+                                    "emergent.animator cannot look at its own object".into()
+                                );
+                            }
+                            if !look.is_empty() {
+                                animator_look = Some(look.to_string());
+                            }
+                            animator = Some(playing);
                         }
                         "emergent.mouse_look" => {
                             if definition.kind != "camera" {
@@ -1205,10 +1356,24 @@ impl SceneDefinition {
                             if links.iter().any(|link| link == &instance.id) {
                                 return Err("emergent.waypoint cannot link to itself".into());
                             }
+                            let range =
+                                |from: &str, to: &str| -> Result<Option<(f32, f32)>, String> {
+                                    match (values.number(from), values.number(to)) {
+                                    (Some(a), Some(b)) => Ok(Some((a.to_radians(), b.to_radians()))),
+                                    (None, None) => Ok(None),
+                                    _ => Err(format!("emergent.waypoint needs both {from} and {to}, or neither")),
+                                }
+                                };
                             waypoint = Some((
                                 links,
-                                values.bool("two_way").unwrap_or(true),
-                                number("radius"),
+                                crate::Waypoint {
+                                    links: Vec::new(),
+                                    two_way: values.bool("two_way").unwrap_or(true),
+                                    radius: number("radius"),
+                                    entry: range("entry_from", "entry_to")?,
+                                    exit: range("exit_from", "exit_to")?,
+                                    altitude: values.number("altitude"),
+                                },
                             ));
                         }
                         crate::component::ZONE => {
@@ -1281,10 +1446,57 @@ impl SceneDefinition {
                             });
                         }
                         crate::component::BRAIN => {
-                            let mut stack = Vec::new();
-                            for path in std::iter::once(values.entity("brain").unwrap_or_default())
-                                .chain(values.entities("stack"))
-                            {
+                            let modes = values.array("modes");
+                            let legacy = values.entity("brain").is_some()
+                                || !values.entities("stack").is_empty();
+                            if !modes.is_empty() && legacy {
+                                return Err(
+                                    "emergent.brain uses either brain and stack, or modes, not both"
+                                        .into(),
+                                );
+                            }
+                            // Legacy brain + stack load as always-on modes without transitions.
+                            let mut sources: Vec<(&str, ModeSource)> = Vec::new();
+                            if modes.is_empty() {
+                                for (i, path) in
+                                    std::iter::once(values.entity("brain").unwrap_or_default())
+                                        .chain(values.entities("stack"))
+                                        .enumerate()
+                                {
+                                    sources.push((
+                                        path,
+                                        ModeSource::new(
+                                            if i == 0 {
+                                                "main".into()
+                                            } else {
+                                                format!("stack{i}")
+                                            },
+                                            true,
+                                        ),
+                                    ));
+                                }
+                            } else {
+                                // Validated by the component schema: names, paths and links.
+                                let position = |name: Option<&str>| {
+                                    name.and_then(|name| {
+                                        modes.iter().position(|m| m["name"].as_str() == Some(name))
+                                    })
+                                };
+                                for mode in modes {
+                                    let text = |key| mode.get(key).and_then(toml::Value::as_str);
+                                    let flag = |key| mode.get(key).and_then(toml::Value::as_bool);
+                                    let mut source = ModeSource::new(
+                                        text("name").unwrap_or_default().to_string(),
+                                        flag("active").unwrap_or(false),
+                                    );
+                                    source.on_next = position(text("on_next"));
+                                    source.on_previous = position(text("on_previous"));
+                                    source.keep_running = flag("keep_running").unwrap_or(false);
+                                    sources.push((text("brain").unwrap_or_default(), source));
+                                }
+                            }
+                            let mut stack = Vec::with_capacity(sources.len());
+                            for (path, source) in sources {
                                 let definition = match brains.get(path) {
                                     Some(definition) => definition.clone(),
                                     None => {
@@ -1296,7 +1508,7 @@ impl SceneDefinition {
                                         loaded
                                     }
                                 };
-                                stack.push(definition);
+                                stack.push((definition, source));
                             }
                             brain = Some((
                                 stack,
@@ -1440,6 +1652,15 @@ impl SceneDefinition {
                         },
                         texture,
                     )?),
+                    // Heightfields render smooth like Terrain Builder previews. The flat default
+                    // would give every triangle its own vertices: 300MB at 1024, beyond GPU limits.
+                    (None, None) if terrain_field.is_some() => Some(
+                        crate::MaterialDefinition {
+                            shading: crate::MaterialShading::Smooth,
+                            ..Default::default()
+                        }
+                        .resolve(project)?,
+                    ),
                     (material, _) => material,
                 };
                 if locomotion.is_some()
@@ -1460,7 +1681,7 @@ impl SceneDefinition {
                         }
                         if brain
                             .as_ref()
-                            .is_some_and(|(stack, _)| stack.iter().any(|b| b.looks()))
+                            .is_some_and(|(stack, _)| stack.iter().any(|(b, _)| b.looks()))
                         {
                             return Err("drone_physics cannot execute brain look goals until the powered pilot is implemented".into());
                         }
@@ -1484,7 +1705,7 @@ impl SceneDefinition {
                 }
                 if brain
                     .as_ref()
-                    .is_some_and(|(stack, _)| stack.iter().any(|b| b.looks()))
+                    .is_some_and(|(stack, _)| stack.iter().any(|(b, _)| b.looks()))
                     && (spin.is_some() || look_at.is_some())
                 {
                     return Err("this brain looks (Look at, Look along or Scan), which turns the object; remove spin or the Look at component".into());
@@ -1530,6 +1751,8 @@ impl SceneDefinition {
                     brain,
                     controller,
                     spin,
+                    animator,
+                    animator_look,
                     follow,
                     project_components,
                     raymarched_terrain,
@@ -1551,6 +1774,7 @@ impl SceneDefinition {
                     physics,
                     pending_physics,
                     material,
+                    material_sections,
                     particles,
                     terrain_field: if sculpted { terrain_field } else { None },
                 })
@@ -1659,7 +1883,12 @@ impl SceneDefinition {
                     ));
                 }
             }
-            for definition in entity.brain.iter().flat_map(|(stack, _)| stack) {
+            for definition in entity
+                .brain
+                .iter()
+                .flat_map(|(stack, _)| stack)
+                .map(|(definition, _)| definition)
+            {
                 if let Some(missing) = definition.object_references().into_iter().find(|id| {
                     entity
                         .brain_target(id)
@@ -1736,6 +1965,17 @@ impl SceneDefinition {
                             ),
                         ));
                     }
+                }
+            }
+            if let Some(target) = &entity.animator_look {
+                if !by_id.contains_key(target.as_str()) {
+                    return Err(error(
+                        path,
+                        format!(
+                            "instance {}: animator look-at target '{target}' is not in this scene",
+                            entity.id
+                        ),
+                    ));
                 }
             }
             if let Some((target, ..)) = &entity.follow {
@@ -1826,6 +2066,9 @@ impl SceneDefinition {
                 if let Some(material) = &entity.material {
                     world.insert_component(id, material.clone())?;
                 }
+                if let Some(sections) = &entity.material_sections {
+                    world.insert_component(id, sections.clone())?;
+                }
                 if let Some(physics) = entity.physics {
                     world.insert_component(id, physics)?;
                 }
@@ -1845,6 +2088,9 @@ impl SceneDefinition {
                 }
                 if let Some(spin) = entity.spin {
                     world.insert_component(id, spin)?;
+                }
+                if let Some(animator) = &entity.animator {
+                    world.insert_component(id, animator.clone())?;
                 }
                 if let Some(surface) = &entity.ui_surface {
                     world.insert_component(id, surface.clone())?;
@@ -1872,10 +2118,15 @@ impl SceneDefinition {
                     .map(|(k, v)| (k.clone(), v.clone()))
                     .collect();
                 bindings.sort();
-                let layers = stack
+                let modes = stack
                     .iter()
-                    .map(|definition| {
-                        compiled
+                    .map(|(definition, mode)| crate::BrainMode {
+                        name: mode.name.clone(),
+                        active: mode.active,
+                        on_next: mode.on_next,
+                        on_previous: mode.on_previous,
+                        keep_running: mode.keep_running,
+                        brain: compiled
                             .entry((definition.path.clone(), bindings.clone()))
                             .or_insert_with(|| {
                                 std::sync::Arc::new(crate::CompiledBrain::compile(
@@ -1889,17 +2140,18 @@ impl SceneDefinition {
                                     &mut groups,
                                 ))
                             })
-                            .clone()
+                            .clone(),
                     })
                     .collect();
-                world.insert_component(
-                    entities[&entity.id],
-                    crate::BrainAgent::stacked(
-                        layers,
-                        *settings,
-                        crate::brain::seed_from(&entity.id),
-                    ),
-                )?;
+                let agent = crate::BrainAgent::with_modes(
+                    modes,
+                    *settings,
+                    crate::brain::seed_from(&entity.id),
+                    Some(&mut groups),
+                )
+                // Names, links and the mode count were validated when the scene loaded.
+                .expect("brain modes validated at load");
+                world.insert_component(entities[&entity.id], agent)?;
             }
             for entity in self.entities {
                 let id = entities[&entity.id];
@@ -1943,6 +2195,12 @@ impl SceneDefinition {
                         },
                     )?;
                 }
+                if let Some(target) = &entity.animator_look {
+                    let target = entities[target];
+                    if let Some(mut animator) = world.component_mut::<crate::Animator>(id)? {
+                        animator.look_target = Some(target);
+                    }
+                }
                 if let Some((target, speed, stop_distance)) = entity.follow {
                     let target = entities[&target];
                     world.insert_component(
@@ -1969,16 +2227,9 @@ impl SceneDefinition {
                     }
                     world.insert_component(id, crate::locomotion::WheelRig::new(wheels, radius))?;
                 }
-                if let Some((links, two_way, radius)) = entity.waypoint {
-                    let links = links.iter().map(|link| entities[link]).collect();
-                    world.insert_component(
-                        id,
-                        crate::Waypoint {
-                            links,
-                            two_way,
-                            radius,
-                        },
-                    )?;
+                if let Some((links, mut waypoint)) = entity.waypoint {
+                    waypoint.links = links.iter().map(|link| entities[link]).collect();
+                    world.insert_component(id, waypoint)?;
                 }
                 if let Some(zone) = entity.zone {
                     world.insert_component(id, zone)?;

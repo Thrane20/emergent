@@ -17,7 +17,7 @@ pub enum FieldKind {
     Entity,
     /// Instance IDs in order (waypoints).
     Entities,
-    /// Free text up to 64 characters (a group name).
+    /// Free text up to 64 characters (a group name), or the field's `range` maximum.
     Text,
     /// One of the field's `options`.
     Choice,
@@ -31,6 +31,77 @@ pub enum FieldKind {
     Audio,
     /// A table of up to 32 name = value pairs; values are text, numbers or true/false.
     Pairs,
+    /// Named brain modes: an ordered list of up to 16 tables (see [`validate_modes`]).
+    Modes,
+}
+
+/// Most modes one brain component may carry.
+pub const MAX_BRAIN_MODES: usize = 16;
+
+/// A mode name: 1-32 characters of `a-z`, `0-9`, `_` and `-`.
+pub fn mode_name(text: &str) -> bool {
+    (1..=32).contains(&text.len())
+        && text
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+/// Shape and cross-references of a `modes` list: unique names, a brain path each, and
+/// `on_next` / `on_previous` naming another mode of the same list.
+pub fn validate_modes(value: &toml::Value) -> Result<(), String> {
+    let modes = value.as_array().ok_or("must be a list of mode tables")?;
+    if modes.len() > MAX_BRAIN_MODES {
+        return Err(format!("may hold at most {MAX_BRAIN_MODES} modes"));
+    }
+    let mut names = Vec::with_capacity(modes.len());
+    for mode in modes {
+        let table = mode.as_table().ok_or("must be a list of mode tables")?;
+        let name = table
+            .get("name")
+            .and_then(toml::Value::as_str)
+            .unwrap_or("");
+        if !mode_name(name) {
+            return Err(format!(
+                "mode name '{name}' must be 1-32 characters of a-z, 0-9, _ and -"
+            ));
+        }
+        if names.contains(&name) {
+            return Err(format!("mode '{name}' is named twice"));
+        }
+        names.push(name);
+        for (key, field) in table {
+            let valid = match key.as_str() {
+                "name" => true,
+                "brain" => field
+                    .as_str()
+                    .is_some_and(|s| s.ends_with(".brain.toml") && s.len() <= 512),
+                "active" | "keep_running" => field.is_bool(),
+                "on_next" | "on_previous" => field.is_str(),
+                _ => return Err(format!("mode '{name}' has no field '{key}'")),
+            };
+            if !valid {
+                return Err(format!("mode '{name}'.{key} has the wrong type"));
+            }
+        }
+        if !table.contains_key("brain") {
+            return Err(format!("mode '{name}' needs a brain"));
+        }
+    }
+    for mode in modes {
+        let table = mode.as_table().expect("checked above");
+        let name = table["name"].as_str().expect("checked above");
+        for key in ["on_next", "on_previous"] {
+            if let Some(target) = table.get(key).and_then(toml::Value::as_str) {
+                if target == name {
+                    return Err(format!("mode '{name}'.{key} names itself"));
+                }
+                if !names.contains(&target) {
+                    return Err(format!("mode '{name}'.{key} names unknown mode '{target}'"));
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -53,6 +124,9 @@ pub struct ComponentField {
     /// Value used when the field is not authored. `None` means it comes from the asset or is required.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<toml::Value>,
+    /// May be left unset even without a default (unset means "no constraint").
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub optional: bool,
     pub help: &'static str,
 }
 
@@ -68,6 +142,7 @@ impl ComponentField {
             variants: &[],
             options: &[],
             default: None,
+            optional: false,
             help: "",
         }
     }
@@ -89,6 +164,10 @@ impl ComponentField {
     }
     pub fn default(mut self, value: impl Into<toml::Value>) -> Self {
         self.default = Some(value.into());
+        self
+    }
+    pub fn optional(mut self) -> Self {
+        self.optional = true;
         self
     }
     pub fn help(mut self, help: &'static str) -> Self {
@@ -127,7 +206,18 @@ fn number(value: &toml::Value) -> Option<f32> {
 impl ComponentType {
     /// Checks names, value shapes and schema ranges; owners still validate semantics.
     pub fn validate(&self, fields: &toml::Table) -> Result<(), String> {
-        validate_fields(self.id, &self.fields, fields, self.applies_to == "any")
+        // A brain component with modes names its brains there instead of in `brain`.
+        let modes = self.id == BRAIN
+            && fields
+                .get("modes")
+                .and_then(toml::Value::as_array)
+                .is_some_and(|m| !m.is_empty());
+        validate_fields(
+            self.id,
+            &self.fields,
+            fields,
+            self.applies_to == "any" && !modes,
+        )
     }
 
     /// Authored values with schema defaults, for a table that passed `validate`.
@@ -180,7 +270,7 @@ pub fn validate_fields(
                     && v.len() <= 64
                     && v.iter().all(|id| text(id, 128))
             }),
-            FieldKind::Text => text(value, 64),
+            FieldKind::Text => text(value, text_limit(field)),
             FieldKind::Choice => value.as_str().is_some_and(|s| field.options.contains(&s)),
             FieldKind::Brain => value
                 .as_str()
@@ -198,6 +288,10 @@ pub fn validate_fields(
             FieldKind::Audio => value
                 .as_str()
                 .is_some_and(|s| s.ends_with(".audio.toml") && s.len() <= 512),
+            FieldKind::Modes => {
+                validate_modes(value).map_err(|e| format!("{owner}.{name} {e}"))?;
+                true
+            }
             FieldKind::Pairs => value.as_table().is_some_and(|table| {
                 table.len() <= crate::map::MAP_MAX_PAIRS
                     && table.iter().all(|(key, value)| {
@@ -232,20 +326,21 @@ pub fn validate_fields(
                     FieldKind::Vector3 => format!("three numbers in {}", bounds()),
                     FieldKind::Entity => "the ID of an instance in this scene".to_string(),
                     FieldKind::Entities => if field.default.as_ref().and_then(toml::Value::as_array).is_some_and(Vec::is_empty) { "a list of 0-64 instance IDs" } else { "a list of 1-64 instance IDs" }.to_string(),
-                    FieldKind::Text => "1-64 printable characters".to_string(),
+                    FieldKind::Text => format!("1-{} printable characters", text_limit(field)),
                     FieldKind::Choice => format!("one of {}", field.options.join(", ")),
                     FieldKind::Brain => "the path of a .brain.toml asset".to_string(),
                     FieldKind::Locomotion => "the path of a .locomotion.toml asset".to_string(),
                     FieldKind::Brains => "a list of up to 8 .brain.toml paths".to_string(),
                     FieldKind::Audio => "the path of a .audio.toml asset".to_string(),
                     FieldKind::Pairs => "a table of up to 32 name = value pairs (names up to 64 characters; values text up to 256 characters, numbers or true/false)".to_string(),
+                    FieldKind::Modes => unreachable!("reported above"),
                 }
             ));
         }
     }
     if require_defaultless {
         for field in schema {
-            if field.default.is_none() && !fields.contains_key(field.name) {
+            if field.default.is_none() && !field.optional && !fields.contains_key(field.name) {
                 return Err(format!("{owner} requires field '{}'", field.name));
             }
         }
@@ -263,7 +358,7 @@ impl<'a> ComponentValues<'a> {
     pub fn new(schema: &'a [ComponentField], fields: &'a toml::Table) -> Self {
         Self { schema, fields }
     }
-    fn value(&self, name: &str) -> Option<&toml::Value> {
+    fn value(&self, name: &str) -> Option<&'a toml::Value> {
         self.fields.get(name).or_else(|| {
             self.schema
                 .iter()
@@ -292,6 +387,12 @@ impl<'a> ComponentValues<'a> {
     /// Pairs fields.
     pub fn table(&self, name: &str) -> Option<&toml::Table> {
         self.value(name).and_then(toml::Value::as_table)
+    }
+    /// Modes fields: the mode tables in order.
+    pub fn array(&self, name: &str) -> &'a [toml::Value] {
+        self.value(name)
+            .and_then(toml::Value::as_array)
+            .map_or(&[], Vec::as_slice)
     }
     pub fn entities(&self, name: &str) -> Vec<&str> {
         self.value(name)
@@ -322,6 +423,7 @@ pub struct ComponentRegistry {
 pub const LIGHT: &str = "emergent.light";
 pub const CHARACTER_CONTROLLER: &str = "emergent.character_controller";
 pub const SPIN: &str = "emergent.spin";
+pub const ANIMATOR: &str = "emergent.animator";
 pub const FOLLOW: &str = "emergent.follow";
 pub const GROUP: &str = "emergent.group";
 pub const BRAIN: &str = "emergent.brain";
@@ -333,6 +435,11 @@ pub const AUDIO_LISTENER: &str = "emergent.audio_listener";
 pub const WAYPOINT: &str = "emergent.waypoint";
 pub const ZONE: &str = "emergent.zone";
 pub const METADATA: &str = "emergent.metadata";
+
+/// Text fields hold 64 characters unless their `range` maximum says otherwise.
+fn text_limit(field: &ComponentField) -> usize {
+    field.max.map_or(64, |max| max as usize)
+}
 
 impl ComponentRegistry {
     pub fn builtin() -> Self {
@@ -373,6 +480,7 @@ impl ComponentRegistry {
                     applies_to: "any",
                     fields: vec![
                         f("speed", "Speed", Number).range(0.0, 100.0).unit("m/s").default(4.0).help("Horizontal movement speed."),
+                        f("run_speed", "Run speed", Number).range(0.0, 100.0).unit("m/s").default(0.0).help("Speed while Shift is held; 0 leaves Shift unused."),
                         f("jump_speed", "Jump speed", Number).range(0.0, 50.0).unit("m/s").default(5.0).help("Upward speed of a jump; 0 turns jumping off. Requires a dynamic body with supporting contact."),
                         f("camera_relative", "Relative to camera", Bool).default(true).help("W moves where the active camera looks. Off: W moves along world -Z."),
                         f("force", "Drive force", Number).range(0.0, 1_000_000.0).unit("N").default(0.0).help("Pushes a dynamic body: acceleration = force ÷ mass, minus friction × 9.81. Released keys coast under friction. Must exceed friction × mass × 9.81 to move. 0 = instant start and stop."),
@@ -386,6 +494,24 @@ impl ComponentRegistry {
                     fields: vec![
                         f("axis", "Axis", Vector3).range(-1.0, 1.0).default(toml::Value::Array(vec![0.0.into(), 1.0.into(), 0.0.into()])).help("Local axis; it is normalised."),
                         f("degrees_per_second", "Speed", Number).range(-3600.0, 3600.0).unit("°/s").default(45.0).help("Negative spins the other way."),
+                    ],
+                },
+                ComponentType {
+                    id: ANIMATOR,
+                    label: "Animator",
+                    description: "Plays a skinned model's animation clips on its skeleton, or blends them by how fast the object moves.",
+                    applies_to: "any",
+                    fields: vec![
+                        f("clip", "Clip", Text).default("").help("Clip name from the model or its motion file; empty plays the first clip."),
+                        f("motion", "Motion", Text).range(0.0, 512.0).default("").help("Optional .bvh or rigged .glb files, comma-separated, whose clips are retargeted onto this humanoid model; a .bvh clip is named after its file."),
+                        f("blend", "Speed blend", Text).range(0.0, 256.0).default("").help("Clips blended by ground speed, slowest first, e.g. \"idle:0, walk, run\". Speeds in m/s; omitted, a clip's own travel speed is used. Overrides Clip; clips play in place."),
+                        f("in_place", "In place", Bool).default(false).help("Removes the clip's forward travel so movement comes from locomotion."),
+                        f("turn_rate", "Turn to movement", Number).range(0.0, 3600.0).unit("°/s").default(0.0).help("Turns the object to face where it moves; 0 keeps its heading. Put the animated model under its physics body."),
+                        f("foot_ik", "Feet on ground", Bool).default(true).help("Humanoids: plants each foot on the static physics ground under it and lowers the hips to reach."),
+                        f("look_at", "Look at", Entity).optional().help("Humanoids: the head turns towards this object while it is in front."),
+                        f("speed", "Speed", Number).range(-10.0, 10.0).default(1.0).help("Playback rate; negative plays backwards."),
+                        f("loop", "Loop", Bool).default(true).help("Off: stops on the last frame."),
+                        f("playing", "Playing", Bool).default(true).help("Off: holds the clip's first frame."),
                     ],
                 },
                 ComponentType {
@@ -414,6 +540,7 @@ impl ComponentRegistry {
                     fields: vec![
                         f("brain", "Brain", Brain).help("A .brain.toml asset."),
                         f("stack", "Also run", Brains).default(toml::Value::Array(vec![])).help("Further brains run together with the main one: movement adds up, the first look wins, every signal is sent."),
+                        f("modes", "Modes", Modes).default(toml::Value::Array(vec![])).help("Named brains switched on and off at run time (instead of Brain and Also run): each has a brain, Active at start, On next (when it finishes), On previous (when aborted) and Keep running."),
                         f("max_speed", "Max speed", Number).range(0.0, 100.0).unit("m/s").default(3.0),
                         f("acceleration", "Acceleration", Number).range(0.0, 1000.0).unit("m/s²").default(8.0).help("How quickly it can change velocity; lower turns more smoothly."),
                         f("planar", "Ground only", Bool).default(false).help("Ignore vertical steering (objects without physics that walk on the ground)."),
@@ -486,6 +613,11 @@ impl ComponentRegistry {
                         f("links", "Links", Entities).default(toml::Value::Array(vec![])).help("Waypoints this one leads to."),
                         f("two_way", "Two-way links", Bool).default(true).help("Off: links can only be travelled from this waypoint."),
                         f("radius", "Arrival radius", Number).range(0.0, 1000.0).unit("m").default(1.0),
+                        f("entry_from", "Entry from", Number).optional().range(0.0, 360.0).unit("°").help("Cross this point on a compass course from Entry from clockwise to Entry to (e.g. 10 to 20). Unset: any course."),
+                        f("entry_to", "Entry to", Number).optional().range(0.0, 360.0).unit("°"),
+                        f("exit_from", "Exit from", Number).optional().range(0.0, 360.0).unit("°").help("Leave this point on a compass course from Exit from clockwise to Exit to (e.g. 170 to 190). Unset: any course."),
+                        f("exit_to", "Exit to", Number).optional().range(0.0, 360.0).unit("°"),
+                        f("altitude", "Altitude", Number).optional().range(0.0, 20000.0).unit("m").help("Height to cross at. In a traffic pattern (tagged aeroway=circuit) it is above the runway."),
                     ],
                 },
                 ComponentType {

@@ -95,7 +95,7 @@ impl Command {
     }
 }
 
-fn packet(writer: &mut impl Write, kind: u32, payload: &[&[u8]]) -> std::io::Result<()> {
+pub(super) fn packet(writer: &mut impl Write, kind: u32, payload: &[&[u8]]) -> std::io::Result<()> {
     let size: usize = payload.iter().map(|slice| slice.len()).sum();
     if size > 4 * 1024 * 1024 {
         return Err(std::io::Error::other("inspection packet exceeds 4 MiB"));
@@ -109,7 +109,7 @@ fn packet(writer: &mut impl Write, kind: u32, payload: &[&[u8]]) -> std::io::Res
     writer.flush()
 }
 
-fn acknowledge(
+pub(super) fn acknowledge(
     writer: &mut impl Write,
     seq: u32,
     result: &Result<String, Box<dyn Error>>,
@@ -418,6 +418,7 @@ pub fn run<G: ProjectGame>(
                                         geometry.replace_material(
                                             entity,
                                             &material,
+                                            engine.world(),
                                             &game,
                                             &mut renderer,
                                         )?;

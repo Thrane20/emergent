@@ -264,7 +264,7 @@ function fileKind(relative: string): ProjectFileKind {
   if (relative === "emergent.toml") return "manifest";
   if (relative.endsWith(".noise.toml")) return "filter";
   if (relative.endsWith(".md")) return "documentation";
-  if (relative.toLowerCase().endsWith(".glb")) return "model";
+  if (/\.(glb|vrm)$/i.test(relative)) return "model";
   if (/\.(png|jpe?g|webp)$/i.test(relative)) return "texture";
   if (relative.startsWith("assets/scenes/")) return "scene";
   if (relative.startsWith("assets/entities/")) return "entity";

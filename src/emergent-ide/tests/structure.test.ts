@@ -97,3 +97,8 @@ test("line edits move its two endpoints; group, duplicate and delete preserve hi
  siblings.parts.push({...structuredClone(siblings.parts[0]),id:"outside",name:"Outside",parent:null});
  assert.throws(()=>groupStructureParts(siblings,["outside","right"],"invalid"),/same current parent/);
 });
+test("structure parts accept only a library material path",()=>{
+ const part=(material?:unknown)=>({schema_version:1,id:"s",name:"S",parts:[{id:"p",name:"P",parent:null,transform:identityStructureTransform(),mesh:structurePrimitive("Cube"),...(material===undefined?{}:{material})}]});
+ assert.equal(structureDocument(part("assets/stone.material.toml")).parts[0].material,"assets/stone.material.toml");
+ assert.throws(()=>structureDocument(part(7)));assert.throws(()=>structureDocument(part("assets/stone.png")));
+});

@@ -42,9 +42,10 @@ request them through new Brain nodes in a "Locomotion" heading (e.g. *Orbit poin
 1. **Ground** — Slide (force/acceleration on a point mass; today's behaviour, made
    explicit) ✓, Wheeled — car/bicycle model with steering angle, wheelbase, brakes ✓,
    Tracked / skid-steer (tanks) ○, Hover-craft ○.
-2. **Legged** — Biped IK walk ○ (needs skeletons and an animation system, which the
-   engine does not have yet), Quadruped ○, Crawler ○. Until then a legged profile moves
-   like Slide with gait timing exposed (step phase, stride) for animation later.
+2. **Legged** — Biped ✓ (moves like Slide without self-turning; the model's
+   `emergent.animator` blends clips by speed, turns it to its movement and places its
+   feet with IK: [skeletal animation](../plans/skeletal-animation.md)), Quadruped ○,
+   Crawler ○.
 3. **Rotorcraft / VTOL** — Multirotor drone (tilt to move, hover, yaw, altitude hold) ✓,
    Helicopter (collective, cyclic, tail-rotor yaw) ○, Tilt-rotor ○.
 4. **Fixed wing** — Aircraft with stall speed, bank-to-turn, climb/sink rates, take-off

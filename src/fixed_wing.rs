@@ -193,6 +193,52 @@ pub struct Runway {
     pub width: f32,
     /// Fly the circuit on the right of the landing direction (default left).
     pub right_circuit: bool,
+    /// The airport's size relative to a real one (its aerodrome's `scale` tag, default 1):
+    /// the circuit's minimum spacing and the approach gates shrink with it.
+    pub scale: f32,
+}
+
+/// One fix of a drawn traffic pattern: cross `point` (its `y` is the world altitude) on a course
+/// within `entry`, leave on one within `exit`. Courses are compass radians, clockwise from the
+/// first to the second; `None` allows any. `leg` is the circuit phase flown towards the fix.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PatternFix {
+    pub point: Vec3,
+    pub entry: Option<(f32, f32)>,
+    pub exit: Option<(f32, f32)>,
+    pub leg: FlightPhase,
+}
+
+/// Whether a compass course lies in a clockwise range.
+fn in_range(course: f32, (from, to): (f32, f32)) -> bool {
+    (course - from).rem_euclid(TAU) <= (to - from).rem_euclid(TAU) + 1e-4
+}
+/// The course in a range closest to `course`.
+fn clamp_course(course: f32, range: (f32, f32)) -> f32 {
+    if in_range(course, range) {
+        course
+    } else if wrap(course - range.0).abs() <= wrap(course - range.1).abs() {
+        range.0
+    } else {
+        range.1
+    }
+}
+
+/// Progress through a drawn pattern.
+#[derive(Clone, Copy, Debug, Default)]
+struct PatternNav {
+    /// Next fix to cross.
+    fix: usize,
+    /// Committed course to cross it on (chosen on starting it).
+    course: Option<f32>,
+    /// Flying out to line up again before the fix (approached too close or off course).
+    lead: bool,
+    /// Loops flown to line up on this fix; after two it is flown straight at.
+    tries: u8,
+    /// Leaving the last fix on its exit course, from where.
+    leaving: Option<(Vec3, f32, f32)>,
+    /// This tick's heading and altitude.
+    command: (f32, f32),
 }
 
 /// What the tower allows this tick (all open for a plain `Land` with no tower).
@@ -350,6 +396,9 @@ pub struct Pilot {
     go_arounds: u32,
     gates: Gates,
     telemetry: FlightTelemetry,
+    nav: PatternNav,
+    /// A drawn pattern is being flown this tick.
+    nav_active: bool,
 }
 
 impl Default for Pilot {
@@ -369,6 +418,8 @@ impl Default for Pilot {
             go_arounds: 0,
             gates: Gates::default(),
             telemetry: FlightTelemetry::default(),
+            nav: PatternNav::default(),
+            nav_active: false,
         }
     }
 }
@@ -408,6 +459,8 @@ struct Circuit {
     turn_radius: f32,
     elevation: f32,
     pattern_altitude: f32,
+    /// The airport's scale (see [`Runway::scale`]).
+    scale: f32,
 }
 
 impl Circuit {
@@ -415,7 +468,7 @@ impl Circuit {
         let direction = bearing_direction(runway.heading);
         let speed = p.approach_speed() * 1.15;
         let turn_radius = speed * speed / (G * CIRCUIT_BANK.tan());
-        let spacing = (3.0 * turn_radius).max(400.0);
+        let spacing = (3.0 * turn_radius).max(400.0 * runway.scale);
         let threshold = runway.center - direction * (runway.length / 2.0);
         Self {
             heading: runway.heading,
@@ -430,12 +483,13 @@ impl Circuit {
             ),
             sign: if runway.right_circuit { -1.0 } else { 1.0 },
             threshold,
-            aim: (runway.length * 0.15).min(150.0),
+            aim: (runway.length * 0.15).min(150.0 * runway.scale),
             length: runway.length,
             spacing,
             turn_radius,
             elevation: runway.center.y,
             pattern_altitude: runway.center.y + pattern_height,
+            scale: runway.scale,
         }
     }
     /// (along, out to the circuit side) of a world position relative to the threshold.
@@ -502,12 +556,15 @@ impl Pilot {
     }
 
     /// One fixed tick: phase logic, autopilot loops and the plant. `runway` is the landing goal's
-    /// zone resolved this tick (None if there is no landing goal or the zone is gone).
+    /// zone resolved this tick (None if there is no landing goal or the zone is gone); `pattern`,
+    /// when drawn for that runway end, replaces the generated circuit up to final.
+    #[allow(clippy::too_many_arguments)]
     pub fn step(
         &mut self,
         p: &FixedWingParams,
         goal: FlightGoal,
         runway: Option<Runway>,
+        pattern: Option<&[PatternFix]>,
         gates: Gates,
         body: &BodyInput,
         dt: Duration,
@@ -576,10 +633,13 @@ impl Pilot {
             }
             _ => None,
         };
+        let pattern = pattern.filter(|fixes| !fixes.is_empty() && circuit.is_some());
+        self.nav_active = pattern.is_some();
         self.advance_phase(
             p,
             goal,
             circuit.as_ref(),
+            pattern,
             body,
             position,
             heading,
@@ -644,10 +704,12 @@ impl Pilot {
                             unreachable!("taxi phase follows a taxi goal")
                         };
                         let to = Vec3::new(point.x - position.x, 0.0, point.z - position.z);
+                        // Small, slow aircraft taxi slower so they can make their turns.
+                        let taxi_speed = TAXI_SPEED.min(0.4 * p.liftoff_speed);
                         let wanted = if stop {
-                            TAXI_SPEED.min(0.3 * to.length())
+                            taxi_speed.min(0.3 * to.length())
                         } else {
-                            TAXI_SPEED
+                            taxi_speed
                         };
                         let throttle = (0.15 * (wanted - rolling) + 0.05).clamp(0.0, 0.4);
                         let brake = (0.4 * (rolling - wanted)).clamp(0.0, 1.0);
@@ -839,12 +901,113 @@ impl Pilot {
         PilotOutput { force, torque }
     }
 
+    /// Steers through a drawn pattern, setting the phase to the leg being flown and `nav.command`.
+    /// Returns false once past the last fix (time for final).
+    fn fly_pattern(
+        &mut self,
+        fixes: &[PatternFix],
+        c: &Circuit,
+        position: Vec3,
+        heading: f32,
+    ) -> bool {
+        let radius = c.turn_radius;
+        let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
+        let nav = &mut self.nav;
+        if let Some((from, course, altitude)) = nav.leaving {
+            // Leave on the exit course until the turn onto it is done; downwind is extended
+            // while the tower holds the turn onto base.
+            let held = self.phase == FlightPhase::Downwind
+                && fixes
+                    .get(nav.fix)
+                    .is_some_and(|f| f.leg == FlightPhase::Base)
+                && !self.gates.may_turn_base;
+            let turning = wrap(course - heading).abs() > 5f32.to_radians();
+            if held || turning || flat(position - from).length() < 0.5 * radius {
+                nav.command = (course, altitude);
+                return true;
+            }
+            nav.leaving = None;
+        }
+        let Some(fix) = fixes.get(nav.fix).copied() else {
+            return false;
+        };
+        self.phase = fix.leg;
+        let to = flat(fix.point - position);
+        let mut passed = false;
+        // A fix that can't be made on its course (drawn too tight to turn) is flown straight at.
+        match fix.entry.filter(|_| nav.tries < 2) {
+            None => {
+                // Any course: fly straight at it.
+                nav.command = (compass(to), fix.point.y);
+                passed = to.length() < (0.8 * radius).max(60.0);
+            }
+            Some(range) => {
+                let fresh = nav.course.is_none();
+                let course = *nav
+                    .course
+                    .get_or_insert_with(|| clamp_course(compass(to), range));
+                let direction = bearing_direction(course);
+                let relative = flat(position - fix.point);
+                let (along, across) = (
+                    relative.dot(direction),
+                    relative.dot(bearing_direction(course + FRAC_PI_2)),
+                );
+                // Too close to turn onto the course in time: fly out and come back. Turning
+                // through an angle takes about the radius times it, plus room to settle.
+                let room = radius * (wrap(course - heading).abs() + 0.5);
+                if fresh && -along < room {
+                    nav.lead = true;
+                }
+                if along >= 0.0 && !nav.lead {
+                    let tolerance = 10f32.to_radians();
+                    let on_course = in_range(heading, (range.0 - tolerance, range.1 + tolerance));
+                    if across.abs() < 2.0 * radius && on_course {
+                        passed = true;
+                    } else {
+                        nav.lead = true;
+                        nav.tries += 1;
+                    }
+                }
+                if nav.lead {
+                    // Far enough back to turn round and settle on the course before the fix.
+                    let lead = fix.point - direction * (5.0 * radius);
+                    let to_lead = flat(lead - position);
+                    if to_lead.length() < 1.5 * radius {
+                        nav.lead = false;
+                    }
+                    nav.command = (compass(to_lead), fix.point.y);
+                } else {
+                    // Track the line through the fix on the committed course.
+                    let correction = (across / (1.5 * radius)).atan().clamp(-1.0, 1.0);
+                    nav.command = ((course - correction).rem_euclid(TAU), fix.point.y);
+                }
+            }
+        }
+        if passed {
+            let next = fixes.get(nav.fix + 1);
+            nav.fix += 1;
+            nav.course = None;
+            nav.lead = false;
+            nav.tries = 0;
+            nav.leaving = fix.exit.map(|range| {
+                let towards = next.map_or(heading, |n| compass(flat(n.point - fix.point)));
+                let course = clamp_course(towards, range);
+                (fix.point, course, next.map_or(fix.point.y, |n| n.point.y))
+            });
+            if let Some((_, course, altitude)) = nav.leaving {
+                nav.command = (course, altitude);
+            }
+        }
+        true
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn advance_phase(
         &mut self,
         p: &FixedWingParams,
         goal: FlightGoal,
         circuit: Option<&Circuit>,
+        pattern: Option<&[PatternFix]>,
         body: &BodyInput,
         position: Vec3,
         heading: f32,
@@ -922,13 +1085,30 @@ impl Pilot {
             (PatternEntry | Downwind | Base | Final | Flare | GoAround, _) if !landing => {
                 self.phase = Cruise
             }
-            (Cruise, _) if landing && circuit.is_some() => self.phase = PatternEntry,
+            (Cruise, _) if landing && circuit.is_some() => {
+                self.phase = PatternEntry;
+                self.nav = PatternNav::default();
+            }
             (GoAround, _) => {
                 let c = circuit.expect("checked above");
-                if position.y >= c.pattern_altitude - 30.0
-                    && position.y - self.ground_altitude >= SAFE_TURN_HEIGHT
+                if position.y >= c.pattern_altitude - 30.0 * c.scale
+                    && position.y - self.ground_altitude >= SAFE_TURN_HEIGHT * c.scale
                 {
                     self.phase = PatternEntry;
+                    // Rejoin a drawn pattern at its downwind leg.
+                    self.nav = PatternNav {
+                        fix: pattern
+                            .and_then(|fixes| fixes.iter().position(|f| f.leg == Downwind))
+                            .unwrap_or(0),
+                        ..PatternNav::default()
+                    };
+                }
+            }
+            // A drawn pattern: fly its fixes, then the final approach below.
+            (PatternEntry | Downwind | Base, _) if pattern.is_some() => {
+                let c = circuit.expect("checked above");
+                if !self.fly_pattern(pattern.expect("checked"), c, position, heading) {
+                    self.phase = Final;
                 }
             }
             (PatternEntry, _) => {
@@ -946,7 +1126,7 @@ impl Pilot {
                 let base_descent = c.spacing / (p.approach_speed() * 1.15) * p.max_descent * 0.7;
                 if self.gates.may_turn_base
                     && a < -c.spacing + c.turn_radius
-                    && wheels <= c.glide_altitude(a) + 30.0 + base_descent
+                    && wheels <= c.glide_altitude(a) + 30.0 * c.scale + base_descent
                 {
                     self.phase = Base;
                 }
@@ -966,17 +1146,22 @@ impl Pilot {
                 let wheels = position.y - body.half_extents.y;
                 let height = wheels - c.elevation;
                 let error = wheels - c.glide_altitude(a);
-                // Stabilised-approach gate: below 60 m it must be lined up, on the glide path and not slow.
-                let unstable = height < 60.0 && (s.abs() > 40.0 || error.abs() > 20.0);
+                // Stabilised-approach gate: below 60 m it must be on the glide path, and once lined up,
+                // on the centreline.
+                // Gates shrink with a miniature airport, but not below what a small aircraft needs.
+                let lined_up = wrap(c.heading - heading).abs() < 30f32.to_radians();
+                let unstable = height < (60.0 * c.scale).max(15.0)
+                    && ((lined_up && s.abs() > (40.0 * c.scale).max(8.0))
+                        || error.abs() > (20.0 * c.scale).max(5.0));
                 // No landing clearance by 1 km out: go around (the tower re-sequences it).
-                let uncleared = !self.gates.cleared_to_land && a > -1000.0;
+                let uncleared = !self.gates.cleared_to_land && a > -1000.0 * c.scale;
                 if unstable
                     || uncleared
                     || airspeed < 1.05 * p.liftoff_speed
                     || a > c.aim + 0.4 * c.length
                 {
                     go_around(self, c.heading);
-                } else if height < FLARE_HEIGHT && a > -50.0 {
+                } else if height < FLARE_HEIGHT && a > -50.0 * c.scale {
                     self.phase = Flare;
                 }
             }
@@ -1043,6 +1228,9 @@ impl Pilot {
                     speed: circuit_speed,
                     vertical: Vertical::ClimbOut,
                 },
+                PatternEntry | Downwind | Base if self.nav_active => {
+                    leg(self.nav.command.0, self.nav.command.1)
+                }
                 PatternEntry => {
                     let to = c.entry() - position;
                     leg(compass(Vec3::new(to.x, 0.0, to.z)), c.pattern_altitude)
@@ -1050,9 +1238,13 @@ impl Pilot {
                 // Downwind runs opposite the landing direction with the runway on the circuit's inside.
                 // Descending from abeam the threshold towards a little above the glide path.
                 Downwind => leg(
-                    c.heading + PI - c.sign * ((s - c.spacing) / 400.0).atan().clamp(-0.5, 0.5),
+                    c.heading + PI
+                        - c.sign
+                            * ((s - c.spacing) / (400.0 * c.scale))
+                                .atan()
+                                .clamp(-0.5, 0.5),
                     if a < 0.0 {
-                        c.pattern_altitude.min(c.glide_altitude(a) + 30.0)
+                        c.pattern_altitude.min(c.glide_altitude(a) + 30.0 * c.scale)
                     } else {
                         c.pattern_altitude
                     },
@@ -1065,7 +1257,10 @@ impl Pilot {
                 _ => {
                     // Final: track the centreline; nose slightly up and power on the glide path.
                     let drift = v.dot(c.side);
-                    let correction = c.sign * ((s + 4.0 * drift) / 100.0).atan().clamp(-0.5, 0.5);
+                    let correction = c.sign
+                        * ((s + 4.0 * drift) / (100.0 * c.scale).max(10.0))
+                            .atan()
+                            .clamp(-0.5, 0.5);
                     let approach = p.approach_speed();
                     if self.phase == Flare {
                         let height = (wheels - c.elevation).max(0.0);
@@ -1177,4 +1372,20 @@ pub fn attitude(heading_degrees: f32, pitch: f32, bank: f32) -> Quat {
     Quat::from_rotation_y(-heading_degrees.to_radians())
         * Quat::from_rotation_x(pitch)
         * Quat::from_rotation_z(-bank)
+}
+
+#[cfg(test)]
+mod pattern_tests {
+    use super::*;
+
+    #[test]
+    fn course_ranges_wrap_through_north() {
+        let deg = f32::to_radians;
+        let north = (deg(350.0), deg(10.0));
+        assert!(in_range(deg(355.0), north) && in_range(deg(5.0), north) && in_range(0.0, north));
+        assert!(!in_range(deg(180.0), north) && !in_range(deg(20.0), north));
+        assert!((clamp_course(deg(30.0), north) - deg(10.0)).abs() < 1e-4);
+        assert!((clamp_course(deg(300.0), north) - deg(350.0)).abs() < 1e-4);
+        assert!((clamp_course(deg(5.0), north) - deg(5.0)).abs() < 1e-4);
+    }
 }

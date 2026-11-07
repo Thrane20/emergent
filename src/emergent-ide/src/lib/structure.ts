@@ -2,7 +2,7 @@ import {Euler,Matrix4,Quaternion,Vector3} from "three";
 import {sceneHierarchy,validParents} from "./scene-hierarchy";
 export type StructureTransform={translation:number[];rotation_degrees:number[];scale:number[]};
 export type PolygonMesh={vertices:number[][];faces:number[][]};
-export type StructurePart={id:string;name:string;parent:string|null;transform:StructureTransform;mesh:PolygonMesh};
+export type StructurePart={id:string;name:string;parent:string|null;transform:StructureTransform;mesh:PolygonMesh;/** Library material path overriding the object's material for this part. */material?:string};
 export type StructureDocument={schema_version:1;id:string;name:string;parts:StructurePart[]};
 export type StructureSelection={part:string;face?:number;vertex?:number;edge?:[number,number]};
 const EPS=1e-8;
@@ -45,7 +45,7 @@ export function structureDocument(value:unknown):StructureDocument{
  if(Object.keys(d).some(key=>!["schema_version","id","name","parts"].includes(key))||d.schema_version!==1||!id(d.id)||!name(d.name)||!Array.isArray(d.parts)||d.parts.length>128)throw new Error("Use schema 1, a valid ID/name, and at most 128 structure parts.");
  let vertices=0,triangles=0;
  for(const p of d.parts){
-  if(!p||Object.keys(p).some(key=>!["id","name","parent","transform","mesh"].includes(key))||!id(p.id)||!name(p.name)||(p.parent!==null&&!id(p.parent))||!p.transform||!p.mesh)throw new Error("Invalid structure part.");
+  if(!p||Object.keys(p).some(key=>!["id","name","parent","transform","mesh","material"].includes(key))||(p.material!==undefined&&(typeof p.material!=="string"||!p.material.endsWith(".material.toml")||p.material.length>512))||!id(p.id)||!name(p.name)||(p.parent!==null&&!id(p.parent))||!p.transform||!p.mesh)throw new Error("Invalid structure part.");
   if(Object.keys(p.transform).some(key=>!["translation","rotation_degrees","scale"].includes(key)))throw new Error("Invalid part transform.");
   for(const key of ["translation","rotation_degrees","scale"] as const){const vector=p.transform[key];if(!Array.isArray(vector)||vector.length!==3||!vector.every(n=>Number.isFinite(n)&&Math.abs(n)<=10000&&(key!=="scale"||Math.abs(n)>=0.0001)))throw new Error("Part transforms require three finite values; scale axes must be nonzero.");}
   const m=p.mesh;

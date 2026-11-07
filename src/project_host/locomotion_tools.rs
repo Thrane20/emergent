@@ -38,9 +38,10 @@ pub fn validate(
         _ => return Err("usage: --validate-locomotion <path> [--candidate <file>]".into()),
     };
     let profile = candidate(project, registry, path, file)?;
-    println!(
+    outln!(
         "Locomotion '{}' validated: {}",
-        profile.name, profile.type_id
+        profile.name,
+        profile.type_id
     );
     Ok(())
 }
@@ -85,7 +86,7 @@ pub fn preview(
         _ => Course::Waypoints,
     });
     let trace = simulate(&profile, course, seconds)?;
-    println!(
+    outln!(
         "locomotion-preview 1 type={} frames={} frame_seconds={}",
         profile.type_id,
         trace.frames.len(),
@@ -95,7 +96,7 @@ pub fn preview(
     for p in &trace.course {
         let _ = write!(line, " {:.3} {:.3} {:.3}", p.x, p.y, p.z);
     }
-    println!("{line}");
+    outln!("{line}");
     for (line_index, (p, a)) in trace.frames.iter().enumerate() {
         line.clear();
         let _ = write!(
@@ -120,7 +121,7 @@ pub fn preview(
         if let Some(phase) = trace.phases.get(line_index) {
             let _ = write!(line, " {}", *phase as u8);
         }
-        println!("{line}");
+        outln!("{line}");
     }
     Ok(())
 }

@@ -772,3 +772,293 @@ fn shared_brain_bindings_target_each_prefab_instance_in_the_same_scene() {
     .unwrap();
     assert!(SceneDefinition::load(&f.project(), "assets/main.scene.toml").is_err());
 }
+
+#[test]
+fn brain_modes_hand_over_on_finish_nodes_signals_and_the_api() {
+    let f = Fixture::new();
+    let group =
+        |name: &str| format!("[[entities.components]]\ntype='emergent.group'\nname='{name}'\n");
+    let at = |engine: &Engine, id| engine.world().global_transform(id).unwrap().translation();
+    let modes = |engine: &Engine, id| {
+        engine
+            .world()
+            .brain_modes(id)
+            .unwrap()
+            .into_iter()
+            .filter(|(_, active)| *active)
+            .map(|(name, _)| name)
+            .collect::<Vec<_>>()
+    };
+    let component = |modes: &str| {
+        format!("[[entities.components]]\ntype='emergent.brain'\nmax_speed=3\nacceleration=50\nplanar=true\n{modes}")
+    };
+    let mode = |name: &str, brain: &str, extra: &str| {
+        format!("[[entities.components.modes]]\nname='{name}'\nbrain='{brain}'\n{extra}\n")
+    };
+    let walk = f.brain("walk", "[[nodes]]\nid='s'\ntype='sequence'\nloop=false\n[[nodes]]\nid='go'\nparent='s'\ntype='arrive'\ngroup='flags'\nstop_radius=0.3\n");
+    let home = f.brain("home", "[[nodes]]\nid='go'\ntype='seek'\ngroup='homes'\n");
+    let next = f.brain("next", "[[nodes]]\nid='n'\ntype='next_mode'\n");
+    let back = f.brain("back", "[[nodes]]\nid='p'\ntype='previous_mode'\n");
+    let others = [
+        ("flag", [0., 0., -4.], group("flags")),
+        ("house", [8., 0., 0.], group("homes")),
+    ];
+    let others: Vec<_> = others
+        .iter()
+        .map(|(i, p, g)| (*i, *p, g.as_str()))
+        .collect();
+
+    // A finished root Sequence hands over to On next and stops itself.
+    let (mut engine, loaded) = stack_scene(
+        &f,
+        &component(&format!(
+            "{}{}",
+            mode("walk", &walk, "active=true\non_next='home'"),
+            mode("home", &home, "")
+        )),
+        &others,
+    )
+    .unwrap();
+    let actor = loaded.entities["actor"];
+    assert_eq!(modes(&engine, actor), ["walk"]);
+    engine.run_ticks(&mut Quiet, 180).unwrap();
+    assert_eq!(
+        modes(&engine, actor),
+        ["home"],
+        "walked to the flag, then home"
+    );
+    engine.run_ticks(&mut Quiet, 60).unwrap();
+    assert!(
+        at(&engine, actor).x > 2.0,
+        "heading home: {}",
+        at(&engine, actor)
+    );
+
+    // Next/Previous nodes take effect next tick; Keep running stays on; completion fires once.
+    let (mut engine, loaded) = stack_scene(
+        &f,
+        &component(&format!(
+            "{}{}{}",
+            mode("a", &next, "active=true\non_next='b'"),
+            mode("b", &back, "on_previous='c'\nkeep_running=true"),
+            mode("c", &home, "")
+        )),
+        &others,
+    )
+    .unwrap();
+    let actor = loaded.entities["actor"];
+    engine.run_ticks(&mut Quiet, 1).unwrap();
+    assert_eq!(modes(&engine, actor), ["b"]);
+    engine.run_ticks(&mut Quiet, 1).unwrap();
+    assert_eq!(
+        modes(&engine, actor),
+        ["b", "c"],
+        "b aborted to c and kept running"
+    );
+    assert_eq!(at(&engine, actor), Vec3::ZERO, "c has not run yet");
+    engine.run_ticks(&mut Quiet, 1).unwrap();
+    assert!(at(&engine, actor).x > 0.0, "c runs the tick after");
+
+    // The API: stop, start (fresh), switch exclusively; unknown names and missing brains fail.
+    let world = engine.world_mut();
+    world.set_brain_mode(actor, "b", false).unwrap();
+    assert_eq!(modes(&engine, actor), ["c"]);
+    engine.world_mut().switch_brain_mode(actor, "a").unwrap();
+    assert_eq!(modes(&engine, actor), ["a"]);
+    let error = engine
+        .world_mut()
+        .set_brain_mode(actor, "z", true)
+        .unwrap_err();
+    assert!(error.to_string().contains("no mode 'z'"), "{error}");
+    let flag = loaded.entities["flag"];
+    assert!(matches!(
+        engine.world_mut().switch_brain_mode(flag, "a"),
+        Err(emergent::BrainModeError::NoBrain)
+    ));
+    engine.world_mut().remove_subtree(actor).unwrap();
+    assert!(matches!(
+        engine.world_mut().switch_brain_mode(actor, "a"),
+        Err(emergent::BrainModeError::World(_))
+    ));
+
+    // A command from another object: the tower signals, the waiting object switches exclusively.
+    let tower = f.brain(
+        "tower",
+        "[[nodes]]\nid='s'\ntype='signal'\nname='go'\ncooldown=100\n",
+    );
+    let wait = f.brain("wait", "[[nodes]]\nid='p'\ntype='priority'\n[[nodes]]\nid='heard'\nparent='p'\ntype='on_signal'\nname='go'\nhold=1\n[[nodes]]\nid='sw'\nparent='heard'\ntype='switch_mode'\nmode='home'\nexclusive=true\n[[nodes]]\nid='stay'\nparent='p'\ntype='hold'\n");
+    let (mut engine, loaded) = stack_scene(
+        &f,
+        &component(&format!(
+            "{}{}",
+            mode("wait", &wait, "active=true"),
+            mode("home", &home, "")
+        )),
+        &[
+            ("house", [8., 0., 0.], &group("homes")),
+            (
+                "tower",
+                [0., 0., 9.],
+                &format!("[[entities.components]]\ntype='emergent.brain'\nbrain='{tower}'\n"),
+            ),
+        ],
+    )
+    .unwrap();
+    let actor = loaded.entities["actor"];
+    engine.run_ticks(&mut Quiet, 1).unwrap();
+    assert_eq!(
+        modes(&engine, actor),
+        ["wait"],
+        "the signal is heard next tick"
+    );
+    engine.run_ticks(&mut Quiet, 2).unwrap();
+    assert_eq!(modes(&engine, actor), ["home"]);
+
+    // Legacy brain + stack load as always-on modes named main, stack1…
+    let (engine, loaded) = stack_scene(
+        &f,
+        &format!(
+            "[[entities.components]]\ntype='emergent.brain'\nbrain='{home}'\nstack=['{walk}']\n"
+        ),
+        &others,
+    )
+    .unwrap();
+    assert_eq!(modes(&engine, loaded.entities["actor"]), ["main", "stack1"]);
+
+    // Load errors name the problem.
+    for (modes, expected) in [
+        (mode("a", &home, "on_next='x'"), "unknown mode 'x'"),
+        (mode("a", &home, "on_previous='a'"), "names itself"),
+        (
+            format!("{}{}", mode("a", &home, ""), mode("a", &walk, "")),
+            "named twice",
+        ),
+        (mode("Big", &home, ""), "must be 1-32 characters"),
+        (mode("a", &home, "speed=3"), "no field 'speed'"),
+        (
+            format!("brain='{home}'\n{}", mode("a", &home, "")),
+            "either brain and stack, or modes",
+        ),
+    ] {
+        let error = stack_scene(&f, &component(&modes), &[])
+            .err()
+            .unwrap()
+            .to_string();
+        assert!(error.contains(expected), "{expected}: {error}");
+    }
+}
+
+#[test]
+#[ignore = "timing; run in release"]
+fn measure_inactive_mode_cost() {
+    use emergent::{BrainAgent, BrainMode, CompiledBrain, Group, GroupNames, Transform};
+    use std::sync::Arc;
+    let f = Fixture::new();
+    let flock = f
+        .load(
+            "flock",
+            "[[nodes]]\nid='f'\ntype='flock'\ngroup='agents'\nradius=4\n",
+        )
+        .unwrap();
+    let wander = f
+        .load("wander", "[[nodes]]\nid='w'\ntype='wander'\n")
+        .unwrap();
+    // Same flock either way; the second run carries three inactive modes per agent.
+    for extra in [0, 3] {
+        let mut engine = Engine::new(EngineConfig {
+            fixed_timestep: Duration::from_secs_f64(1.0 / 60.0),
+            ..EngineConfig::default()
+        })
+        .unwrap();
+        let world = engine.world_mut();
+        let mut names = GroupNames::default();
+        let group = names.id("agents");
+        let flock = Arc::new(CompiledBrain::compile(&flock, &|_| None, &mut names));
+        let wander = Arc::new(CompiledBrain::compile(&wander, &|_| None, &mut names));
+        for i in 0..256u64 {
+            let id = world.spawn(format!("agent {i}"));
+            let p = Vec3::new((i % 16) as f32, 0.0, (i / 16) as f32);
+            world
+                .set_local_transform(id, Transform::from_translation(p))
+                .unwrap();
+            world.insert_component(id, Group(group)).unwrap();
+            let mode = |name: String, brain: &Arc<CompiledBrain>, active| BrainMode {
+                name,
+                brain: Arc::clone(brain),
+                active,
+                on_next: None,
+                on_previous: None,
+                keep_running: false,
+            };
+            let mut modes = vec![mode("flock".into(), &flock, true)];
+            modes.extend((0..extra).map(|k| mode(format!("idle{k}"), &wander, false)));
+            let agent = BrainAgent::with_modes(modes, SETTINGS, i + 1, Some(&mut names)).unwrap();
+            world.insert_component(id, agent).unwrap();
+        }
+        world.insert_resource(names);
+        engine.run_ticks(&mut Quiet, 60).unwrap();
+        let started = std::time::Instant::now();
+        engine.run_ticks(&mut Quiet, 600).unwrap();
+        println!(
+            "256 agents, 1 active + {extra} inactive modes: {:.3} ms/tick",
+            started.elapsed().as_secs_f64() * 1000.0 / 600.0
+        );
+    }
+}
+
+/// The debugger's view of a running brain: each mode's running path by node id, following a
+/// hand-over, with a referenced brain's nodes prefixed by the reference node's id.
+#[test]
+fn brain_trace_reports_the_running_path_through_modes_and_references() {
+    let f = Fixture::new();
+    let group =
+        |name: &str| format!("[[entities.components]]\ntype='emergent.group'\nname='{name}'\n");
+    let walk = f.brain("walk", "[[nodes]]\nid='s'\ntype='sequence'\nloop=false\n[[nodes]]\nid='go'\nparent='s'\ntype='arrive'\ngroup='flags'\nstop_radius=0.3\n");
+    let outer = f.brain(
+        "outer",
+        &format!("[[nodes]]\nid='root'\ntype='sequence'\nloop=false\n[[nodes]]\nid='trip'\nparent='root'\ntype='brain'\nbrain='{walk}'\n"),
+    );
+    let home = f.brain("home", "[[nodes]]\nid='back'\ntype='seek'\ngroup='homes'\n");
+    let component = format!(
+        "[[entities.components]]\ntype='emergent.brain'\nmax_speed=3\nacceleration=50\nplanar=true\n\
+         [[entities.components.modes]]\nname='out'\nbrain='{outer}'\nactive=true\non_next='home'\n\
+         [[entities.components.modes]]\nname='home'\nbrain='{home}'\n"
+    );
+    let others = [
+        ("flag", [0., 0., -4.], group("flags")),
+        ("house", [8., 0., 0.], group("homes")),
+    ];
+    let others: Vec<_> = others
+        .iter()
+        .map(|(i, p, g)| (*i, *p, g.as_str()))
+        .collect();
+    let (mut engine, loaded) = stack_scene(&f, &component, &others).unwrap();
+    let actor = loaded.entities["actor"];
+    let trace = |engine: &Engine| {
+        engine
+            .world()
+            .component::<emergent::brain::BrainAgent>(actor)
+            .unwrap()
+            .unwrap()
+            .trace()
+    };
+    // Before the first tick nothing has run.
+    assert!(trace(&engine).iter().all(|mode| mode.running.is_empty()));
+    engine.run_ticks(&mut Quiet, 5).unwrap();
+    let now = trace(&engine);
+    assert_eq!((now[0].name.as_str(), now[0].active), ("out", true));
+    assert_eq!(now[0].running, ["root", "trip/s", "trip/go"]);
+    assert!(
+        now[0].brain.ends_with("outer.brain.toml"),
+        "{}",
+        now[0].brain
+    );
+    assert!(!now[1].active && now[1].running.is_empty());
+    engine.run_ticks(&mut Quiet, 240).unwrap();
+    let now = trace(&engine);
+    assert!(!now[0].active && now[0].running.is_empty(), "{now:?}");
+    assert_eq!(
+        (now[1].active, now[1].running.as_slice()),
+        (true, ["back".to_string()].as_slice())
+    );
+}

@@ -1,0 +1,86 @@
+# Third-person humanoid (SKEL-5): WASD walks, Shift runs, Space jumps.
+# The player is an invisible physics box; the mannequin under it is animated by
+# emergent.animator: idle/walk/run blended by speed, turned to face its movement,
+# feet placed on the ground. The second mannequin watches the player.
+schema_version = 1
+id = "third-person"
+name = "Third-person character"
+active_camera = "camera"
+
+[[entities]]
+id = "player"
+asset = "assets/entities/fps-player.entity.toml"
+[entities.transform]
+translation = [0, 1, 4]
+[[entities.components]]
+type = "emergent.character_controller"
+speed = 1.4
+run_speed = 3.8
+jump_speed = 4
+
+[[entities]]
+id = "hero"
+parent = "player"
+asset = "assets/entities/mannequin.entity.toml"
+[entities.transform]
+translation = [0, -0.9, 0]
+[[entities.components]]
+type = "emergent.animator"
+motion = "assets/mocap/idle.bvh, assets/mocap/walk.bvh, assets/mocap/run.bvh"
+blend = "idle:0, walk, run"
+turn_rate = 540
+foot_ik = true
+
+[[entities]]
+id = "watcher"
+asset = "assets/entities/mannequin.entity.toml"
+[entities.transform]
+translation = [-3, 0, -1]
+rotation_degrees = [0, 30, 0]
+[[entities.components]]
+type = "emergent.animator"
+motion = "assets/mocap/idle.bvh"
+look_at = "player"
+
+[[entities]]
+id = "camera"
+asset = "assets/entities/camera.entity.toml"
+[[entities.components]]
+type = "emergent.follow_camera"
+target = "player"
+mode = "fixed"
+offset = [0, 3, 6]
+smoothing = 0.25
+
+[[entities]]
+id = "sun"
+asset = "assets/entities/fps-sun.entity.toml"
+
+[[entities]]
+id = "floor"
+asset = "assets/entities/fps-block.entity.toml"
+[entities.transform]
+translation = [0, -0.5, 0]
+scale = [24, 1, 24]
+
+[[entities]]
+id = "gentle-ramp"
+asset = "assets/entities/fps-block.entity.toml"
+[entities.transform]
+translation = [4, -0.2, -2]
+rotation_degrees = [0, 0, 12]
+scale = [5, 1, 3]
+
+[[entities]]
+id = "steep-ramp"
+asset = "assets/entities/fps-block.entity.toml"
+[entities.transform]
+translation = [4, -0.15, 3]
+rotation_degrees = [22, 0, 0]
+scale = [3, 1, 4]
+
+[[entities]]
+id = "hills"
+asset = "assets/entities/tp-terrain.entity.toml"
+[entities.transform]
+translation = [0, -0.6, -32]

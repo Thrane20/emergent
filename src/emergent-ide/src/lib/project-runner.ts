@@ -1,6 +1,6 @@
 import { SCENE_MAX_BYTES } from "./scene-limits";
 import { spawn, type ChildProcess } from "node:child_process";
-import { sharedTargetDir } from "./workspace";
+import { projectTargetDir } from "./workspace";
 import { access } from "node:fs/promises";
 import path from "node:path";
 import { projectScenes } from "./project-scenes";
@@ -74,7 +74,7 @@ class ProjectRunManager {
       output: `$ cargo run --manifest-path ${manifest} -- --run-scene ${scenePath}\n`,
     };
 
-    const child = spawn("cargo", ["run", "--manifest-path", manifest, "--target-dir", sharedTargetDir, "--", "--run-scene", scenePath], {
+    const child = spawn("cargo", ["run", "--manifest-path", manifest, "--target-dir", projectTargetDir(project.root), "--", "--run-scene", scenePath], {
       cwd: project.root,
       env: process.env,
       shell: false,

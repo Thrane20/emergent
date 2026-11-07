@@ -4,7 +4,7 @@ Last reconciled: 2026-10-30 against source (`src/terrain.rs`, `src/raymarched_te
 `src/physics.rs`, `src/emergent-ide/src/components/terrain-*.tsx`).
 Status: standalone heightfield and experimental ray-marched authoring are implemented;
 ray-marched collision and every continuous-world stage remain open.
-Progress: **10 standalone authoring slices implemented; 0 of 7 continuous-world stage exits complete.**
+Progress: **10 standalone authoring slices implemented; 1 of 7 continuous-world stage exits complete (stage 1).**
 
 This is the active detailed plan for terrain. The project-wide queue is
 [plan.md](../../plan.md); delivered work is summarised in
@@ -62,7 +62,27 @@ Evidence: [generation](../../src/terrain.rs), [builder](../../src/emergent-ide/s
 [library acceptance](../platform/terrain-library-macos.md) and
 [high-resolution design/measurements](../design/terrain-high-resolution.md).
 
-## Current priority — Terrain Performance v1
+## Current priority — Terrain Performance v2
+
+Agreed 2026-11-04: reduce large-terrain cost for both terrain kinds before the
+meshed-density comparison. [Design](../design/terrain-performance-v2.md),
+[measurements](../benchmarks/terrain-performance/v2/README.md).
+
+- [x] Ray marching: pixel-footprint hit tolerance, over-relaxed sphere tracing and
+  four-tap normals, with an exact bypass.
+- [x] Ray marching: long steps (pixel footprint or half the unscaled height gap) with
+  a safe finish after landing inside. Ray routes −74 to −83% main GPU p50 overall
+  (1km player height 14.5 → 3.6ms); ≤2.7% of pixels differ from exact.
+- [x] Meshes: whole-instance frustum culling in main and shadow passes, plus spatial
+  index clusters for meshes of 16k+ triangles; captures byte-identical to unculled.
+- [x] Heightfield distance LOD: recognised terrain grids get 64-cell tiles with
+  crack-free coarse levels over shared vertices. Heightfield 1024 −62% orbit, −64%
+  player height; +14% index memory.
+- [x] Player-height benchmark routes for ray and heightfield terrain.
+- [ ] LOD popping/hysteresis assessment on a moving route; shadow-pass timing.
+- [ ] Opaque-depth termination for rays behind meshes.
+
+## Terrain Performance v1
 
 Agreed 2026-10-30: measure and reduce the current terrain cost before expanding
 world residency. First increment is implemented and validated; the full profiling
@@ -94,8 +114,8 @@ and [measurements / validation](../benchmarks/terrain-performance/README.md).
 - [ ] Evaluate opaque-depth termination after profiling; it needs a pass/depth
   sampling design, not simply reversing mesh and ray draw order.
 
-Next: run a bounded meshed-density comparison against the same authoritative field
-before selecting the cave/overhang collision path. This priority is informed by
+After Terrain Performance v2: run a bounded meshed-density comparison against the
+same authoritative field before selecting the cave/overhang collision path. This priority is informed by
 the GPU measurements: field evaluation dominates the ray routes, while the dense
 heightfield has lower GPU cost on this fixture. The representations/materials are
 different, so these measurements do not establish equivalent visual quality.
@@ -225,7 +245,7 @@ bounded asynchronous preparation. Expand world size only after this workload pas
 | Finest chunk geometry | 16,641 vertices and 32,768 triangles, before edge stitching |
 | Initial continuity fixture | 2 × 2 chunks, then 4 × 4 |
 | Streaming fixture | Entire 2 km world traversed with bounded resident resources |
-| Observers | One render observer and one physics interest region initially |
+| Observers | One render observer; a capped set of physics interest regions (player plus active remote bodies) |
 
 These values are test inputs, not measured optimal sizes or performance claims.
 Choose render/collision radii and memory caps from measurements in stage 0;
@@ -316,18 +336,32 @@ Exit: checked-in baseline and explicit budgets before performance implementation
 
 ### 1 — Seamless sampling and world assets
 
-- [ ] Add the versioned bounded world descriptor and headless chunk preparation API.
+Started 2026-11-07: [stage-1 design](../design/terrain-world.md), `src/terrain_world.rs`.
+
+- [x] Add the versioned bounded world descriptor and headless chunk preparation API.
   Validate extents, sample counts, numeric overflow, finite values, and project paths.
-- [ ] Start with world-coordinate noise and shaping. Do not independently apply
+  `TerrainWorld` / `prepare_chunk` / `TerrainChunk` deliver all but project paths,
+  which arrive with saved world assets (stage 6).
+- [x] Start with world-coordinate noise and shaping (warped fractal noise only). Do not independently apply
   patch-local diamond-square, islands, mountain placement, or closed-boundary erosion.
   Enable each only after it has a defined world-space continuity contract.
-- [ ] Generate a halo for central-difference normals so shared heights also have
-  matching normals. Material projection and procedural weights use world coordinates.
-- [ ] Test equal borders/corners, negative coordinates, different generation orders,
-  reproducible revisions, finite bounds, and legacy fixture compatibility.
+- [x] Generate a halo for central-difference normals so shared heights also have
+  matching normals.
+- [x] Material projection and procedural weights use world coordinates:
+  `height_band_weights` (the Terrain Builder's height-paint rule, per sample) and
+  `Material::terrain_blend` with a world projection offset for triplanar images.
+  Layers with noise maps are rejected (their masks are mesh-bounds relative).
+- [x] Test equal borders/corners, negative coordinates, different generation orders,
+  reproducible revisions, finite bounds, and legacy fixture compatibility (unit tests;
+  existing patch tests unchanged).
+- [x] Render the static 2 × 2 fixture: `examples/terrain_world_seams.rs` renders lit,
+  shadowed, three-layer textured chunks and a merged mesh over the same samples —
+  0.000% pixels differ (LOD and full detail); chunk-local projection differs by 4.6%,
+  so the check detects texture seams.
 
 Exit: a static 2 × 2 fixture has matching geometry, shading, and material boundaries.
 Cross-platform bit-identical floating point is not implied by same-platform determinism.
+**Met 2026-11-07** (Apple M3 Pro / Metal).
 
 ### 2 — Chunk ownership, incremental rendering, and visibility
 
@@ -381,17 +415,42 @@ Exit: the 2 km world can be crossed repeatedly within stage-0 budgets.
 
 - [ ] Use the authoritative finest samples and existing triangle orientation for
   static heightfields. Activate/remove colliders only at safe physics boundaries.
-- [ ] Define a physics interest region around supported moving bodies, distinct
-  from the camera. For the first workload use one player/body cluster and cap its
-  extent; reject unsupported remote activity rather than silently dropping collision.
-- [ ] Size prefetch from maximum supported speed and preparation latency. Retain
-  supporting terrain until bodies have left and replacement ground is ready.
+- [ ] Collision residency is independent of rendering: each simulated body tier
+  below requests what it needs, whether or not the camera is near.
+  - **Tier 1, near the player:** full Rapier heightfield colliders and rigid-body
+    simulation in the player's interest region.
+  - **Tier 2, active remote bodies** (for example enemies flying, landing or
+    driving away from the player): each gets its own small interest region (its
+    chunk plus neighbours). Resident collision is the union of all regions; chunk
+    records count users per region (keyed by `EntityId`) and retire only at zero.
+    Colliders need only height samples (≈66KB per 129² chunk), no GPU data.
+  - **Tier 3, far or off-screen bodies:** simplified simulation without colliders,
+    using the bounded height/normal query below for ground contact and landing.
+    Bodies promote to tier 1/2 from their current state when they come near.
+  - Cap the number of tier-2 regions. At the cap, demote the furthest body to
+    tier 3 explicitly; never silently drop collision. Tier decisions are
+    deterministic so simulation and replay contracts hold.
+- [ ] Store each chunk's maximum height. Bodies above it skip terrain contact and
+  request no residency (most of a flight).
+- [ ] Size prefetch from each body's speed and path (descent and landing approach)
+  and preparation latency. Retain supporting terrain until bodies have left and
+  replacement ground is ready. While collision is pending, a body uses the
+  analytic query or holds; it never falls through.
+- [ ] Ray-marched terrain: tier 3 queries the CPU density field (ray/sphere-traced
+  contact for overhangs and caves); tiers 1/2 depend on the open ray-marched
+  collision prototype.
+- [ ] Body-versus-body contact outside interest regions is game/gameplay
+  territory, not terrain: a coarse spatial grid is enough where a game needs it.
 - [ ] Add a bounded public height/normal query with explicit available, pending,
   and outside-world results. Specify interpolation using the collision triangles.
 - [ ] Test walking/falling across edges and corners, slopes, high-speed travel,
-  camera movement away from the player, unload while supported, and teleports.
+  camera movement away from the player, unload while supported, and teleports;
+  plus remote aircraft taking off, cruising and landing away from the player
+  (fixed-wing/airport fixtures), tier promotion/demotion at the region cap, and
+  landing while destination collision is still pending.
 
-Exit: streaming and visual LOD never remove the player’s required collision.
+Exit: streaming and visual LOD never remove required collision for the player or
+any tier-2 body, and tier-3 bodies land on the same surface the colliders use.
 
 ### 6 — Editor integration, persistence, and acceptance
 

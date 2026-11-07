@@ -199,6 +199,7 @@ items where a key has a value, the path between waypoints).
 
 - `/map` page (`scene-map-editor.tsx`): schematic backdrop of object outlines from the
   engine (`--map-layout`: world matrices and XZ convex hulls, cached per scene revision),
+  drawn over `top_down`, a height-shaded image (≤1024 px a side) of every mesh triangle seen from above,
   a metric grid and scale bar; pan by dragging empty space (or right/middle drag), zoom
   with the wheel about the cursor (shown as camera height); tools Select/move, Waypoint,
   Waypoint path (linked, grouped), Link (toggles; two-way links count once), Circle zone,
@@ -215,6 +216,14 @@ items where a key has a value, the path between waypoints).
   (well under a second at template scale, slower near 4,096 instances); rectangles are
   drawn axis-aligned and turned afterwards with the rotation field; offsets under a
   rotated or scaled parent are converted through its world matrix.
+
+## Prefab-local maps (2026-11-03)
+
+The Map source picker also opens prefab assets. New map items are children of the
+prefab root by default; the same tools, inspector, native validation, revision guard
+and undo edit the prefab file. The root cannot be removed in Map. Each runtime
+instantiation gets fresh map handles, and `World` transforms resolve local positions
+to global positions as the prefab is placed or moved. See [prefab maps](prefab-map-editor.md).
 
 ## Decisions (2026-11-02)
 

@@ -21,6 +21,27 @@ pub enum Key {
     Right,
 }
 
+impl Key {
+    /// Key by its name (`W`, `Space`, `Shift`, `Up`…), case-insensitive.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Some(match name.to_ascii_lowercase().as_str() {
+            "w" => Self::W,
+            "a" => Self::A,
+            "s" => Self::S,
+            "d" => Self::D,
+            "q" => Self::Q,
+            "e" => Self::E,
+            "space" => Self::Space,
+            "shift" => Self::Shift,
+            "up" => Self::Up,
+            "down" => Self::Down,
+            "left" => Self::Left,
+            "right" => Self::Right,
+            _ => return None,
+        })
+    }
+}
+
 #[cfg(feature = "graphics")]
 impl Key {
     /// Maps a physical key from the native window (layout independent: WASD stays in place).

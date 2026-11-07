@@ -62,6 +62,7 @@ pub const CATEGORIES: &[&str] = &[
     "Look & aim",
     "Actions",
     "Saved brains",
+    "Modes",
 ];
 
 /// Every node type: the single source for loading, the editor library and AI prompts.
@@ -152,9 +153,11 @@ pub fn node_catalogue() -> Vec<NodeSpec> {
         node("hover", "Hover", c[8], Steering, "Holds position in the air (drones); a plane circles where it is; ground objects stop.", vec![]),
         node("boost", "Boost", c[8], Decorator, "Its child moves at the locomotion's maximum (full throttle).", vec![]),
         node("altitude", "Altitude", c[8], Decorator, "Its child flies at this world-space height. Enable Finish on arrival to advance a Sequence when the object's centre reaches the height within tolerance; otherwise holds altitude while the child is active.", vec![num("height", "Height", -10000.0, 100000.0, 10.0, "m"), f("finish_on_arrival", "Finish on arrival", Bool).default(false), num("arrival_radius", "Arrival tolerance", 0.01, 100.0, 0.1, "m")]),
-        node("take_off", "Take off", c[8], Steering, "Physical aircraft: roll, lift off and climb to this world height, then hold it. Finish at height advances a Sequence once within 10 m of it. Other movers ignore it.", vec![num("height", "Height", -10000.0, 100000.0, 150.0, "m"), f("finish_at_height", "Finish at height", Bool).default(true)]),
+        node("take_off", "Take off", c[8], Steering, "Physical aircraft: roll, lift off and climb to this world height, then hold it. Finish at height advances a Sequence once within the arrival tolerance of it. Other movers ignore it.", vec![num("height", "Height", -10000.0, 100000.0, 150.0, "m"), f("finish_at_height", "Finish at height", Bool).default(true), num("arrival_radius", "Arrival tolerance", 0.01, 100.0, 0.5, "m")]),
         node("depart_airport", "Depart airport", c[8], Steering, "Physical aircraft: ask the airport's tower to depart — taxi to the holding position, wait for the runway, line up, take off and climb to the height. The target is the aerodrome (or any of its items), or the nearest member of the group. Finish at height advances a Sequence once within 10 m of it.", vec![target(), group("Airports; the nearest is used."), num("height", "Height", -10000.0, 100000.0, 300.0, "m"), f("finish_at_height", "Finish at height", Bool).default(true)]),
         node("arrive_airport", "Arrive at airport", c[8], Steering, "Physical aircraft: ask the airport's tower to land — it joins the sequence (holding if the circuit is full), lands on the active runway, vacates and parks on a free stand. The target is the aerodrome (or any of its items), or the nearest member of the group.", vec![target(), group("Airports; the nearest is used.")]),
+        node("taxi", "Taxi", c[8], Steering, "Physical aircraft on the ground: drives to the target (or the nearest member of the group) at taxi speed. Stop there brakes to a halt; Finish on arrival advances a Sequence (or finishes the mode) once within the arrival radius (and stopped, if it stops). Other movers ignore it.", vec![target(), group("Points to taxi to; the nearest is used."), f("stop", "Stop there", Bool).default(true), f("finish_on_arrival", "Finish on arrival", Bool).default(true), num("arrival_radius", "Arrival radius", 0.5, 100.0, 5.0, "m")]),
+        node("hold_course", "Hold course", c[8], Steering, "Physical aircraft: holds a compass heading, world height and airspeed, taking off first if it is on the ground. Keep current heading uses the way it faced when the node started. Other movers ignore it.", vec![f("keep_heading", "Keep current heading", Bool).default(true), num("heading", "Heading", 0.0, 360.0, 0.0, "°"), num("height", "Height", -10000.0, 100000.0, 150.0, "m"), num("speed", "Airspeed", 0.0, 1000.0, 0.0, "m/s").help("0 uses the profile's cruise speed.")]),
         node("land", "Land", c[8], Steering, "Physical aircraft: fly a left-hand circuit and land on the target zone (a rectangular map zone; or the nearest member of the group), then stop. Inactive without a zone. Other movers ignore it.", vec![target(), group("Zones to land on; the nearest is used."), num("pattern_height", "Circuit height", 30.0, 3000.0, 300.0, "m").help("Height above the runway for the downwind leg.")]),
         node("look_at", "Look at", c[9], Steering, "Faces the target (or the nearest of a group) while moving however the movement nodes say. Only turns the object.", vec![target(), target_group(), f("offset", "Aim offset", Vector3).range(-1000.0, 1000.0).unit("m").default(toml::Value::Array(vec![0.0.into(), 0.0.into(), 0.0.into()]))]),
         node("look_along", "Look along movement", c[9], Steering, "Faces the direction it is moving (the usual default, made explicit for a stack).", vec![]),
@@ -164,6 +167,9 @@ pub fn node_catalogue() -> Vec<NodeSpec> {
         node("speed_limit", "Speed limit", c[10], Decorator, "Caps its child's speed.", vec![num("max_speed", "Max speed", 0.0, 100.0, 1.0, "m/s")]),
         planned("jump", "Jump", c[10], Steering, "Needs ground contact queries."),
         node("brain", "Saved brain", c[11], Reference, "Embeds another saved brain here.", vec![f("brain", "Brain", Brain)]),
+        node("next_mode", "Next mode", c[12], Steering, "Finishes the mode this brain runs as: its On next mode starts next tick and, unless it keeps running, this mode stops. Does not move the object.", vec![]),
+        node("previous_mode", "Previous mode", c[12], Steering, "Aborts the mode this brain runs as: its On previous mode starts next tick and, unless it keeps running, this mode stops. Does not move the object.", vec![]),
+        node("switch_mode", "Switch mode", c[12], Steering, "Starts another mode of this object next tick (no change if it is running). Exclusive also stops every other mode. Under On signal it obeys commands from other objects.", vec![f("mode", "Mode", Text).help("A mode name on this object's Brain component; unknown names do nothing."), f("exclusive", "Exclusive", Bool).default(false)]),
     ];
     for node in &mut nodes {
         add_common_fields(node);
@@ -241,6 +247,9 @@ struct NodeFile {
 /// One validated node; names (targets, groups, waypoints) are resolved per scene.
 #[derive(Clone, Debug)]
 struct NodeDef {
+    /// The node's id in its file; nodes of a referenced brain are prefixed with the referencing
+    /// node's id and `/`, so ids stay unique and the editor can match them to its tree.
+    id: String,
     kind: &'static str,
     plugin: Option<Hook<dyn BrainNode>>,
     fields: toml::Table,
@@ -306,6 +315,7 @@ impl BrainDefinition {
             &mut stack,
             &mut definition.nodes,
             1,
+            "",
         )
         .map_err(|e| format!("{path}: {e}"))?
         .0;
@@ -346,6 +356,7 @@ impl BrainDefinition {
 }
 
 /// Parses one brain file into `out`, inlining references. Returns (name, root index).
+#[allow(clippy::too_many_arguments)]
 fn parse_into(
     project: &Project,
     catalogue: &[NodeSpec],
@@ -354,6 +365,7 @@ fn parse_into(
     stack: &mut Vec<String>,
     out: &mut Vec<NodeDef>,
     base_depth: usize,
+    prefix: &str,
 ) -> Result<(String, usize), String> {
     if source.len() > MAX_FILE_BYTES {
         return Err("brain file exceeds 128 KiB".into());
@@ -543,8 +555,11 @@ fn parse_into(
                 .read_text_asset(target)
                 .map_err(|e| format!("node '{}': {target}: {e}", node.id))?;
             stack.push(target.to_string());
-            let (_, root) = parse_into(project, catalogue, registry, &source, stack, out, depth)
-                .map_err(|e| format!("in {target}: {e}"))?;
+            let inner = format!("{prefix}{}/", node.id);
+            let (_, root) = parse_into(
+                project, catalogue, registry, &source, stack, out, depth, &inner,
+            )
+            .map_err(|e| format!("in {target}: {e}"))?;
             stack.pop();
             // The reference node's weight and label apply to the embedded root.
             for key in ["weight", "label"] {
@@ -555,6 +570,7 @@ fn parse_into(
             root
         } else {
             out.push(NodeDef {
+                id: format!("{prefix}{}", node.id),
                 kind: spec.id,
                 plugin: registry
                     .brain_nodes
@@ -574,6 +590,11 @@ fn parse_into(
         map[i] = at;
     }
     for (i, list) in children.iter().enumerate() {
+        // A reference node has no children of its own; it maps to the embedded brain's root,
+        // whose children were already set while parsing that brain.
+        if list.is_empty() {
+            continue;
+        }
         out[map[i]].children = list.iter().map(|&c| map[c]).collect();
     }
     Ok((name, map[root]))
@@ -704,6 +725,24 @@ enum Op {
     TakeOff {
         height: f32,
         finish: bool,
+        arrival_radius: f32,
+    },
+    Taxi {
+        stop: bool,
+        finish: bool,
+        arrival_radius: f32,
+    },
+    HoldCourse {
+        keep_heading: bool,
+        heading: f32,
+        height: f32,
+        speed: f32,
+    },
+    NextMode,
+    PreviousMode,
+    SwitchMode {
+        mode: u32,
+        exclusive: bool,
     },
     Land {
         pattern: f32,
@@ -811,6 +850,46 @@ enum Op {
     },
 }
 
+/// A finishing node that has reached its goal; it then reports nothing.
+fn arrived(node: &Node, ctx: &Ctx) -> bool {
+    let y = ctx.position.y;
+    match node.op {
+        Op::Taxi {
+            stop,
+            finish: true,
+            arrival_radius,
+        } => resolve(node, ctx).is_some_and(|(point, _)| {
+            let offset = point - ctx.position;
+            Vec3::new(offset.x, 0.0, offset.z).length() <= arrival_radius
+                && (!stop || ctx.velocity.length() < 0.5)
+        }),
+        ref op => op.arrived(y),
+    }
+}
+
+impl Op {
+    /// A finishing node that has reached its height; it then reports nothing.
+    fn arrived(&self, y: f32) -> bool {
+        match *self {
+            Op::TakeOff {
+                height,
+                finish: true,
+                arrival_radius,
+            } => y >= height - arrival_radius,
+            Op::DepartAirport {
+                height,
+                finish: true,
+            } => y >= height - 10.0,
+            Op::Altitude {
+                height,
+                finish_on_arrival: true,
+                arrival_radius,
+            } => (y - height).abs() <= arrival_radius,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 struct Node {
     op: Op,
@@ -823,10 +902,15 @@ struct Node {
 #[derive(Debug)]
 pub struct CompiledBrain {
     nodes: Vec<Node>,
+    /// Node ids parallel to `nodes` (see `NodeDef::id`), and the brain asset, for debugging.
+    ids: Vec<Box<str>>,
+    path: String,
     /// Objects named by targets and waypoints; included in every tick's snapshot.
     pub(crate) objects: Vec<EntityId>,
     /// Whether any node tests sight or looks for cover, so the snapshot collects obstacles.
     pub(crate) needs_obstacles: bool,
+    /// Whether any node requests a mode change (Priority then keeps looking for one).
+    has_mode_nodes: bool,
 }
 
 impl CompiledBrain {
@@ -964,6 +1048,24 @@ impl CompiledBrain {
                     "take_off" => Op::TakeOff {
                         height: n("height"),
                         finish: v.bool("finish_at_height").unwrap_or(true),
+                        arrival_radius: v.number("arrival_radius").unwrap_or(0.5),
+                    },
+                    "taxi" => Op::Taxi {
+                        stop: v.bool("stop").unwrap_or(true),
+                        finish: v.bool("finish_on_arrival").unwrap_or(true),
+                        arrival_radius: v.number("arrival_radius").unwrap_or(5.0),
+                    },
+                    "hold_course" => Op::HoldCourse {
+                        keep_heading: v.bool("keep_heading").unwrap_or(true),
+                        heading: n("heading"),
+                        height: n("height"),
+                        speed: n("speed"),
+                    },
+                    "next_mode" => Op::NextMode,
+                    "previous_mode" => Op::PreviousMode,
+                    "switch_mode" => Op::SwitchMode {
+                        mode: group("mode"),
+                        exclusive: v.bool("exclusive").unwrap_or(false),
                     },
                     "land" => Op::Land {
                         pattern: n("pattern_height"),
@@ -1102,10 +1204,23 @@ impl CompiledBrain {
                 Op::LineOfSight { .. } | Op::Hide { .. } | Op::InView { sight: true, .. }
             )
         });
+        let has_mode_nodes = nodes.iter().any(|node: &Node| {
+            matches!(
+                node.op,
+                Op::NextMode | Op::PreviousMode | Op::SwitchMode { .. }
+            )
+        });
         Self {
             nodes,
+            ids: definition
+                .nodes
+                .iter()
+                .map(|d| d.id.as_str().into())
+                .collect(),
+            path: definition.path.clone(),
             objects,
             needs_obstacles,
+            has_mode_nodes,
         }
     }
 }
@@ -1126,6 +1241,8 @@ pub struct BrainSettings {
 
 #[derive(Clone, Copy, Debug, Default)]
 struct NodeState {
+    /// Brain tick (plus one) when this node last produced output; 0 never.
+    ran: u32,
     index: u32,
     direction: i8,
     timer: f32,
@@ -1136,11 +1253,14 @@ struct NodeState {
 /// Runtime brain of one object.
 #[derive(Component, Debug)]
 pub struct BrainAgent {
-    /// The stack: the main brain first, then any further brains; each keeps its own state.
+    /// The modes in list order (legacy: the main brain, then any stacked brains); each keeps
+    /// its own state. Inactive modes are skipped.
     pub(crate) layers: Vec<Layer>,
     settings: BrainSettings,
     velocity: Vec3,
     home: Option<Vec3>,
+    /// Ticks this agent has run (stamps `NodeState::ran`).
+    ticks: u32,
 }
 
 #[derive(Debug)]
@@ -1148,7 +1268,67 @@ pub(crate) struct Layer {
     pub(crate) brain: Arc<CompiledBrain>,
     state: Vec<NodeState>,
     rng: u64,
+    name: String,
+    /// Interned name for Switch mode nodes; `u32::MAX` when none was interned.
+    name_id: u32,
+    active: bool,
+    /// Finished since it was last started, so completion fires once.
+    done: bool,
+    on_next: Option<u8>,
+    on_previous: Option<u8>,
+    keep_running: bool,
+    pending: Option<ModeRequest>,
 }
+
+/// One mode of a running brain, as a debugger sees it ([`BrainAgent::trace`]).
+#[derive(Clone, Debug, PartialEq, serde::Serialize)]
+pub struct ModeTrace {
+    pub name: String,
+    /// The brain asset this mode runs.
+    pub brain: String,
+    pub active: bool,
+    /// Finished since it last started.
+    pub done: bool,
+    /// Node ids that produced output on the last tick, in tree order (root first).
+    pub running: Vec<String>,
+}
+
+/// One named mode of a [`BrainAgent`]. `on_next` / `on_previous` are indices into the same list.
+#[derive(Clone, Debug)]
+pub struct BrainMode {
+    pub name: String,
+    pub brain: Arc<CompiledBrain>,
+    /// Running when the object starts.
+    pub active: bool,
+    /// Started when this mode finishes (its root Sequence ends, a finishing node arrives,
+    /// or a Next mode node runs).
+    pub on_next: Option<usize>,
+    /// Started when this mode is aborted by a Previous mode node.
+    pub on_previous: Option<usize>,
+    /// Stay active after handing over.
+    pub keep_running: bool,
+}
+
+/// A brain mode could not be changed.
+#[derive(Debug)]
+pub enum BrainModeError {
+    World(crate::WorldError),
+    /// The object has no brain.
+    NoBrain,
+    UnknownMode(String),
+}
+
+impl std::fmt::Display for BrainModeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::World(error) => write!(f, "{error}"),
+            Self::NoBrain => f.write_str("the object has no brain"),
+            Self::UnknownMode(name) => write!(f, "the object's brain has no mode '{name}'"),
+        }
+    }
+}
+
+impl std::error::Error for BrainModeError {}
 
 impl BrainAgent {
     /// `seed` makes wander and chance replayable; scenes derive it from the instance ID.
@@ -1156,22 +1336,172 @@ impl BrainAgent {
         Self::stacked(vec![brain], settings, seed)
     }
 
-    /// Several brains on one object, run together each tick and merged by channel.
+    /// Several brains on one object, all active, run together each tick and merged by
+    /// channel. They are named `main`, `stack1`, `stack2`… for the mode API.
     pub fn stacked(brains: Vec<Arc<CompiledBrain>>, settings: BrainSettings, seed: u64) -> Self {
-        let layers = brains
+        let modes = brains
             .into_iter()
             .enumerate()
-            .map(|(i, brain)| Layer {
-                state: vec![NodeState::default(); brain.nodes.len()],
+            .map(|(i, brain)| BrainMode {
+                name: if i == 0 {
+                    "main".into()
+                } else {
+                    format!("stack{i}")
+                },
                 brain,
-                rng: (seed ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)) | 1,
+                active: true,
+                on_next: None,
+                on_previous: None,
+                keep_running: false,
             })
             .collect();
-        Self {
+        Self::with_modes(modes, settings, seed, None).expect("a plain stack has no transitions")
+    }
+
+    /// Named modes, run together while active. `names` interns mode names so Switch mode
+    /// nodes compiled against the same [`GroupNames`] can address them.
+    pub fn with_modes(
+        modes: Vec<BrainMode>,
+        settings: BrainSettings,
+        seed: u64,
+        mut names: Option<&mut GroupNames>,
+    ) -> Result<Self, String> {
+        if modes.len() > crate::component::MAX_BRAIN_MODES {
+            return Err(format!(
+                "a brain may hold at most {} modes",
+                crate::component::MAX_BRAIN_MODES
+            ));
+        }
+        let count = modes.len();
+        let index = |i: Option<usize>, own: usize, name: &str| match i {
+            Some(i) if i >= count || i == own => {
+                Err(format!("mode '{name}' hands over to an invalid mode"))
+            }
+            other => Ok(other.map(|i| i as u8)),
+        };
+        let mut layers = Vec::with_capacity(count);
+        for (i, mode) in modes.into_iter().enumerate() {
+            if layers.iter().any(|l: &Layer| l.name == mode.name) {
+                return Err(format!("mode '{}' is named twice", mode.name));
+            }
+            layers.push(Layer {
+                state: vec![NodeState::default(); mode.brain.nodes.len()],
+                rng: (seed ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)) | 1,
+                name_id: names.as_deref_mut().map_or(u32::MAX, |n| n.id(&mode.name)),
+                on_next: index(mode.on_next, i, &mode.name)?,
+                on_previous: index(mode.on_previous, i, &mode.name)?,
+                active: mode.active,
+                done: false,
+                keep_running: mode.keep_running,
+                pending: None,
+                brain: mode.brain,
+                name: mode.name,
+            });
+        }
+        Ok(Self {
             layers,
             settings,
             velocity: Vec3::ZERO,
             home: None,
+            ticks: 0,
+        })
+    }
+
+    /// Each mode's state for a debugger: the node ids that produced output on this agent's
+    /// last tick (the running path, root first). Allocates; call it for a selected object only.
+    pub fn trace(&self) -> Vec<ModeTrace> {
+        self.layers
+            .iter()
+            .map(|layer| ModeTrace {
+                name: layer.name.clone(),
+                brain: layer.brain.path.clone(),
+                active: layer.active,
+                done: layer.done,
+                running: layer
+                    .state
+                    .iter()
+                    .zip(&layer.brain.ids)
+                    .filter(|(state, _)| layer.active && self.ticks != 0 && state.ran == self.ticks)
+                    .map(|(_, id)| id.to_string())
+                    .collect(),
+            })
+            .collect()
+    }
+
+    /// Mode names in list order with whether each is running.
+    pub fn modes(&self) -> impl Iterator<Item = (&str, bool)> {
+        self.layers.iter().map(|l| (l.name.as_str(), l.active))
+    }
+
+    fn mode(&self, name: &str) -> Result<usize, BrainModeError> {
+        self.layers
+            .iter()
+            .position(|l| l.name == name)
+            .ok_or_else(|| BrainModeError::UnknownMode(name.to_string()))
+    }
+
+    /// Starts (fresh state) or stops a mode; starting a running mode changes nothing.
+    pub fn set_mode(&mut self, name: &str, active: bool) -> Result<(), BrainModeError> {
+        let i = self.mode(name)?;
+        if active {
+            self.activate(i);
+        } else {
+            self.layers[i].active = false;
+        }
+        Ok(())
+    }
+
+    /// Starts a mode and stops every other.
+    pub fn switch_mode(&mut self, name: &str) -> Result<(), BrainModeError> {
+        let i = self.mode(name)?;
+        for (j, layer) in self.layers.iter_mut().enumerate() {
+            if j != i {
+                layer.active = false;
+            }
+        }
+        self.activate(i);
+        Ok(())
+    }
+
+    fn activate(&mut self, i: usize) {
+        let layer = &mut self.layers[i];
+        if !layer.active {
+            layer.active = true;
+            layer.done = false;
+            layer.state.fill(NodeState::default());
+        }
+    }
+
+    /// Applies this tick's requests in list order; each mode hands over at most once.
+    fn apply_mode_requests(&mut self) {
+        for i in 0..self.layers.len() {
+            let Some(request) = self.layers[i].pending.take() else {
+                continue;
+            };
+            let (target, leave) = match request {
+                ModeRequest::Next => (self.layers[i].on_next.map(usize::from), true),
+                ModeRequest::Previous => (self.layers[i].on_previous.map(usize::from), true),
+                ModeRequest::Switch { mode, exclusive } => {
+                    // Unknown names do nothing, as documented on the node.
+                    let Some(j) = self.layers.iter().position(|l| l.name_id == mode) else {
+                        continue;
+                    };
+                    if exclusive {
+                        for (k, layer) in self.layers.iter_mut().enumerate() {
+                            if k != j {
+                                layer.active = false;
+                            }
+                        }
+                    }
+                    (Some(j), false)
+                }
+            };
+            if leave && !self.layers[i].keep_running {
+                self.layers[i].active = false;
+            }
+            if let Some(j) = target {
+                self.activate(j);
+            }
         }
     }
 
@@ -1193,6 +1523,8 @@ pub(crate) struct Entry {
     pub position: Vec3,
     pub velocity: Vec3,
     pub measured_velocity: Option<Vec3>,
+    /// The object's −Z axis in world space (where it faces).
+    pub forward: Vec3,
     pub group: Option<u32>,
 }
 
@@ -1302,10 +1634,13 @@ impl BrainScratch {
 struct Ctx<'a> {
     id: EntityId,
     position: Vec3,
+    forward: Vec3,
     velocity: Vec3,
     home: Vec3,
     speed: f32,
     dt: f32,
+    /// This agent's tick count plus one, stamped on nodes that produce output.
+    tick: u32,
     snapshot: &'a BrainScratch,
 }
 
@@ -1353,6 +1688,18 @@ struct Extra {
     flight: Option<crate::fixed_wing::FlightGoal>,
     look: Option<Look>,
     signal: Option<(u32, Option<EntityId>)>,
+    mode: Option<ModeRequest>,
+}
+
+/// A mode change asked for by a node, applied after the object's brains have run.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum ModeRequest {
+    /// The mode finished: start `on_next`.
+    Next,
+    /// The mode was aborted: start `on_previous`.
+    Previous,
+    /// Start the mode with this interned name; `exclusive` stops the others.
+    Switch { mode: u32, exclusive: bool },
 }
 
 impl Extra {
@@ -1367,6 +1714,7 @@ impl Extra {
             flight: self.flight.or(other.flight),
             look: self.look.or(other.look),
             signal: self.signal.or(other.signal),
+            mode: self.mode.or(other.mode),
         }
     }
 }
@@ -1418,7 +1766,22 @@ fn arrive(ctx: &Ctx, point: Vec3, slow: f32, stop: f32) -> Option<Vec3> {
 }
 
 /// Evaluates one node; `None` means inactive (failed condition, finished, no target).
+/// Evaluates node `n`, stamping it when it produces output (the debugger's running path).
 fn eval(
+    brain: &CompiledBrain,
+    n: usize,
+    ctx: &Ctx,
+    state: &mut [NodeState],
+    rng: &mut u64,
+) -> Option<Out> {
+    let out = eval_node(brain, n, ctx, state, rng);
+    if out.is_some() {
+        state[n].ran = ctx.tick;
+    }
+    out
+}
+
+fn eval_node(
     brain: &CompiledBrain,
     n: usize,
     ctx: &Ctx,
@@ -1501,7 +1864,8 @@ fn eval(
         Op::Priority => {
             // Per channel: movement from the first child that wants to move (or brake or
             // hover), look from the first that looks, signal from the first that sends one.
-            let (mut moving, mut idle, mut look, mut signal) = (None, None, None, None);
+            let (mut moving, mut idle, mut look, mut signal, mut mode) =
+                (None, None, None, None, None);
             for i in 0..node.children.len() {
                 if let Some(o) = child(state, rng, i) {
                     if moving.is_none()
@@ -1516,7 +1880,12 @@ fn eval(
                     }
                     look = look.or(o.extra.look);
                     signal = signal.or(o.extra.signal);
-                    if moving.is_some() && look.is_some() && signal.is_some() {
+                    mode = mode.or(o.extra.mode);
+                    if moving.is_some()
+                        && look.is_some()
+                        && signal.is_some()
+                        && (mode.is_some() || !brain.has_mode_nodes)
+                    {
                         break;
                     }
                 }
@@ -1525,6 +1894,7 @@ fn eval(
                 let mut o = keep(o);
                 o.extra.look = look;
                 o.extra.signal = signal;
+                o.extra.mode = mode;
                 o
             })
         }
@@ -1822,6 +2192,61 @@ fn eval(
                 None
             }
         }
+        Op::Taxi { stop, .. } => {
+            if arrived(node, ctx) {
+                return None;
+            }
+            let (point, _) = resolve(node, ctx)?;
+            Some(Out {
+                velocity: Vec3::ZERO,
+                score: node.weight,
+                extra: Extra {
+                    target: Some(point),
+                    flight: Some(crate::fixed_wing::FlightGoal::Taxi { point, stop: *stop }),
+                    ..Extra::default()
+                },
+            })
+        }
+        Op::HoldCourse {
+            keep_heading,
+            heading,
+            height,
+            speed,
+        } => {
+            let s = &mut state[n];
+            if *keep_heading && s.index == 0 {
+                // First tick since the node (or its mode) started: remember the way it faces.
+                s.index = 1;
+                s.value = crate::fixed_wing::compass(ctx.forward).to_degrees();
+            }
+            let heading = if *keep_heading { s.value } else { *heading };
+            Some(Out {
+                velocity: Vec3::ZERO,
+                score: node.weight,
+                extra: Extra {
+                    altitude: Some(*height),
+                    flight: Some(crate::fixed_wing::FlightGoal::Hold {
+                        heading,
+                        altitude: *height,
+                        speed: *speed,
+                    }),
+                    ..Extra::default()
+                },
+            })
+        }
+        Op::NextMode | Op::PreviousMode | Op::SwitchMode { .. } => Some(Out {
+            velocity: Vec3::ZERO,
+            score: node.weight,
+            extra: Extra {
+                mode: Some(match node.op {
+                    Op::NextMode => ModeRequest::Next,
+                    Op::PreviousMode => ModeRequest::Previous,
+                    Op::SwitchMode { mode, exclusive } => ModeRequest::Switch { mode, exclusive },
+                    _ => unreachable!("matched above"),
+                }),
+                ..Extra::default()
+            },
+        }),
         Op::Brake | Op::Hover => Some(Out {
             velocity: Vec3::ZERO,
             score: node.weight,
@@ -1831,8 +2256,8 @@ fn eval(
                 ..Extra::default()
             },
         }),
-        Op::TakeOff { height, finish } => {
-            if *finish && ctx.position.y >= height - 10.0 {
+        Op::TakeOff { height, .. } => {
+            if node.op.arrived(ctx.position.y) {
                 return None;
             }
             Some(Out {
@@ -1845,8 +2270,8 @@ fn eval(
                 },
             })
         }
-        Op::DepartAirport { height, finish } => {
-            if *finish && ctx.position.y >= height - 10.0 {
+        Op::DepartAirport { height, .. } => {
+            if node.op.arrived(ctx.position.y) {
                 return None;
             }
             target(node, ctx).map(|airport| Out {
@@ -1889,12 +2314,8 @@ fn eval(
             },
             ..keep(o)
         }),
-        Op::Altitude {
-            height,
-            finish_on_arrival,
-            arrival_radius,
-        } => {
-            if *finish_on_arrival && (ctx.position.y - height).abs() <= *arrival_radius {
+        Op::Altitude { height, .. } => {
+            if node.op.arrived(ctx.position.y) {
                 return None;
             }
             child(state, rng, 0).map(|o| Out {
@@ -2214,6 +2635,18 @@ fn eval(
     }
 }
 
+/// Whether a mode whose root reported nothing has completed (rather than idling): its root
+/// is a non-looping Sequence past its last child, or a finishing node that has arrived.
+fn finished(brain: &CompiledBrain, state: &[NodeState], ctx: &Ctx) -> bool {
+    let Some(root) = brain.nodes.first() else {
+        return false;
+    };
+    match root.op {
+        Op::Sequence { looping: false } => state[0].index as usize >= root.children.len(),
+        _ => arrived(root, ctx),
+    }
+}
+
 /// One fixed tick of every brain in the world.
 pub(crate) fn step(world: &mut World, dt: Duration) -> Result<(), EngineError> {
     let mut scratch = world.take_brain_scratch();
@@ -2247,23 +2680,41 @@ pub(crate) fn step(world: &mut World, dt: Duration) -> Result<(), EngineError> {
     world.for_each_brain_agent(|id, agent| {
         let Some(me) = snapshot.get(id) else { return };
         let home = *agent.home.get_or_insert(me.position);
+        agent.ticks = agent.ticks.wrapping_add(1).max(1);
         let ctx = Ctx {
+            tick: agent.ticks,
             id,
             position: me.position,
+            forward: me.forward,
             velocity: me.measured_velocity.unwrap_or(agent.velocity),
             home,
             speed: agent.settings.max_speed,
             dt: seconds,
             snapshot,
         };
-        // Stacked brains: movement adds like a Blend, the first look wins, every signal is sent.
+        // Active modes: movement adds like a Blend, the first look wins, every signal is sent.
         let mut merged: Option<(Vec3, Extra)> = None;
+        let mut requested = false;
         for layer in &mut agent.layers {
+            if !layer.active {
+                continue;
+            }
             let brain = Arc::clone(&layer.brain);
             let mut rng = layer.rng;
             let result = eval(&brain, 0, &ctx, &mut layer.state, &mut rng);
             layer.rng = rng;
-            let Some(o) = result else { continue };
+            let Some(o) = result else {
+                if !layer.done && finished(&brain, &layer.state, &ctx) {
+                    layer.done = true;
+                    layer.pending = Some(ModeRequest::Next);
+                    requested = true;
+                }
+                continue;
+            };
+            if let Some(request) = o.extra.mode {
+                layer.pending = Some(request);
+                requested = true;
+            }
             if let Some((name, target)) = o.extra.signal {
                 sent.push(Signal {
                     from: id,
@@ -2276,6 +2727,10 @@ pub(crate) fn step(world: &mut World, dt: Duration) -> Result<(), EngineError> {
                 Some((v, extra)) => (v + o.velocity, extra.merge(o.extra)),
                 None => (o.velocity, o.extra),
             });
+        }
+        if requested {
+            // Takes effect next tick, like signals: this tick's modes all saw the same state.
+            agent.apply_mode_requests();
         }
         let (velocity, extra) = merged.unwrap_or_default();
         let mut desired = velocity.clamp_length_max(agent.settings.max_speed);
@@ -2402,6 +2857,36 @@ pub(crate) fn apply_looks(world: &mut World, dt: Duration) -> Result<(), EngineE
 }
 
 impl World {
+    /// The object's brain modes in list order, with whether each is running.
+    pub fn brain_modes(&self, id: EntityId) -> Result<Vec<(String, bool)>, BrainModeError> {
+        let agent = self
+            .component::<BrainAgent>(id)
+            .map_err(BrainModeError::World)?
+            .ok_or(BrainModeError::NoBrain)?;
+        Ok(agent.modes().map(|(n, a)| (n.to_string(), a)).collect())
+    }
+
+    /// Starts (with fresh state) or stops one brain mode; effective from the next brain tick.
+    pub fn set_brain_mode(
+        &mut self,
+        id: EntityId,
+        name: &str,
+        active: bool,
+    ) -> Result<(), BrainModeError> {
+        self.component_mut::<BrainAgent>(id)
+            .map_err(BrainModeError::World)?
+            .ok_or(BrainModeError::NoBrain)?
+            .set_mode(name, active)
+    }
+
+    /// Starts one brain mode and stops every other; effective from the next brain tick.
+    pub fn switch_brain_mode(&mut self, id: EntityId, name: &str) -> Result<(), BrainModeError> {
+        self.component_mut::<BrainAgent>(id)
+            .map_err(BrainModeError::World)?
+            .ok_or(BrainModeError::NoBrain)?
+            .switch_mode(name)
+    }
+
     /// Signals brains sent on the previous tick, with their names.
     pub fn signals(&self) -> impl Iterator<Item = (&Signal, &str)> {
         let names = self.resource::<GroupNames>();

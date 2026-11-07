@@ -198,8 +198,10 @@ function match(needle: string, value: string) {
 
 /** Field values may use refs: `asset:<id>` becomes that asset's path, `instance:<scene>/<id>` its instance ID. */
 export function resolveFieldRefs(index: ProjectIndex, fields: Record<string, unknown>): Record<string, unknown> {
+  // Tables inside lists (brain modes) hold refs too; top-level tables (metadata pairs) are plain text.
+  const inList = (value: unknown): unknown => value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.entries(value).map(([key, item]) => [key, one(item)])) : one(value);
   const one = (value: unknown): unknown => {
-    if (typeof value !== "string" || !/^(asset|instance):/.test(value)) return Array.isArray(value) ? value.map(one) : value;
+    if (typeof value !== "string" || !/^(asset|instance):/.test(value)) return Array.isArray(value) ? value.map(inList) : value;
     const entry = resolveRef(index, value);
     return entry.type === "asset" ? entry.path : entry.type === "instance" ? entry.id : value;
   };

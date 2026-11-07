@@ -438,6 +438,7 @@ fn controller_cannot_jump_without_support_even_at_zero_vertical_speed() {
         .insert_component(
             player,
             emergent::CharacterController {
+                run_speed: 0.0,
                 speed: 4.,
                 jump_speed: 5.,
                 camera_relative: true,
@@ -483,6 +484,7 @@ fn controller_walks_on_heightfield_support() {
         .insert_component(
             player,
             emergent::CharacterController {
+                run_speed: 0.0,
                 speed: 4.,
                 jump_speed: 5.,
                 camera_relative: true,

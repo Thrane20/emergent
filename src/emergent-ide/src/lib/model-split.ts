@@ -14,7 +14,12 @@ export const SPLIT_ENDPOINTS = {
   "tripo3d/tripo/segment": { label: "Tripo Segment · named parts", input: (url: string) => ({ mesh_url: url }) },
   "hitem3d/hi3d/split": { label: "Hi3D Split · choose granularity", input: (url: string, level: SplitLevel) => ({ mesh_url: url, model: "general", level, export_format: "glb" }) },
 } as const;
-export type SplitEndpoint = keyof typeof SPLIT_ENDPOINTS;
+/** fal auto-riggers: take a textured humanoid GLB and return it with a skeleton and skin weights. */
+export const RIG_ENDPOINTS = {
+  "fal-ai/meshy/rigging": { label: "Meshy Rigging · humanoid skeleton", input: (url: string) => ({ model_url: url, height_meters: 1.7 }) },
+} as const;
+const ENDPOINTS = { ...SPLIT_ENDPOINTS, ...RIG_ENDPOINTS };
+export type SplitEndpoint = keyof typeof ENDPOINTS;
 export type SplitLevel = "low" | "medium" | "high";
 export type SplitJob = {
   schema_version: 1; id: string; projectId: string; model: string; endpoint: SplitEndpoint; level: SplitLevel;
@@ -52,9 +57,9 @@ export function createSplitProvider(key: string, transport: typeof fetch = fetch
     async result(endpoint, requestId) {
       let url: URL;
       try {
-        const { data } = await client.queue.result(endpoint, { requestId, abortSignal: AbortSignal.timeout(15_000) }) as { data: { model_urls?: { glb?: { url?: string } }; model_mesh?: { url?: string } } };
+        const { data } = await client.queue.result(endpoint, { requestId, abortSignal: AbortSignal.timeout(15_000) }) as { data: { model_urls?: { glb?: { url?: string } }; model_mesh?: { url?: string }; rigged_character_glb?: { url?: string } } };
         // Tripo may return FBX as its primary mesh; prefer its explicit GLB variant.
-        const href = data.model_urls?.glb?.url ?? data.model_mesh?.url;
+        const href = data.model_urls?.glb?.url ?? data.model_mesh?.url ?? data.rigged_character_glb?.url;
         if (!href) throw new ObjectCreatorError("The splitter returned no model.");
         url = new URL(href);
       } catch (error) { if (error instanceof ObjectCreatorError) throw error; throw providerFailure(error); }
@@ -98,12 +103,13 @@ export class SplitJobs {
     } catch (error) { if (missing(error)) throw new ObjectCreatorError("Split job was not found.", 404); throw error; }
   }
 
-  async list(project: ProjectScope, model?: string) {
+  /** Jobs for a model; `rig` picks auto-rig jobs instead of part splits. */
+  async list(project: ProjectScope, model?: string, rig = false) {
     let ids: string[];
     try { ids = (await readdir(await this.folder(project))).filter(id => uuid.test(id)); }
     catch (error) { if (missing(error)) return []; throw error; }
     const jobs = await Promise.all(ids.map(id => this.get(project, id).catch(() => null)));
-    return jobs.filter((job): job is SplitJob => !!job && (!model || job.model === model)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
+    return jobs.filter((job): job is SplitJob => !!job && (!model || job.model === model) && (job.endpoint in RIG_ENDPOINTS) === rig).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 50);
   }
 
   private async persist(project: ProjectScope, job: SplitJob) {
@@ -114,7 +120,7 @@ export class SplitJobs {
 
   async create(project: ProjectScope, input: { id?: unknown; model?: unknown; endpoint?: unknown; level?: unknown }) {
     if (typeof input.id !== "string" || !uuid.test(input.id)) throw new ObjectCreatorError("Invalid split job ID.");
-    if (typeof input.endpoint !== "string" || !(input.endpoint in SPLIT_ENDPOINTS)) throw new ObjectCreatorError("Choose a supported part splitter.");
+    if (typeof input.endpoint !== "string" || !(input.endpoint in ENDPOINTS)) throw new ObjectCreatorError("Choose a supported part splitter.");
     const level: SplitLevel = input.level === "low" || input.level === "high" ? input.level : "medium";
     if (typeof input.model !== "string" || !input.model.endsWith(".glb") || !project.assetRoots.some(root => (input.model as string).startsWith(`${root}/`))) throw new ObjectCreatorError("Choose a saved .glb model in this project.");
     const id = input.id, model = input.model, endpoint = input.endpoint as SplitEndpoint;
@@ -135,7 +141,7 @@ export class SplitJobs {
       catch { job.state = "failed"; job.error = "Model upload failed. Check your fal key and account credit, then start a new split."; return this.persist(project, job); }
       job.state = "submitting";
       await this.persist(project, job);
-      try { job.requestId = await provider.submit(endpoint, SPLIT_ENDPOINTS[endpoint].input(url, level)); job.state = "queued"; }
+      try { job.requestId = await provider.submit(endpoint, ENDPOINTS[endpoint].input(url, level)); job.state = "queued"; }
       catch { job.state = "uncertain"; job.error = "Submission could not be confirmed. Check your fal dashboard before starting another paid split; this one will not be resubmitted."; }
       return this.persist(project, job);
     });

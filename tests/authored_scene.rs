@@ -708,6 +708,16 @@ fn terrain_asset_loads_as_mesh_and_rejects_inconsistent_colliders() {
     let loaded = f.load().unwrap().instantiate(&mut world).unwrap();
     assert_eq!(loaded.renderables.len(), 2);
     assert!(matches!(&loaded.renderables[0].1,Geometry::Mesh(mesh) if mesh.vertices().len()==1024));
+    // Without an authored material, terrain renders smooth; flat expansion of a 1024 grid
+    // exceeds GPU buffer limits.
+    let material = world
+        .component::<emergent::Material>(loaded.renderables[0].0)
+        .unwrap()
+        .expect("terrain gets a default material");
+    assert_eq!(
+        material.definition().shading,
+        emergent::MaterialShading::Smooth
+    );
     #[cfg(feature = "physics")]
     {
         let physics = "\n[physics]\nbody='static'\n[physics.collider]\nshape='terrain'\n";
@@ -965,6 +975,7 @@ fn editable_structure() -> emergent::StructureDefinition {
                 ],
                 faces: vec![vec![0, 3, 2, 1]],
             },
+            material: None,
         }],
     }
 }
@@ -982,6 +993,7 @@ fn empty_structure_parent_keeps_child_geometry() {
             vertices: vec![],
             faces: vec![],
         },
+        material: None,
     });
     assert_eq!(structure.mesh().unwrap().vertices().len(), 4);
 }
@@ -1023,6 +1035,53 @@ fn structure_assets_compile_local_hierarchy_into_one_mesh_on_the_canonical_entit
     assert_eq!(loaded.renderables[0].1, Geometry::from(mesh));
     f.asset("schema_version=1\nid='bad'\nkind='primitive'\nstructure='assets/building.structure.toml'\n");
     assert!(f.load().is_err());
+}
+#[test]
+fn structure_part_materials_compile_into_contiguous_sections_on_the_canonical_entity() {
+    let f = Fixture::new();
+    fs::write(
+        f.0.join("assets/stone.material.toml"),
+        "schema_version=1\nid='stone'\nname='Stone'\n[material]\nalbedo=[0.2,0.3,0.4]\n",
+    )
+    .unwrap();
+    let mut structure = editable_structure();
+    let mut roof = structure.parts[0].clone();
+    roof.id = "roof".into();
+    roof.name = "Roof".into();
+    roof.material = Some("assets/stone.material.toml".into());
+    let mut wall = roof.clone();
+    wall.id = "wall".into();
+    wall.name = "Wall".into();
+    // Authored order interleaves overridden and default parts; assembly groups them.
+    structure.parts.insert(0, roof);
+    structure.parts.push(wall);
+    let (mesh, sections) = structure.assemble().unwrap();
+    assert_eq!(mesh.indices().len(), 18);
+    assert_eq!(
+        sections,
+        vec![emergent::StructureMaterialSection {
+            material: "assets/stone.material.toml".into(),
+            indices: 6..18,
+        }]
+    );
+    let source = toml::to_string(&structure).unwrap();
+    fs::write(f.0.join("assets/building.structure.toml"), &source).unwrap();
+    f.asset("schema_version=1\nid='building'\nkind='structure'\nstructure='assets/building.structure.toml'\n");
+    f.scene("[[entities]]\nid='building'\nasset='assets/cube.entity.toml'\n");
+    let mut world = World::new();
+    let loaded = f.load().unwrap().instantiate(&mut world).unwrap();
+    let resolved = world
+        .component::<emergent::MaterialSections>(loaded.entities["building"])
+        .unwrap()
+        .unwrap();
+    assert_eq!(resolved.0.len(), 1);
+    assert_eq!(resolved.0[0].indices, 6..18);
+    fs::write(
+        f.0.join("assets/building.structure.toml"),
+        source.replace("stone.material", "missing.material"),
+    )
+    .unwrap();
+    assert!(f.load().is_err(), "missing part material fails the load");
 }
 #[test]
 fn structure_topology_triangulation_and_hierarchy_failures_are_validated_before_instantiation() {

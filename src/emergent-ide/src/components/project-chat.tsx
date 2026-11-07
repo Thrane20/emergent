@@ -19,15 +19,16 @@ type Props = {
   aiSettings: PublicAISettings;
   disabled: boolean;
   allowDraftWhileDisabled?: boolean;
+  defaultExpanded?: boolean;
   requestContext?: string;
   onBusy: (busy:boolean)=>void;
   onApplied: ()=>void;
 };
 
-export function ProjectChat({ projectId, projectName, scene, object, aiSettings, disabled, allowDraftWhileDisabled = false, requestContext, onBusy, onApplied }: Props) {
+export function ProjectChat({ projectId, projectName, scene, object, aiSettings, disabled, allowDraftWhileDisabled = false, defaultExpanded = true, requestContext, onBusy, onApplied }: Props) {
   const [scopeKind, setScopeKind] = useState<"game" | "scene" | "object">("object");
   const [drafts, setDrafts] = useState<Record<string,string>>({});
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [messages, setMessages] = useState<Record<string, ChatMessage[]>>({});
   const [sending, setSending] = useState(false);
   const nextMessageId = useRef(0);

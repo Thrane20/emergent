@@ -51,7 +51,7 @@ fn pilot_only(params: &FixedWingParams) {
     for i in 0..steps {
         body.velocity.x = (i % 7) as f32 * 0.1;
         sum += pilot
-            .step(params, goal, None, Default::default(), &body, dt)
+            .step(params, goal, None, None, Default::default(), &body, dt)
             .force;
     }
     let each = start.elapsed().as_nanos() as f64 / steps as f64;

@@ -1,0 +1,5 @@
+schema_version = 1
+id = "mannequin"
+name = "Mannequin"
+kind = "model"
+model = "assets/models/mannequin.glb"

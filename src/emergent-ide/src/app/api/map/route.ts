@@ -5,14 +5,17 @@ import type { MapItemInput } from "@/lib/scene-map-types";
 import { undoChange } from "@/lib/project-ops";
 
 const failure = (error: unknown) => Response.json({ error: error instanceof Error ? error.message : "Map request failed." }, { status: 400 });
-const scenePath = (value: unknown) => { if (typeof value !== "string" || !value.endsWith(".scene.toml")) throw new Error("Choose a scene."); return value; };
+const graphPath = (project: Awaited<ReturnType<typeof objectProject>>, value: unknown) => {
+  if (typeof value !== "string" || !/\.(scene|prefab)\.toml$/.test(value) || !project.files.some(file => file.path === value && project.assetRoots.some(root => value.startsWith(`${root}/`)))) throw new Error("Choose a scene or prefab in this project.");
+  return value;
+};
 const finite = (value: unknown) => typeof value === "number" && Number.isFinite(value) && Math.abs(value) <= 1e6;
 
 /** The scene's map: instances, components, world matrices and top-down outlines. */
 export async function GET(request: Request) {
   try {
     const query = new URL(request.url).searchParams, project = await objectProject(query.get("projectId"));
-    return Response.json(await sceneMap(project, scenePath(query.get("scene"))), { headers: { "Cache-Control": "no-store" } });
+    return Response.json(await sceneMap(project, graphPath(project, query.get("scene"))), { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return failure(error); }
 }
 
@@ -21,7 +24,7 @@ export async function POST(request: Request) {
   try {
     sameOrigin(request);
     const body = JSON.parse((await boundedBody(new Response(request.body, { headers: request.headers }), 256 * 1024)).toString("utf8"));
-    const project = await objectProject(body.projectId), scene = scenePath(body.scene), revision = String(body.revision ?? "");
+    const project = await objectProject(body.projectId), scene = graphPath(project, body.scene), revision = String(body.revision ?? "");
     const id = typeof body.id === "string" ? body.id : "";
     switch (body.action) {
       case "add": {
@@ -46,6 +49,7 @@ export async function POST(request: Request) {
       case "undo":
         await undoChange(project, {}); break;
       case "wind":
+        if (scene.endsWith(".prefab.toml")) throw new Error("Wind belongs to a scene, not a prefab.");
         await setMapWind(project, { scene, revision, wind: body.wind ?? null }); break;
       default: throw new Error("Unknown map action.");
     }

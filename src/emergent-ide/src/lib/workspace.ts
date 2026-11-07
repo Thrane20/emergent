@@ -6,9 +6,9 @@ export type RecentProject = { id: string; name: string; root: string; openedAt: 
 export type Workspace = { active?: string; recent: RecentProject[] };
 
 export const engineRoot = path.resolve(process.cwd(), "../..");
-/** Every project builds here, so engine dependencies compile once instead of per project. */
-export const sharedTargetDir = path.join(engineRoot, "target");
-/** New projects start from the engine's resolved versions so the shared build is reused. */
+/** Each project builds in its own target dir: binaries embed their manifest dir, so projects sharing a package name must never share one. */
+export const projectTargetDir = (root: string) => path.join(root, "target");
+/** New projects start from the engine's resolved versions. */
 export const engineLockfile = path.join(engineRoot, "Cargo.lock");
 const workspaceFile = () => path.join(ideDataDirectory(), "workspace.json");
 

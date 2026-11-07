@@ -31,7 +31,7 @@ fn profiles_validate_types_fields_and_limits() {
         .unwrap_err()
     };
     assert!(bad("teleport", "").contains("unknown locomotion type"));
-    assert!(bad("biped_ik", "").contains("planned"));
+    assert!(bad("quadruped", "").contains("planned"));
     assert!(bad("wheeled", "speed=3").contains("no field 'speed'"));
     assert!(bad("wheeled", "max_steer=120").contains("must be a number"));
     assert!(bad("fixed_wing", "min_speed=30\ncruise_speed=20").contains("stall speed"));
@@ -45,6 +45,7 @@ fn profiles_validate_types_fields_and_limits() {
         [
             "slide",
             "wheeled",
+            "biped",
             "drone",
             "fixed_wing",
             "fixed_wing_physics",

@@ -47,10 +47,20 @@ impl ProjectGeometry {
         }
         let mut handles = Vec::with_capacity(game.loaded().renderables.len());
         for (entity, geometry) in &game.loaded().renderables {
-            let handle = if let Some(material) = world.component::<crate::Material>(*entity)? {
-                renderer.insert_with_material(geometry, material)?
-            } else {
-                renderer.insert_with_shading(geometry, ShadingMode::Flat)
+            let sections = world.component::<crate::MaterialSections>(*entity)?;
+            let handle = match (world.component::<crate::Material>(*entity)?, sections) {
+                (Some(material), sections) => renderer.insert_with_sections(
+                    geometry,
+                    material,
+                    sections.map_or(&[][..], |s| &s.0),
+                )?,
+                // Same flat default surface as an entity without any material.
+                (None, Some(sections)) => renderer.insert_with_sections(
+                    geometry,
+                    &crate::Material::default(),
+                    &sections.0,
+                )?,
+                (None, None) => renderer.insert_with_shading(geometry, ShadingMode::Flat),
             };
             handles.push((*entity, handle));
         }
@@ -256,6 +266,7 @@ impl ProjectGeometry {
         &self,
         entity: EntityId,
         material: &crate::Material,
+        world: &crate::World,
         game: &impl ProjectGame,
         renderer: &mut GeometryRenderer,
     ) -> Result<(), Box<dyn Error>> {
@@ -270,7 +281,10 @@ impl ProjectGeometry {
             .iter()
             .find(|(id, _)| *id == entity)
             .ok_or("Selected entity has no source geometry")?;
-        renderer.replace_material(*handle, geometry, material)?;
+        let sections = world
+            .component::<crate::MaterialSections>(entity)?
+            .map_or(&[][..], |s| &s.0);
+        renderer.replace_material_sections(*handle, geometry, material, sections)?;
         Ok(())
     }
     pub(crate) fn extract(
@@ -286,6 +300,9 @@ impl ProjectGeometry {
         for &(entity, geometry) in self.handles.iter().chain(&self.collider_handles) {
             if engine.world().get(entity).is_err() {
                 continue;
+            }
+            if let Some(animator) = engine.world().component::<crate::Animator>(entity)? {
+                renderer.set_skin_palette(geometry, animator.palette())?;
             }
             self.instances.push(GeometryInstance::new(
                 geometry,
@@ -731,12 +748,15 @@ pub fn run_scene<G: ProjectGame>(
     Ok(())
 }
 
-/// Constructs the project's registered scene at tick zero and captures its real
-/// renderer output without opening a window or advancing gameplay.
+/// Constructs the project's registered scene and captures its real renderer output
+/// without opening a window: at tick zero, or after `ticks` fixed ticks with `keys` held
+/// (a walk/run or driving preview).
 pub fn preview<G: ProjectGame>(
     project: &crate::Project,
     scene_path: &str,
     output: &std::path::Path,
+    ticks: u64,
+    keys: crate::KeySet,
 ) -> Result<(), Box<dyn Error>> {
     let mut engine = Engine::new(EngineConfig::default())?;
     let mut game = G::load(&mut engine, project, scene_path)?;
@@ -744,6 +764,11 @@ pub fn preview<G: ProjectGame>(
     let mut geometry = ProjectGeometry::upload(&mut renderer, &game, engine.world(), true)?;
     engine.start(&mut game)?;
     let result = (|| -> Result<(), Box<dyn Error>> {
+        engine.set_keys(keys);
+        let step = EngineConfig::default().fixed_timestep;
+        for _ in 0..ticks {
+            engine.advance_frame(&mut game, step)?;
+        }
         // Upload synced the camera before start propagated world transforms; resync from the committed pose.
         sync_camera(&mut renderer, engine.world(), game.loaded().active_camera)?;
         geometry.extract(&engine, &game, &mut renderer)?;
@@ -844,7 +869,14 @@ mod camera_tests {
         std::fs::create_dir_all(&directory).unwrap();
         let output = directory.join("frame.png");
         let _ = std::fs::remove_file(&output);
-        preview::<Template>(&project, "assets/scenes/main.scene.toml", &output).unwrap();
+        preview::<Template>(
+            &project,
+            "assets/scenes/main.scene.toml",
+            &output,
+            0,
+            crate::KeySet::EMPTY,
+        )
+        .unwrap();
         let decoder = png::Decoder::new(std::io::BufReader::new(
             std::fs::File::open(&output).unwrap(),
         ));

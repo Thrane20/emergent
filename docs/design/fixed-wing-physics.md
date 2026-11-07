@@ -118,7 +118,7 @@ Gusts (uniform wind arrived with AIR-3a: see the airport design), flaps, propell
 
   Aircraft runs last up to 300 s, at 10 frames a second. The trace adds a 15th column, the flight phase (`FlightPhase` as u8, append-only order). The Locomotion editor defaults aircraft to Circuit and 240 s, and shows a Phase readout. A browser check ran 240 s and returned 2400 frames, with the circuit track, height profile and rig drawn, and no console errors.
 - **Brain nodes** (Locomotion category):
-  - **Take off** (height; *finish at height* advances a Sequence within 10 m).
+  - **Take off** (height; *finish at height* advances a Sequence once within *arrival tolerance*, default 0.5 m).
   - **Land** (target zone object, or the nearest zone in a group; circuit height).
 
   They publish `Intent.flight`. Game code's `LocomotionAgent::flight` wins over it, and the movement adapter is the fallback. A Sequence of Take off (200 m) then Land flies a full sortie in `tests/fixed_wing_physics.rs`.

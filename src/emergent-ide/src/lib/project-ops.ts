@@ -77,8 +77,16 @@ async function pushLive(project: ProjectSnapshot, scenePath: string, push?: (ses
   try { await push(session); return true; } catch { return false; }
 }
 
-/** One journalled, Rust-validated, undoable edit of a scene by path (for editors that build their own TOML change). */
+/** One journalled, Rust-validated, undoable edit of a scene or prefab by path. */
 export async function editScenePath(project: ProjectSnapshot, scenePath: string, revision: string, tool: string, summary: string, edit: (source: string) => string | Promise<string>) {
+  if (scenePath.endsWith(".prefab.toml")) {
+    if (!project.files.some(file => file.path === scenePath && project.assetRoots.some(root => scenePath.startsWith(`${root}/`)))) throw new RefError("Choose a prefab in this project.");
+    const { before, content, changed } = await commitSceneEdit(project, scenePath, revision, edit);
+    if (!changed) return { applied: false, revision };
+    const changeId = await journal(project, tool, summary, [{ path: scenePath, before, content }]);
+    publishProjectEvent({ type: "changed", projectId: project.id, changeId, source: "ide", summary, paths: [scenePath], scenes: [], live: false });
+    return { applied: true, revision: (await scenePlacement(project, scenePath)).revision };
+  }
   const scene = (await projectIndex(project)).scenes.find(entry => entry.path === scenePath);
   if (!scene) throw new RefError(`${scenePath} is not a scene in this project.`);
   return sceneEdit(project, scene, revision, tool, summary, edit, { source: "ide" });
@@ -278,7 +286,7 @@ export async function undoChange(project: ProjectSnapshot, input: { changeId?: s
     const target = await containedFile(project.root, change.path, 16 * 1024 * 1024).catch(() => null);
     const current = target ? await readFile(target, "utf8").catch(() => null) : null;
     if (current !== change.before) throw new RefError(`${change.path} changed after ${input.changeId ?? "the last change"}; undo refused so newer work is not overwritten.`);
-    if (change.content !== null && change.path.endsWith(".scene.toml")) await validateProjectScene(project, change.path, change.content);
+    if (change.content !== null && (change.path.endsWith(".scene.toml") || change.path.endsWith(".prefab.toml"))) await validateProjectScene(project, change.path, change.content);
   }
   const summary = `undo "${target.summary}"`;
   const diff = reverse.map(change => change.content === null ? `--- ${change.path} (removed)` : `--- ${change.path}\n${textDiff(change.before, change.content)}`).join("\n");

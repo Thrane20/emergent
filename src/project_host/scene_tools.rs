@@ -62,7 +62,7 @@ pub fn report(
             }
         })
         .collect();
-    print!("{}", toml::to_string(&Report { instances })?);
+    out!("{}", toml::to_string(&Report { instances })?);
     Ok(())
 }
 pub fn convert(
@@ -105,6 +105,6 @@ pub fn convert(
             )
             .map_err(|error| error.to_string())?
     };
-    print!("{}", toml::to_string(&Values::from(local))?);
+    out!("{}", toml::to_string(&Values::from(local))?);
     Ok(())
 }

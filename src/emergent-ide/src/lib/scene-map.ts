@@ -8,11 +8,11 @@ import { editScenePath } from "./project-ops";
 import { readProjectSnapshot, type ProjectSnapshot } from "./project";
 import { replaceInstanceComponent, replaceInstanceName, replaceInstanceParent, replaceInstanceTransform, replaceSceneSubtree, scenePlacement } from "./scene-placement";
 import { gameTool } from "./scene-preview";
-import { invertAffine, transformPoint, type AirportView, type MapItemInput, type MapLayoutInstance, type MapWind, type SceneMapModel } from "./scene-map-types";
+import { invertAffine, localZone, transformPoint, type AirportView, type MapItemInput, type MapLayoutInstance, type MapTopDown, type MapWind, type SceneMapModel } from "./scene-map-types";
 import { projectIndex } from "./project-index";
 import { setWind } from "./project-ops";
 
-type MapLayout = { instances: MapLayoutInstance[]; airports: AirportView[]; wind: MapWind | null };
+type MapLayout = { instances: MapLayoutInstance[]; airports: AirportView[]; wind: MapWind | null; topDown?: MapTopDown };
 const layouts = new Map<string, Promise<MapLayout>>();
 /** World matrices and top-down outlines from the engine, cached per scene revision. */
 async function mapLayout(project: ProjectSnapshot, scenePath: string, revision: string) {
@@ -20,7 +20,7 @@ async function mapLayout(project: ProjectSnapshot, scenePath: string, revision: 
   let cached = layouts.get(key);
   if (!cached) {
     cached = gameTool(project, ["--map-layout", scenePath], 16 * 1024 * 1024).then(text => {
-      const parsed = parse(text) as { instances?: unknown[]; airports?: Record<string, unknown>[]; wind?: { speed?: unknown; from?: unknown } };
+      const parsed = parse(text) as { instances?: unknown[]; airports?: Record<string, unknown>[]; wind?: { speed?: unknown; from?: unknown }; top_down?: { min?: unknown; max?: unknown; image?: unknown } };
       const point = (value: unknown) => (Array.isArray(value) ? [Number(value[0]), Number(value[1])] : undefined) as [number, number] | undefined;
       const airports: AirportView[] = (parsed.airports ?? []).map(airport => ({
         aerodrome: typeof airport.aerodrome === "string" ? airport.aerodrome : undefined, towered: airport.towered === true, holdingFix: point(airport.holding_fix),
@@ -35,7 +35,9 @@ async function mapLayout(project: ProjectSnapshot, scenePath: string, revision: 
         const item = value as Record<string, unknown>;
         return { id: String(item.id), matrix: (item.matrix as number[]).map(Number), outline: ((item.outline as number[][]) ?? []).map(point => [Number(point[0]), Number(point[1])] as [number, number]), top: typeof item.top === "number" ? item.top : undefined };
       });
-      return { instances, airports, wind };
+      const top = parsed.top_down, min = point(top?.min), max = point(top?.max);
+      const topDown = min && max && typeof top?.image === "string" && top.image.startsWith("data:image/png;base64,") ? { min, max, image: top.image } : undefined;
+      return { instances, airports, wind, topDown };
     });
     if (layouts.size > 16) layouts.delete(layouts.keys().next().value!);
     layouts.set(key, cached);
@@ -52,8 +54,10 @@ export async function sceneMap(project: ProjectSnapshot, scenePath: string): Pro
   return {
     scene: scenePath,
     revision: placement.revision,
+    root: scenePath.endsWith(".prefab.toml") ? placement.instances.find(instance => instance.parent === null)?.id ?? null : null,
     airports: layout.airports,
     wind: layout.wind,
+    topDown: layout.topDown,
     instances: placement.instances.map(instance => ({ id: instance.id, name: instance.name ?? instance.id, parent: instance.parent, asset: instance.asset, objectKind: instance.objectKind, components: instance.components ?? [], transform: instance.transform, matrix: byId.get(instance.id)?.matrix ?? [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], outline: byId.get(instance.id)?.outline ?? [], top: byId.get(instance.id)?.top })),
   };
 }
@@ -98,7 +102,8 @@ export async function addMapItems(project: ProjectSnapshot, input: { scene: stri
   if (!input.items.length || input.items.length > 256) throw new Error("Place 1-256 map items at a time.");
   const model = await sceneMap(project, input.scene);
   if (model.revision !== input.revision) throw new Error("The scene changed. Reload the map and try again.");
-  if (input.parent) instanceIn(model, input.parent);
+  const parent = input.parent ?? model.root;
+  if (parent) instanceIn(model, parent);
   const assets = { waypoint: await mapAsset(project, "waypoint"), zone: await mapAsset(project, "zone"), group: input.path ? await mapAsset(project, "group") : "" };
   // New assets must be in the project snapshot before the engine validates the scene.
   project = await readProjectSnapshot();
@@ -109,32 +114,34 @@ export async function addMapItems(project: ProjectSnapshot, input: { scene: stri
   const result = await editScenePath(project, input.scene, input.revision, "map", summary, source => {
     let content = source;
     if (group) {
-      const first = input.items[0], local = localPoint(model, input.parent, first.x, ground(first), first.z);
+      const first = input.items[0], local = localPoint(model, parent, first.x, ground(first), first.z);
       content = appendEntity(content, group, assets.group);
       content = replaceInstanceName(content, group, input.name?.trim() || "Waypoint path");
-      if (input.parent) content = replaceInstanceParent(content, group, input.parent);
+      if (parent) content = replaceInstanceParent(content, group, parent);
       content = replaceInstanceTransform(content, group, { translation: local.map(round), rotation_degrees: [0, 0, 0], scale: [1, 1, 1] });
     }
     input.items.forEach((item, index) => {
       const id = ids[index];
       content = appendEntity(content, id, item.kind === "zone" ? assets.zone : assets.waypoint);
       content = replaceInstanceName(content, id, item.name?.trim() || (item.kind === "zone" ? "Zone" : group ? `Waypoint ${index + 1}` : "Waypoint"));
-      const parent = group ?? input.parent;
-      if (parent) content = replaceInstanceParent(content, id, parent);
+      const itemParent = group ?? parent;
+      if (itemParent) content = replaceInstanceParent(content, id, itemParent);
       let local: number[];
       if (group) {
         const first = input.items[0];
         local = [item.x - first.x, ground(item) - ground(first), item.z - first.z];
-        if (input.parent) {
+        if (parent) {
           // Express the offset in the group's frame (it inherits the parent's rotation and scale).
-          const parentMatrix = instanceIn(model, input.parent).matrix, inverse = invertAffine(parentMatrix);
+          const parentMatrix = instanceIn(model, parent).matrix, inverse = invertAffine(parentMatrix);
           const origin = transformPoint(inverse, [first.x, ground(first), first.z]), here = transformPoint(inverse, [item.x, ground(item), item.z]);
           local = [here[0] - origin[0], here[1] - origin[1], here[2] - origin[2]];
         }
-      } else local = localPoint(model, input.parent, item.x, ground(item), item.z);
-      content = replaceInstanceTransform(content, id, { translation: local.map(round), rotation_degrees: [0, round(item.yaw ?? 0), 0], scale: [1, 1, 1] });
+      } else local = localPoint(model, parent, item.x, ground(item), item.z);
+      // Sizes and yaw are drawn in world units; under a scaled or turned parent they are stored local.
+      const zone = localZone(parent ? instanceIn(model, parent).matrix : null, { width: item.width ?? 10, depth: item.depth ?? 10, radius: item.radius ?? 5, yaw: item.yaw });
+      content = replaceInstanceTransform(content, id, { translation: local.map(round), rotation_degrees: [0, round(zone.yaw), 0], scale: [1, 1, 1] });
       if (item.kind === "zone") {
-        const fields: Record<string, number | string> = item.shape === "rect" ? { shape: "rect", width: round(Math.max(0.1, item.width ?? 10)), depth: round(Math.max(0.1, item.depth ?? 10)) } : { radius: round(Math.max(0.1, item.radius ?? 5)) };
+        const fields: Record<string, number | string> = item.shape === "rect" ? { shape: "rect", width: round(Math.max(0.01, zone.width!)), depth: round(Math.max(0.01, zone.depth!)) } : { radius: round(Math.max(0.01, zone.radius!)) };
         content = replaceInstanceComponent(content, id, "emergent.zone", fields, true);
       } else {
         const next: Record<string, string[]> = group && index + 1 < ids.length ? { links: [ids[index + 1]] } : {};
@@ -177,6 +184,7 @@ export async function toggleWaypointLink(project: ProjectSnapshot, input: { scen
 /** Deletes a map item (and anything under it); links pointing at deleted waypoints are removed too. */
 export async function deleteMapItem(project: ProjectSnapshot, input: { scene: string; revision: string; id: string }) {
   const model = await sceneMap(project, input.scene), item = instanceIn(model, input.id);
+  if (input.id === model.root) throw new Error("The prefab root cannot be deleted.");
   const doomed = new Set([input.id]);
   for (let grew = true; grew;) { grew = false; for (const instance of model.instances) if (instance.parent && doomed.has(instance.parent) && !doomed.has(instance.id)) { doomed.add(instance.id); grew = true; } }
   return editScenePath(project, input.scene, input.revision, "map", `delete ${item.name}`, source => {

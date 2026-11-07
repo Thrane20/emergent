@@ -4,13 +4,15 @@
 // The tower only runs with the physics feature (physical aircraft); the model is always built.
 #![cfg_attr(not(feature = "physics"), allow(dead_code))]
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use bevy_ecs::prelude::Resource;
 
 use crate::fixed_wing::{
-    bearing_direction, FlightGoal, FlightPhase, FlightTelemetry, Gates, Runway,
+    bearing_direction, FlightGoal, FlightPhase, FlightTelemetry, Gates, PatternFix, Runway,
 };
 use crate::locomotion::{LocomotionAgent, Model};
+use crate::taxi::{NodeKind, TaxiGraph};
 use crate::{EngineError, EntityId, MetaValue, Metadata, Vec3, World};
 
 /// Aircraft flying the circuit at once; later arrivals hold over the holding fix.
@@ -37,6 +39,9 @@ pub struct Airport {
     /// The `aeroway=aerodrome` zone; `None` for the implicit airport of an untagged scene.
     pub aerodrome: Option<EntityId>,
     pub pattern_height: f32,
+    /// Size relative to a real airport (`scale` tag on the aerodrome, default 1). Circuits,
+    /// spacing and holding distances shrink with it; aircraft speed still sets turn size.
+    pub scale: f32,
     /// An `aeroway=tower` item makes the airport controlled (sequenced).
     pub towered: bool,
     pub runways: Vec<EntityId>,
@@ -73,6 +78,25 @@ fn number(world: &World, id: EntityId, key: &str) -> Option<f32> {
         _ => None,
     }
 }
+/// An aerodrome's `scale` tag, kept to 0.01–10.
+fn aerodrome_scale(world: &World, aerodrome: EntityId) -> f32 {
+    number(world, aerodrome, "scale").map_or(1.0, |s| s.clamp(0.01, 10.0))
+}
+/// The scale of the aerodrome containing `at` (1 outside any).
+fn scale_at(world: &World, at: Vec3) -> f32 {
+    let value = MetaValue::Text("aerodrome".into());
+    world
+        .zones_at(at)
+        .find(|&zone| {
+            world
+                .component::<Metadata>(zone)
+                .ok()
+                .flatten()
+                .and_then(|m| m.get("aeroway"))
+                == Some(&value)
+        })
+        .map_or(1.0, |zone| aerodrome_scale(world, zone))
+}
 fn position(world: &World, id: EntityId) -> Option<Vec3> {
     world.global_transform(id).ok().map(|t| t.translation())
 }
@@ -88,16 +112,23 @@ pub fn airports(world: &World) -> Vec<Airport> {
     let mut list: Vec<Airport> = if aerodromes.is_empty() {
         vec![Airport {
             pattern_height: DEFAULT_PATTERN_HEIGHT,
+            scale: 1.0,
             ..Airport::default()
         }]
     } else {
         aerodromes
             .iter()
-            .map(|&id| Airport {
-                aerodrome: Some(id),
-                pattern_height: number(world, id, "pattern_height")
-                    .unwrap_or(DEFAULT_PATTERN_HEIGHT),
-                ..Airport::default()
+            .map(|&id| {
+                let scale = aerodrome_scale(world, id);
+                Airport {
+                    aerodrome: Some(id),
+                    // Full-size metres, shrunk with the rest of the airport.
+                    pattern_height: number(world, id, "pattern_height")
+                        .unwrap_or(DEFAULT_PATTERN_HEIGHT)
+                        * scale,
+                    scale,
+                    ..Airport::default()
+                }
             })
             .collect()
     };
@@ -157,8 +188,80 @@ pub fn airports(world: &World) -> Vec<Airport> {
 }
 
 /// A rectangular zone as a runway: landed along its local −Z (or +Z when `reverse`), with the
-/// circuit side from its `circuit=right` tag. None if it is gone or not a rectangle.
+/// circuit side from its `circuit=right` tag. A threshold box at the landing end moves the
+/// threshold to the box's outer edge (landings aim from there, take-offs line up there).
+/// None if it is gone or not a rectangle.
 pub fn runway_geometry(world: &World, zone: EntityId, reverse: bool) -> Option<Runway> {
+    let mut runway = drawn_runway(world, zone, reverse)?;
+    let forward = drawn_runway(world, zone, false)?;
+    let start = thresholds(world, &forward)
+        .filter(|&(end, _, _)| end == reverse)
+        .map(|(_, start, _)| start)
+        .min_by(f32::total_cmp);
+    if let Some(start) = start {
+        runway.center += bearing_direction(runway.heading) * (start / 2.0);
+        runway.length -= start;
+    }
+    Some(runway)
+}
+
+/// `aeroway=threshold` items on a runway: for each, the landing end it opens (true: the reverse
+/// end) and how far its outer edge lies in from that end (at most half the runway).
+fn thresholds<'a>(
+    world: &'a World,
+    forward: &'a Runway,
+) -> impl Iterator<Item = (bool, f32, EntityId)> + 'a {
+    let value = MetaValue::Text("threshold".into());
+    let items: Vec<EntityId> = world.items_where("aeroway", &value).collect();
+    items.into_iter().filter_map(move |id| {
+        let transform = world.global_transform(id).ok()?;
+        let matrix = transform.matrix();
+        let center = transform.translation();
+        let (along, across) = runway_frame(forward, center);
+        let margin = forward.scale;
+        if across.abs() > forward.width / 2.0 + 30.0 * margin
+            || along < -50.0 * margin
+            || along > forward.length + 50.0 * margin
+        {
+            return None;
+        }
+        // The box's extent along the runway, from its corners.
+        let corners: Vec<Vec3> = match world
+            .component::<crate::Zone>(id)
+            .ok()
+            .flatten()
+            .map(|z| z.shape)
+        {
+            Some(crate::ZoneShape::Rect { width, depth }) => {
+                [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+                    .iter()
+                    .map(|&(x, z)| {
+                        matrix.transform_point3(Vec3::new(x * width / 2.0, 0.0, z * depth / 2.0))
+                    })
+                    .collect()
+            }
+            Some(crate::ZoneShape::Circle { radius }) => {
+                let direction = bearing_direction(forward.heading);
+                vec![center - direction * radius, center + direction * radius]
+            }
+            None => vec![center],
+        };
+        let alongs = corners.iter().map(|&p| runway_frame(forward, p).0);
+        let half = forward.length / 2.0;
+        Some(if along <= half {
+            (false, alongs.fold(f32::MAX, f32::min).clamp(0.0, half), id)
+        } else {
+            (
+                true,
+                (forward.length - alongs.fold(f32::MIN, f32::max)).clamp(0.0, half),
+                id,
+            )
+        })
+    })
+}
+
+/// The runway zone exactly as drawn, ignoring threshold boxes.
+fn drawn_runway(world: &World, zone: EntityId, reverse: bool) -> Option<Runway> {
     let crate::ZoneShape::Rect { width, depth } = world.component::<crate::Zone>(zone).ok()??.shape
     else {
         return None;
@@ -176,6 +279,7 @@ pub fn runway_geometry(world: &World, zone: EntityId, reverse: bool) -> Option<R
         length: depth * scale.z,
         width: width * scale.x,
         right_circuit: text(world, zone, "circuit") == Some("right"),
+        scale: scale_at(world, center),
     })
 }
 
@@ -205,14 +309,33 @@ pub fn active_runway(
             )
         })
         .or_else(|| airport.runways.first().copied())?;
-    let reverse = match text(world, chosen, "direction") {
-        Some("forward") => false,
-        Some("reverse") => true,
-        _ => {
+    // Threshold boxes open the ends they sit at; without any, the `direction` tag decides.
+    let drawn = drawn_runway(world, chosen, false)?;
+    let (mut forward_end, mut reverse_end) = (false, false);
+    for (end, _, _) in thresholds(world, &drawn) {
+        if end {
+            reverse_end = true;
+        } else {
+            forward_end = true;
+        }
+    }
+    let fixed = match (forward_end, reverse_end) {
+        (true, false) => Some(false),
+        (false, true) => Some(true),
+        (true, true) => None,
+        (false, false) => match text(world, chosen, "direction") {
+            Some("forward") => Some(false),
+            Some("reverse") => Some(true),
+            _ => None,
+        },
+    };
+    let reverse = match fixed {
+        Some(reverse) => reverse,
+        None => {
             let wind = world
                 .resource::<crate::Wind>()
                 .map_or(Vec3::ZERO, |w| w.velocity);
-            let forward = runway_geometry(world, chosen, false)?;
+            let forward = drawn;
             // Positive: blowing along the forward landing direction, i.e. a tailwind for it.
             let tailwind = wind.dot(bearing_direction(forward.heading));
             match previous {
@@ -301,7 +424,8 @@ pub struct Tower {
     flights: HashMap<EntityId, Flight>,
     traffic: Vec<Traffic>,
     seen: Vec<Seen>,
-    path: Vec<EntityId>,
+    /// Ground network per airport, rebuilt with the airports.
+    graphs: Vec<TaxiGraph>,
 }
 
 impl Tower {
@@ -338,10 +462,11 @@ fn runway_frame(runway: &Runway, at: Vec3) -> (f32, f32) {
 /// On the runway or low over it (below 30 m), with a little margin.
 fn occupies(runway: &Runway, seen: &Seen) -> bool {
     let (along, across) = runway_frame(runway, seen.position);
-    along > -20.0
-        && along < runway.length + 20.0
-        && across.abs() < runway.width / 2.0 + 15.0
-        && seen.position.y - runway.center.y < 30.0
+    let s = runway.scale;
+    along > -20.0 * s
+        && along < runway.length + 20.0 * s
+        && across.abs() < runway.width / 2.0 + 15.0 * s
+        && seen.position.y - runway.center.y < (30.0 * s).max(8.0)
 }
 
 /// One fixed tick of air traffic control, after brains and before locomotion.
@@ -364,6 +489,13 @@ impl Tower {
             // Airport items changed: rebuild them and start sequencing afresh.
             self.generation = Some(generation);
             self.airports = airports(world);
+            self.graphs = self
+                .airports
+                .iter()
+                .map(|a| {
+                    TaxiGraph::build(world, &a.taxiways, &a.stands, &a.holding_positions, a.scale)
+                })
+                .collect();
             self.flights.clear();
             self.traffic.clear();
             self.traffic
@@ -516,7 +648,7 @@ impl Tower {
             .holding_fixes
             .first()
             .and_then(|&id| position(world, id))
-            .unwrap_or(threshold - direction * HOLDING_FIX_DISTANCE);
+            .unwrap_or(threshold - direction * HOLDING_FIX_DISTANCE * runway.scale);
 
         // Arrival gates, in sequence order.
         let arrivals = self.traffic[index].arrivals.clone();
@@ -541,14 +673,15 @@ impl Tower {
                         FlightPhase::Rollout | FlightPhase::Parked | FlightPhase::Taxi => 0.0,
                         _ => return false,
                     };
-                    my_path - remaining >= SEPARATION
+                    my_path - remaining >= SEPARATION * runway.scale
                 });
                 let gates = if towered {
                     Gates {
                         may_turn_base: leader_close,
                         cleared_to_land: !runway_busy(&self.seen, id),
                         slow: leader.is_some_and(|l| {
-                            l.telemetry.airborne && l.position.distance(s.position) < SLOW_DISTANCE
+                            l.telemetry.airborne
+                                && l.position.distance(s.position) < SLOW_DISTANCE * runway.scale
                         }) && matches!(
                             s.telemetry.phase,
                             FlightPhase::PatternEntry | FlightPhase::Downwind
@@ -573,7 +706,7 @@ impl Tower {
                 Dispatch {
                     goal: FlightGoal::FlyTo {
                         point: fix,
-                        altitude: elevation + pattern_height + STACK_SPACING * level,
+                        altitude: elevation + pattern_height + STACK_SPACING * runway.scale * level,
                         speed: 0.0,
                     },
                     runway: None,
@@ -595,7 +728,7 @@ impl Tower {
                         | FlightPhase::Flare
                         | FlightPhase::Rollout
                 )
-                && runway_frame(&runway, s.position).0 > -DEPARTURE_GAP
+                && runway_frame(&runway, s.position).0 > -DEPARTURE_GAP * runway.scale
         });
         for &id in &ids {
             let Some(s) = telemetry(&self.seen, id) else {
@@ -614,9 +747,9 @@ impl Tower {
                 Stage::Vacating | Stage::TaxiOut => {
                     if self.flights[&id].route.is_empty() {
                         let route = if stage == Stage::Vacating {
-                            self.route_to_stand(world, index, id, s.position, &runway)
+                            self.route_to_stand(index, id, s.position, &runway)
                         } else {
-                            self.route_to_runway(world, index, s.position, threshold)
+                            self.route_to_runway(index, s.position, threshold)
                         };
                         let flight = self.flights.get_mut(&id).expect("listed");
                         flight.route = route;
@@ -634,13 +767,14 @@ impl Tower {
                     let last = flight.route.len() - 1;
                     let flat = |v: Vec3| Vec3::new(v.x, 0.0, v.z);
                     while flight.next < last
-                        && flat(flight.route[flight.next] - s.position).length() < ROUTE_REACH
+                        && flat(flight.route[flight.next] - s.position).length()
+                            < (ROUTE_REACH * runway.scale).max(3.0)
                     {
                         flight.next += 1;
                     }
                     let point = flight.route[flight.next];
                     if flight.next == last
-                        && flat(point - s.position).length() < 8.0
+                        && flat(point - s.position).length() < (8.0 * runway.scale).max(5.0)
                         && s.telemetry.phase == FlightPhase::Parked
                     {
                         flight.stage = if stage == Stage::Vacating {
@@ -669,8 +803,10 @@ impl Tower {
                     if first && clear {
                         let flight = self.flights.get_mut(&id).expect("listed");
                         flight.stage = Stage::LineUp;
-                        flight.route =
-                            vec![threshold + direction * 15.0, threshold + direction * 120.0];
+                        flight.route = vec![
+                            threshold + direction * 15.0 * runway.scale,
+                            threshold + direction * 120.0 * runway.scale,
+                        ];
                         flight.next = 0;
                     }
                     Dispatch {
@@ -690,9 +826,9 @@ impl Tower {
                         .abs()
                         < 15f32.to_radians();
                     let flight = self.flights.get_mut(&id).expect("listed");
-                    if along > 60.0 && aligned {
+                    if along > 60.0 * runway.scale && aligned {
                         flight.stage = Stage::TakeOff;
-                    } else if along > 10.0 {
+                    } else if along > 10.0 * runway.scale {
                         flight.next = 1;
                     }
                     Dispatch {
@@ -713,7 +849,7 @@ impl Tower {
                     let (along, _) = runway_frame(&runway, s.position);
                     if stage == Stage::TakeOff
                         && s.telemetry.airborne
-                        && (along > runway.length || s.position.y > elevation + 50.0)
+                        && (along > runway.length || s.position.y > elevation + 50.0 * runway.scale)
                     {
                         let flight = self.flights.get_mut(&id).expect("listed");
                         flight.stage = Stage::Departed;
@@ -736,105 +872,72 @@ impl Tower {
     /// Off the runway at the nearest taxiway point, then the taxiways to the nearest free stand.
     fn route_to_stand(
         &mut self,
-        world: &mut World,
         index: usize,
         id: EntityId,
         at: Vec3,
         runway: &Runway,
     ) -> Vec<Vec3> {
-        let airport = &self.airports[index];
         let off_runway = |p: Vec3| {
             let (along, across) = runway_frame(runway, p);
-            !(along > -20.0
-                && along < runway.length + 20.0
-                && across.abs() < runway.width / 2.0 + 5.0)
+            let s = runway.scale;
+            !(along > -20.0 * s
+                && along < runway.length + 20.0 * s
+                && across.abs() < runway.width / 2.0 + 5.0 * s)
         };
-        let nearest = |items: &[EntityId], to: Vec3, filter: &dyn Fn(EntityId, Vec3) -> bool| {
-            items
-                .iter()
-                .filter_map(|&item| {
-                    position(world, item)
-                        .filter(|&p| filter(item, p))
-                        .map(|p| (item, p))
-                })
-                .min_by(|a, b| {
-                    a.1.distance_squared(to)
-                        .total_cmp(&b.1.distance_squared(to))
-                })
-        };
-        let Some((exit, exit_at)) = nearest(&airport.taxiways, at, &|_, p| off_runway(p)) else {
+        let graph = &self.graphs[index];
+        let Some(exit) = graph.nearest(at, |_, p, kind| kind == NodeKind::Taxi && off_runway(p))
+        else {
             return Vec::new();
         };
+        let exit_at = graph.nodes[exit as usize].0;
         let taken: Vec<EntityId> = self
             .flights
             .iter()
             .filter(|(&other, _)| other != id)
             .filter_map(|(_, f)| f.stand)
             .collect();
-        let stand = nearest(&airport.stands, exit_at, &|item, _| !taken.contains(&item));
+        let stand = self.airports[index]
+            .stands
+            .iter()
+            .filter(|item| !taken.contains(item))
+            .filter_map(|&item| graph.anchors.get(&item).map(|&node| (item, node)))
+            .min_by(|a, b| {
+                let d = |node: u32| graph.nodes[node as usize].0.distance_squared(exit_at);
+                d(a.1).total_cmp(&d(b.1))
+            });
         if let Some(flight) = self.flights.get_mut(&id) {
             flight.stand = stand.map(|(item, _)| item);
         }
-        let Some((stand, _)) = stand else {
+        let Some((_, stand)) = stand else {
             return vec![exit_at];
         };
-        self.route(world, exit, stand)
+        self.route(index, exit, stand)
     }
 
     /// From the nearest network point to the holding position nearest the threshold.
-    fn route_to_runway(
-        &mut self,
-        world: &mut World,
-        index: usize,
-        at: Vec3,
-        threshold: Vec3,
-    ) -> Vec<Vec3> {
-        let airport = &self.airports[index];
-        let network: Vec<EntityId> = airport
-            .taxiways
-            .iter()
-            .chain(&airport.stands)
-            .chain(&airport.holding_positions)
-            .copied()
-            .collect();
-        let closest = |items: &[EntityId], to: Vec3| {
-            items
-                .iter()
-                .filter_map(|&i| position(world, i).map(|p| (i, p)))
-                .min_by(|a, b| {
-                    a.1.distance_squared(to)
-                        .total_cmp(&b.1.distance_squared(to))
-                })
+    fn route_to_runway(&mut self, index: usize, at: Vec3, threshold: Vec3) -> Vec<Vec3> {
+        let graph = &self.graphs[index];
+        let goal_kind = if self.airports[index].holding_positions.is_empty() {
+            NodeKind::Taxi
+        } else {
+            NodeKind::Holding
         };
-        let (Some((start, _)), Some((goal, _))) = (
-            closest(&network, at),
-            closest(
-                if airport.holding_positions.is_empty() {
-                    &airport.taxiways
-                } else {
-                    &airport.holding_positions
-                },
-                threshold,
-            ),
+        let (Some(start), Some(goal)) = (
+            graph.nearest(at, |_, _, _| true),
+            graph.nearest(threshold, |_, _, kind| kind == goal_kind),
         ) else {
             return Vec::new();
         };
-        self.route(world, start, goal)
+        self.route(index, start, goal)
     }
 
-    /// Waypoint positions along the cheapest network route (or straight there if unlinked).
-    fn route(&mut self, world: &mut World, from: EntityId, to: EntityId) -> Vec<Vec3> {
-        let mut path = std::mem::take(&mut self.path);
-        let points = match world.waypoint_path(from, to, None, &mut path) {
-            Ok(cost) if cost.is_finite() => {
-                path.iter().filter_map(|&w| position(world, w)).collect()
-            }
-            _ => [from, to]
-                .iter()
-                .filter_map(|&w| position(world, w))
-                .collect(),
-        };
-        self.path = path;
+    /// Positions along the cheapest network route (or straight there if unconnected).
+    fn route(&mut self, index: usize, from: u32, to: u32) -> Vec<Vec3> {
+        let graph = &mut self.graphs[index];
+        let mut points = Vec::new();
+        if !graph.route(from, to, &mut points) {
+            points = vec![graph.nodes[from as usize].0, graph.nodes[to as usize].0];
+        }
         points
     }
 }
@@ -871,6 +974,7 @@ pub fn airport_views(
     world: &World,
     params: &crate::fixed_wing::FixedWingParams,
 ) -> Vec<AirportView> {
+    let patterns = drawn_patterns(world);
     airports(world)
         .iter()
         .map(|airport| {
@@ -884,7 +988,12 @@ pub fn airport_views(
                         Some((id, runway, _)) if id == zone => (runway, true),
                         _ => (runway_geometry(world, zone, false)?, false),
                     };
-                    let circuit = in_use.then(|| {
+                    // A drawn pattern replaces the generated circuit; the map shows its waypoints.
+                    let drawn = patterns.iter().any(|(z, h, _)| {
+                        *z == zone
+                            && bearing_direction(*h).dot(bearing_direction(runway.heading)) > 0.99
+                    });
+                    let circuit = (in_use && !drawn).then(|| {
                         crate::fixed_wing::circuit_outline(params, &runway, airport.pattern_height)
                     });
                     if in_use {
@@ -895,7 +1004,9 @@ pub fn airport_views(
                                 .holding_fixes
                                 .first()
                                 .and_then(|&id| position(world, id))
-                                .unwrap_or(threshold - direction * HOLDING_FIX_DISTANCE),
+                                .unwrap_or(
+                                    threshold - direction * HOLDING_FIX_DISTANCE * runway.scale,
+                                ),
                         );
                     }
                     Some(RunwayView {
@@ -914,4 +1025,135 @@ pub fn airport_views(
             }
         })
         .collect()
+}
+
+/// Drawn traffic patterns (`aeroway=circuit` waypoint paths), each attached to the runway end of
+/// the threshold box nearest its last fix. Rebuilt when the map changes; shared with aircraft
+/// without copying.
+#[derive(Default, Resource)]
+pub(crate) struct Patterns {
+    generation: Option<u64>,
+    /// (runway zone, landing heading, fixes).
+    list: Vec<(EntityId, f32, Arc<[PatternFix]>)>,
+}
+
+/// The drawn pattern for landing on `zone` along `heading` (compass radians), if there is one.
+pub(crate) fn pattern_for(
+    world: &mut World,
+    zone: EntityId,
+    heading: f32,
+) -> Option<Arc<[PatternFix]>> {
+    let generation = world
+        .resource::<crate::map::MapGeneration>()
+        .map_or(0, |g| g.0);
+    let stale = world
+        .resource::<Patterns>()
+        .is_none_or(|p| p.generation != Some(generation));
+    if stale {
+        let list = drawn_patterns(world);
+        world.insert_resource(Patterns {
+            generation: Some(generation),
+            list,
+        });
+    }
+    let patterns = world.resource::<Patterns>()?;
+    patterns
+        .list
+        .iter()
+        .find(|(z, h, _)| {
+            *z == zone
+                && crate::fixed_wing::bearing_direction(*h).dot(bearing_direction(heading)) > 0.99
+        })
+        .map(|(_, _, fixes)| fixes.clone())
+}
+
+/// Leg names on pattern waypoints (`leg` tag).
+fn leg(world: &World, id: EntityId) -> Option<FlightPhase> {
+    match text(world, id, "leg")? {
+        "entry" => Some(FlightPhase::PatternEntry),
+        "downwind" => Some(FlightPhase::Downwind),
+        "base" => Some(FlightPhase::Base),
+        "final" => Some(FlightPhase::Final),
+        _ => None,
+    }
+}
+
+/// Every drawn pattern, followed along its links from the point nothing links to.
+pub fn drawn_patterns(world: &World) -> Vec<(EntityId, f32, Arc<[PatternFix]>)> {
+    let value = MetaValue::Text("circuit".into());
+    let points: Vec<EntityId> = world
+        .items_where("aeroway", &value)
+        .filter(|&id| matches!(world.component::<crate::Waypoint>(id), Ok(Some(_))))
+        .collect();
+    let next = |id: EntityId| -> Option<EntityId> {
+        world
+            .component::<crate::Waypoint>(id)
+            .ok()??
+            .links
+            .iter()
+            .copied()
+            .find(|link| points.contains(link))
+    };
+    let runway_value = MetaValue::Text("runway".into());
+    let runways: Vec<EntityId> = world.items_where("aeroway", &runway_value).collect();
+    let airports = airports(world);
+    let mut list = Vec::new();
+    for &start in &points {
+        if points.iter().any(|&other| next(other) == Some(start)) {
+            continue;
+        }
+        let mut chain = vec![start];
+        while let Some(following) = next(*chain.last().expect("non-empty")) {
+            if chain.contains(&following) || chain.len() >= 64 {
+                break;
+            }
+            chain.push(following);
+        }
+        let Some(last) = position(world, *chain.last().expect("non-empty")) else {
+            continue;
+        };
+        // The runway end whose threshold box is nearest the last fix.
+        let attached = runways
+            .iter()
+            .filter_map(|&zone| {
+                let forward = drawn_runway(world, zone, false)?;
+                thresholds(world, &forward)
+                    .filter_map(|(end, _, id)| {
+                        position(world, id).map(|at| (zone, end, at.distance_squared(last)))
+                    })
+                    .min_by(|a, b| a.2.total_cmp(&b.2))
+            })
+            .min_by(|a, b| a.2.total_cmp(&b.2));
+        let Some((zone, end, _)) = attached else {
+            continue;
+        };
+        let Some(runway) = runway_geometry(world, zone, end) else {
+            continue;
+        };
+        let pattern_height = airports
+            .iter()
+            .find(|a| a.runways.contains(&zone))
+            .map_or(DEFAULT_PATTERN_HEIGHT, |a| a.pattern_height);
+        let (mut altitude, mut current) =
+            (runway.center.y + pattern_height, FlightPhase::PatternEntry);
+        let fixes: Vec<PatternFix> = chain
+            .iter()
+            .filter_map(|&id| {
+                let waypoint = world.component::<crate::Waypoint>(id).ok()??;
+                if let Some(height) = waypoint.altitude {
+                    altitude = runway.center.y + height;
+                }
+                current = leg(world, id).unwrap_or(current);
+                let at = position(world, id)?;
+                Some(PatternFix {
+                    point: Vec3::new(at.x, altitude, at.z),
+                    entry: waypoint.entry,
+                    exit: waypoint.exit,
+                    leg: current,
+                })
+            })
+            .collect();
+        list.push((zone, runway.heading, fixes.into()));
+    }
+    list
 }

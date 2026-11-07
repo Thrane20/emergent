@@ -49,6 +49,10 @@ fn plane(id: &str, at: [f32; 3], yaw: f32) -> String {
 /// A controlled airport: a 900 m runway landed northbound (threshold z=150), a parallel taxiway at
 /// x=80, a holding position by the threshold, and five stands off an apron taxilane at x=100.
 fn airport(planes: &str) -> (Fixture, Engine, HashMap<String, EntityId>) {
+    airport_with(&standard_layout(), planes)
+}
+
+fn airport_with(layout: &str, planes: &str) -> (Fixture, Engine, HashMap<String, EntityId>) {
     let root = std::env::temp_dir().join(format!(
         "emergent-airport-{}-{}",
         std::process::id(),
@@ -73,7 +77,28 @@ fn airport(planes: &str) -> (Fixture, Engine, HashMap<String, EntityId>) {
         "schema_version=1\nid='plane'\nkind='locomotion'\ntype='fixed_wing_physics'\n",
     )
     .unwrap();
+    // A slow miniature aircraft for 0.1-scale airfields.
+    fs::write(
+        root.join("assets/locomotion/mini.locomotion.toml"),
+        "schema_version=1\nid='mini'\nkind='locomotion'\ntype='fixed_wing_physics'\nliftoff_speed=6\ncruise_speed=9\nmax_speed=14\nthrust_to_weight=0.4\nmax_climb=2\nmax_descent=2\n",
+    )
+    .unwrap();
     let mut scene = String::from("schema_version=1\nid='main'\n[[entities]]\nid='ground'\nasset='assets/cube.entity.toml'\n[entities.transform]\ntranslation=[0,-1,0]\n[entities.physics]\nbody='static'\nfriction=0.8\ncollider={shape='box',half_extents=[6000,1,6000]}\n");
+    scene += layout;
+    scene += planes;
+    fs::write(root.join("assets/scenes/main.scene.toml"), scene).unwrap();
+    let definition = SceneDefinition::load(
+        &Project::load(&root).unwrap(),
+        "assets/scenes/main.scene.toml",
+    )
+    .unwrap();
+    let mut engine = Engine::new(EngineConfig::default()).unwrap();
+    let entities = definition.instantiate(engine.world_mut()).unwrap().entities;
+    (Fixture(root), engine, entities)
+}
+
+fn standard_layout() -> String {
+    let mut scene = String::new();
     scene += &item(
         "field",
         [0.0, 0.0, -300.0],
@@ -138,16 +163,7 @@ fn airport(planes: &str) -> (Fixture, Engine, HashMap<String, EntityId>) {
             ),
         );
     }
-    scene += planes;
-    fs::write(root.join("assets/scenes/main.scene.toml"), scene).unwrap();
-    let definition = SceneDefinition::load(
-        &Project::load(&root).unwrap(),
-        "assets/scenes/main.scene.toml",
-    )
-    .unwrap();
-    let mut engine = Engine::new(EngineConfig::default()).unwrap();
-    let entities = definition.instantiate(engine.world_mut()).unwrap().entities;
-    (Fixture(root), engine, entities)
+    scene
 }
 
 fn order(engine: &mut Engine, plane: EntityId, goal: FlightGoal) {
@@ -565,4 +581,432 @@ fn airport_views_show_the_active_direction_and_circuit_for_the_map() {
     assert!(circuit.final_turn.x.abs() < 1.0 && circuit.final_turn.z < -750.0);
     // The holding fix is 3 km out on the extended centreline, before the threshold.
     assert!((airport.holding_fix.unwrap().z + 3750.0).abs() < 1.0);
+}
+
+fn zone_rect(id: &str, at: [f32; 3], width: f32, depth: f32, tags: &str) -> String {
+    item(
+        id,
+        at,
+        &format!(
+            "[[entities.components]]\ntype='emergent.zone'\nshape='rect'\nwidth={width}\ndepth={depth}\n{}",
+            tag(tags)
+        ),
+    )
+}
+/// A two-point taxiway line, linked only to itself.
+fn line(id: &str, a: [f32; 2], b: [f32; 2]) -> String {
+    let end = format!("{id}b");
+    item(
+        &format!("{id}a"),
+        [a[0], 0.0, a[1]],
+        &format!("{}{}", waypoint(&[&end]), tag("aeroway='taxiway'")),
+    ) + &item(
+        &end,
+        [b[0], 0.0, b[1]],
+        &format!("{}{}", waypoint(&[]), tag("aeroway='taxiway'")),
+    )
+}
+
+/// The same runway drawn the newer way: a threshold box at its north end only (so it is landed
+/// southbound, +Z, from 20 m in), taxiway lines drawn separately and never linked to each other,
+/// box stands and a box tower.
+fn drawn_layout() -> String {
+    let mut scene = item(
+        "field",
+        [0.0, 0.0, -300.0],
+        &format!(
+            "[[entities.components]]\ntype='emergent.zone'\nshape='circle'\nradius=2500\n{}",
+            tag("aeroway='aerodrome',pattern_height=300")
+        ),
+    );
+    scene += &zone_rect(
+        "runway",
+        [0.0, 0.0, -300.0],
+        30.0,
+        900.0,
+        "aeroway='runway'",
+    );
+    // Outer edge at z = -730: 20 m in from the north (-Z) end.
+    scene += &zone_rect(
+        "threshold",
+        [0.0, 0.0, -700.0],
+        30.0,
+        60.0,
+        "aeroway='threshold'",
+    );
+    scene += &zone_rect("tower", [150.0, 0.0, -300.0], 10.0, 10.0, "aeroway='tower'");
+    // Parallel taxiway and an apron taxilane, joined only by a cross line drawn over both, and a
+    // stub whose end stops 10 m short of the parallel taxiway.
+    scene += &line("par", [80.0, 150.0], [80.0, -760.0]);
+    scene += &line("apron", [100.0, 100.0], [100.0, -300.0]);
+    scene += &line("cross", [60.0, -320.0], [120.0, -320.0]);
+    scene += &line("stub", [40.0, -780.0], [70.0, -760.0]);
+    scene += &item(
+        "hold",
+        [40.0, 0.0, -790.0],
+        &format!("{}{}", waypoint(&[]), tag("aeroway='holding_position'")),
+    );
+    for (i, z) in [100.0f32, 0.0, -100.0].iter().enumerate() {
+        scene += &zone_rect(
+            &format!("stand{i}"),
+            [140.0, 0.0, *z],
+            30.0,
+            30.0,
+            "aeroway='parking_position'",
+        );
+    }
+    scene
+}
+
+#[test]
+fn a_threshold_box_sets_the_landing_end_and_the_usable_runway() {
+    let (_f, engine, e) = airport_with(&drawn_layout(), "");
+    let world = engine.world();
+    let tower = emergent::tower::airports(world);
+    let (zone, runway, reverse) = emergent::tower::active_runway(world, &tower[0], None).unwrap();
+    assert_eq!(zone, e["runway"]);
+    assert!(
+        reverse,
+        "only the south end has a threshold: landed northbound"
+    );
+    assert!(
+        (runway.length - 880.0).abs() < 0.1,
+        "usable length {}",
+        runway.length
+    );
+    let direction = emergent::fixed_wing::bearing_direction(runway.heading);
+    let threshold = runway.center - direction * (runway.length / 2.0);
+    assert!(
+        (threshold.z + 730.0).abs() < 0.1 && threshold.x.abs() < 0.1,
+        "{threshold:?}"
+    );
+    assert!(direction.z > 0.99, "southbound: {direction:?}");
+}
+
+#[test]
+fn unconnected_taxiway_lines_route_a_departure_from_a_box_stand_to_the_threshold() {
+    let (_f, mut engine, e) = airport_with(&drawn_layout(), &plane("p", [140.0, 0.62, 0.0], 90.0));
+    let (p, field) = (e["p"], e["field"]);
+    order(
+        &mut engine,
+        p,
+        FlightGoal::Depart {
+            airport: field,
+            altitude: 200.0,
+        },
+    );
+    let (mut stages, mut roll_start) = (Vec::<Stage>::new(), None::<Vec3>);
+    for _ in 0..(300 * 60) {
+        engine.run_ticks(&mut Idle, 1).unwrap();
+        let (stage, t, at) = status(&engine, p);
+        if let Some(stage) = stage {
+            if stages.last() != Some(&stage) {
+                stages.push(stage);
+                if stage == Stage::TakeOff {
+                    roll_start = Some(at);
+                }
+            }
+        }
+        if stage == Some(Stage::Departed) && t.altitude > 190.0 {
+            break;
+        }
+    }
+    assert_eq!(
+        stages,
+        [
+            Stage::TaxiOut,
+            Stage::HoldShort,
+            Stage::LineUp,
+            Stage::TakeOff,
+            Stage::Departed
+        ]
+    );
+    let start = roll_start.unwrap();
+    assert!(
+        start.z > -735.0 && start.z < -600.0 && start.x.abs() < 10.0,
+        "rolls from the threshold box: {start:?}"
+    );
+}
+
+#[test]
+fn an_arrival_lands_past_the_threshold_box_and_parks_on_a_box_stand() {
+    let (_f, mut engine, e) =
+        airport_with(&drawn_layout(), &plane("a", [2500.0, 400.0, -2500.0], 45.0));
+    let (a, field) = (e["a"], e["field"]);
+    let yaw = 45f32.to_radians();
+    engine
+        .world_mut()
+        .add_force(
+            a,
+            Vec3::new(-yaw.sin(), 0.0, -yaw.cos()) * (1000.0 * 40.0 * 60.0),
+        )
+        .unwrap();
+    order(&mut engine, a, FlightGoal::Arrive { airport: field });
+    let mut touchdown = None::<Vec3>;
+    for _ in 0..(900 * 60) {
+        engine.run_ticks(&mut Idle, 1).unwrap();
+        let (stage, t, at) = status(&engine, a);
+        if touchdown.is_none() && t.landed {
+            touchdown = Some(at);
+        }
+        if stage == Some(Stage::Parked) {
+            break;
+        }
+    }
+    let (stage, _, at) = status(&engine, a);
+    assert_eq!(stage, Some(Stage::Parked), "parked at {at:?}");
+    let touchdown = touchdown.expect("landed");
+    assert!(
+        touchdown.z > -730.0,
+        "touched down past the threshold box: {touchdown:?}"
+    );
+    assert!(
+        [100.0f32, 0.0, -100.0]
+            .iter()
+            .any(|z| (at.z - z).abs() < 12.0)
+            && (at.x - 140.0).abs() < 12.0,
+        "on a box stand: {at:?}"
+    );
+}
+
+/// A pattern fix: a waypoint tagged `aeroway=circuit` with its leg, courses and height.
+fn fix(
+    id: &str,
+    at: [f32; 2],
+    next: Option<&str>,
+    leg: &str,
+    height: f32,
+    entry: Option<[f32; 2]>,
+    exit: Option<[f32; 2]>,
+) -> String {
+    let mut component = String::from("[[entities.components]]\ntype='emergent.waypoint'\n");
+    if let Some(next) = next {
+        component += &format!("links=['{next}']\n");
+    }
+    component += &format!("altitude={height}\n");
+    if let Some([a, b]) = entry {
+        component += &format!("entry_from={a}\nentry_to={b}\n");
+    }
+    if let Some([a, b]) = exit {
+        component += &format!("exit_from={a}\nexit_to={b}\n");
+    }
+    item(
+        id,
+        [at[0], 0.0, at[1]],
+        &(component + &tag(&format!("aeroway='circuit',leg='{leg}'"))),
+    )
+}
+
+/// The drawn airport plus a hand-drawn pattern on the west (−X) side, opposite the generated
+/// left-hand circuit (east, +X, for this southbound +Z landing). Downwind runs north (course 0°),
+/// base east (90°), final south (180°) into the threshold box.
+fn patterned_layout() -> String {
+    drawn_layout()
+        + &fix("p0", [-1500.0, 0.0], Some("p1"), "entry", 300.0, None, None)
+        + &fix("p1", [-800.0, 200.0], Some("p2"), "downwind", 300.0, Some([350.0, 10.0]), None)
+        + &fix("p2", [-800.0, -1800.0], Some("p3"), "downwind", 200.0, Some([350.0, 10.0]), Some([80.0, 100.0]))
+        // The base leg, one turn radius past the downwind end.
+        + &fix("p3", [-300.0, -2100.0], Some("p4"), "base", 100.0, Some([80.0, 100.0]), None)
+        // On the extended centreline and the glide path, 970 m before the threshold box.
+        + &fix("p4", [0.0, -1700.0], None, "final", 60.0, Some([170.0, 190.0]), None)
+}
+
+#[test]
+fn a_drawn_traffic_pattern_is_flown_through_its_fixes_on_their_courses() {
+    let (_f, mut engine, e) = airport_with(
+        &patterned_layout(),
+        &plane("a", [-2500.0, 350.0, 1500.0], 120.0),
+    );
+    let (a, field) = (e["a"], e["field"]);
+    let yaw = 120f32.to_radians();
+    engine
+        .world_mut()
+        .add_force(
+            a,
+            Vec3::new(-yaw.sin(), 0.0, -yaw.cos()) * (1000.0 * 40.0 * 60.0),
+        )
+        .unwrap();
+    order(&mut engine, a, FlightGoal::Arrive { airport: field });
+    let fixes = [
+        (-800.0f32, 200.0f32),
+        (-800.0, -1800.0),
+        (-300.0, -2100.0),
+        (0.0, -1700.0),
+    ];
+    let mut closest = [f32::MAX; 4];
+    let mut heading_at = [0.0f32; 4];
+    let (mut phases, mut touchdown, mut east_of_runway) = (Vec::new(), None::<Vec3>, false);
+    let trace = std::env::var_os("FLIGHT_TRACE").is_some();
+    for tick in 0..(900 * 60) {
+        engine.run_ticks(&mut Idle, 1).unwrap();
+        let (stage, t, at) = status(&engine, a);
+        if phases.last() != Some(&t.phase) {
+            phases.push(t.phase);
+        }
+        for (i, (x, z)) in fixes.iter().enumerate() {
+            let d = Vec3::new(at.x - x, 0.0, at.z - z).length();
+            if d < closest[i] {
+                closest[i] = d;
+                heading_at[i] = t.heading;
+            }
+        }
+        // The generated circuit would fly downwind 400+ m east; the drawn one stays west.
+        east_of_runway |= t.airborne && at.x > 200.0 && at.y > 100.0;
+        if touchdown.is_none() && t.landed {
+            touchdown = Some(at);
+        }
+        if trace && tick % 600 == 0 {
+            println!(
+                "{:>4}s {stage:?}/{:?} ({:.0},{:.0},{:.0}) hdg {:.0}",
+                tick / 60,
+                t.phase,
+                at.x,
+                at.y,
+                at.z,
+                t.heading
+            );
+        }
+        if stage == Some(Stage::Parked) {
+            break;
+        }
+    }
+    let (stage, t, at) = status(&engine, a);
+    assert_eq!(
+        stage,
+        Some(Stage::Parked),
+        "parked: {at:?}, phases {phases:?}"
+    );
+    assert_eq!(t.go_arounds, 0, "phases {phases:?}");
+    assert!(
+        !east_of_runway,
+        "flew the drawn west-side pattern, not the generated circuit"
+    );
+    for (i, d) in closest.iter().enumerate() {
+        assert!(*d < 250.0, "crossed fix {i} (closest {d:.0} m)");
+    }
+    let within = |h: f32, from: f32, to: f32| {
+        (h - from).rem_euclid(360.0) <= (to - from).rem_euclid(360.0) + 15.0
+            || (from - h).rem_euclid(360.0) <= 15.0
+    };
+    assert!(
+        within(heading_at[1], 350.0, 10.0) || within(heading_at[1], 80.0, 100.0),
+        "downwind end crossed northbound or turning onto base: {heading_at:?}"
+    );
+    assert!(
+        within(heading_at[2], 80.0, 100.0),
+        "base fix crossed eastbound: {heading_at:?}"
+    );
+    assert!(
+        within(heading_at[3], 170.0, 190.0),
+        "final fix crossed southbound: {heading_at:?}"
+    );
+    for phase in [FlightPhase::Downwind, FlightPhase::Base, FlightPhase::Final] {
+        assert!(phases.contains(&phase), "{phase:?} in {phases:?}");
+    }
+    assert!(touchdown.expect("landed").z > -730.0);
+}
+
+#[test]
+fn the_map_overlay_leaves_out_the_generated_circuit_when_a_pattern_is_drawn() {
+    let profile = emergent::LocomotionProfile::from_source(
+        "p.locomotion.toml",
+        "schema_version=1\nid='p'\nkind='locomotion'\ntype='fixed_wing_physics'\n",
+    )
+    .unwrap();
+    let emergent::locomotion::Model::FixedWingPhysics(params) = profile.model else {
+        unreachable!()
+    };
+    for (layout, drawn) in [(drawn_layout(), false), (patterned_layout(), true)] {
+        let (_f, engine, _) = airport_with(&layout, "");
+        let views = emergent::tower::airport_views(engine.world(), &params);
+        let active = views[0].runways.iter().find(|r| r.active).unwrap();
+        assert_eq!(active.circuit.is_none(), drawn);
+    }
+}
+
+fn mini_plane(id: &str, at: [f32; 3], yaw: f32) -> String {
+    format!("[[entities]]\nid='{id}'\nasset='assets/cube.entity.toml'\n[entities.transform]\ntranslation=[{},{},{}]\nrotation_degrees=[0,{yaw},0]\n[entities.physics]\nbody='dynamic'\nmass=20\nfriction=0\ncollider={{shape='box',half_extents=[1.2,0.25,1]}}\n[[entities.components]]\ntype='emergent.locomotion'\nprofile='assets/locomotion/mini.locomotion.toml'\n", at[0], at[1], at[2])
+}
+
+/// A 0.1-scale airfield: a 90 × 8 m runway landed north (−Z) from z = 15, a parallel taxiway at
+/// x = 15, a box stand and tower. Its aerodrome carries `scale=0.1`.
+fn miniature_layout() -> String {
+    let mut scene = item(
+        "field",
+        [0.0, 0.0, -30.0],
+        &format!(
+            "[[entities.components]]\ntype='emergent.zone'\nshape='circle'\nradius=300\n{}",
+            tag("aeroway='aerodrome',scale=0.1")
+        ),
+    );
+    scene += &zone_rect("runway", [0.0, 0.0, -30.0], 8.0, 90.0, "aeroway='runway'");
+    scene += &zone_rect("tower", [30.0, 0.0, -30.0], 3.0, 3.0, "aeroway='tower'");
+    scene += &line("par", [15.0, 18.0], [15.0, -78.0]);
+    scene += &line("link", [15.0, 18.0], [6.0, 18.0]);
+    scene += &zone_rect(
+        "stand0",
+        [25.0, 0.0, -40.0],
+        6.0,
+        6.0,
+        "aeroway='parking_position'",
+    );
+    scene
+}
+
+#[test]
+fn a_slow_aircraft_flies_a_miniature_circuit_lands_and_parks() {
+    let (_f, mut engine, e) = airport_with(
+        &miniature_layout(),
+        &mini_plane("a", [120.0, 40.0, 120.0], 45.0),
+    );
+    let (a, field) = (e["a"], e["field"]);
+    let yaw = 45f32.to_radians();
+    // Air start at 8 m/s along the nose (20 kg).
+    engine
+        .world_mut()
+        .add_force(
+            a,
+            Vec3::new(-yaw.sin(), 0.0, -yaw.cos()) * (20.0 * 8.0 * 60.0),
+        )
+        .unwrap();
+    order(&mut engine, a, FlightGoal::Arrive { airport: field });
+    let (mut widest, mut highest, mut joined) = (0.0f32, 0.0f32, false);
+    let trace = std::env::var_os("FLIGHT_TRACE").is_some();
+    for tick in 0..(600 * 60) {
+        engine.run_ticks(&mut Idle, 1).unwrap();
+        let (stage, t, at) = status(&engine, a);
+        joined |= matches!(t.phase, FlightPhase::Downwind);
+        if joined && t.airborne {
+            widest = widest.max(at.x.abs());
+            highest = highest.max(at.y);
+        }
+        if trace && tick % 300 == 0 {
+            println!(
+                "{:>4}s {stage:?}/{:?} ({:.0},{:.0},{:.0}) {:.1} m/s",
+                tick / 60,
+                t.phase,
+                at.x,
+                at.y,
+                at.z,
+                t.airspeed
+            );
+        }
+        if stage == Some(Stage::Parked) {
+            break;
+        }
+    }
+    let (stage, t, at) = status(&engine, a);
+    assert_eq!(stage, Some(Stage::Parked), "parked: {at:?} {:?}", t.phase);
+    assert_eq!(t.go_arounds, 0);
+    assert!(joined);
+    // A real-scale circuit would be at least 400 m out and 300 m up.
+    assert!(
+        widest < 120.0,
+        "circuit stayed near the field: {widest:.0} m out"
+    );
+    assert!(highest < 45.0, "circuit height is scaled: {highest:.0} m");
+    assert!(
+        (at.x - 25.0).abs() < 6.0 && (at.z + 40.0).abs() < 6.0,
+        "on the stand: {at:?}"
+    );
 }

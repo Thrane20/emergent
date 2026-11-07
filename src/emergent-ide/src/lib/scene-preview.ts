@@ -8,14 +8,20 @@ import { parse, stringify } from "smol-toml";
 import { componentTypes, type ComponentType } from "./components";
 import { projectScenes } from "./project-scenes";
 import type { ProjectSnapshot } from "./project";
-import { sharedTargetDir } from "./workspace";
+import { serveTool } from "./tool-server";
+import { projectTargetDir } from "./workspace";
 
 const execute = promisify(execFile);
 const state = globalThis as typeof globalThis & { emergentScenePreviewActive?: boolean };
 
+/** Tool commands the game's resident `--tool-server` answers (see tool-server.ts). */
+const SERVED=new Set(["--export-brain-nodes","--validate-brain","--simulate-brain","--export-ui-widgets","--validate-ui","--export-locomotion","--validate-locomotion","--simulate-locomotion","--inspect-audio","--inspect-model","--export-components","--scene-transforms","--map-layout","--convert-global","--validate-scenes","--validate-scene"]);
+/** EMERGENT_TOOL_SERVER=0 goes back to a `cargo run` per call. */
+const resident=()=>process.env.EMERGENT_TOOL_SERVER!=="0";
 /** Runs one of the linked game binary's tool commands and returns its stdout. */
 export async function gameTool(project:ProjectSnapshot,args:string[],maxBuffer=1024*1024) {
-  try {return (await execute("cargo",["run","--quiet","--manifest-path",path.join(project.root,"Cargo.toml"),"--target-dir",sharedTargetDir,"--",...args],{cwd:project.root,shell:false,timeout:120000,maxBuffer,windowsHide:true})).stdout;}
+  if(resident()&&SERVED.has(args[0])){const output=await serveTool(project,args);if(output.length>maxBuffer)throw new Error("Rust scene tool output is too large.");return output;}
+  try {return (await execute("cargo",["run","--quiet","--manifest-path",path.join(project.root,"Cargo.toml"),"--target-dir",projectTargetDir(project.root),"--",...args],{cwd:project.root,shell:false,timeout:120000,maxBuffer,windowsHide:true})).stdout;}
   catch(error){const message=error&&typeof error==="object"&&"stderr"in error?String(error.stderr).trim().slice(-6000):"Rust scene tool failed.";throw new Error(message);}
 }
 const registries=new Map<string,{stamp:string;types:Promise<ComponentType[]>}>();
@@ -55,12 +61,9 @@ export async function validateProjectScene(project: ProjectSnapshot, scenePath: 
     const candidate = path.join(directory, "candidate.scene.toml");
     await writeFile(candidate, source);
     try {
-      await execute("cargo", ["run", "--quiet", "--manifest-path", path.join(project.root, "Cargo.toml"), "--target-dir", sharedTargetDir, "--", "--validate-scene", scenePath, "--candidate", candidate], {
-        cwd: project.root, shell: false, timeout: 120_000, maxBuffer: 1024 * 1024, killSignal: "SIGTERM", windowsHide: true,
-      });
+      await gameTool(project, ["--validate-scene", scenePath, "--candidate", candidate]);
     } catch (error) {
-      const detail = error && typeof error === "object" && "stderr" in error ? String(error.stderr).trim().slice(-6000) : "";
-      throw new Error(detail || "Scene validation failed. This game must support --validate-scene / --candidate.");
+      throw new Error((error instanceof Error && error.message.trim()) || "Scene validation failed. This game must support --validate-scene / --candidate.");
     }
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
@@ -74,7 +77,7 @@ export async function renderProjectScene(project: ProjectSnapshot, scenePath: st
     directory = await mkdtemp(path.join(os.tmpdir(), "emergent-scene-preview-"));
     const output = path.join(directory, "frame.png");
     try {
-      await execute("cargo", ["run", "--quiet", "--manifest-path", path.join(project.root, "Cargo.toml"), "--target-dir", sharedTargetDir, "--", "--preview-scene", scenePath, "--preview-output", output], {
+      await execute("cargo", ["run", "--quiet", "--manifest-path", path.join(project.root, "Cargo.toml"), "--target-dir", projectTargetDir(project.root), "--", "--preview-scene", scenePath, "--preview-output", output], {
         cwd: project.root, shell: false, timeout: 120_000, maxBuffer: 1024 * 1024,
         killSignal: "SIGTERM", windowsHide: true,
       });

@@ -104,3 +104,7 @@
 :root[data-theme] .action-primary:disabled,:root[data-theme] .action-secondary:disabled{opacity:.45;cursor:default}
 :root[data-theme="charcoal"] :is(.settings-save,.asset-create,.chat-composer button,.statement-composer button):hover:not(:disabled){background:var(--theme-primary-hover)}
 :root[data-theme="charcoal"] :is(input[type="checkbox"],input[type="radio"],input[type="range"]){accent-color:var(--theme-primary)}
+
+[data-font="jetbrains"]{--font-ui:var(--font-jetbrains),ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+[data-font="fira"]{--font-ui:var(--font-fira),ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+:root[data-theme="charcoal"] .editor-frame::before{background:#25292f;border-color:var(--line)}

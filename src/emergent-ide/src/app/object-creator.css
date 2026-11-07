@@ -40,3 +40,9 @@ button.object-upload:disabled{cursor:wait;opacity:.7}
 .reference-picker-grid span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .reference-picker-body footer{display:flex;justify-content:flex-end}
 .reference-picker-body footer button{padding:9px 13px;border-radius:7px;font-size:11px;font-weight:700}
+.model-overview{display:flex;flex-direction:column;gap:8px}.model-overview>.model-preview,.model-overview>.source-view{flex:1;min-height:0}
+.rig-panel{flex:0 0 auto;max-height:45%;overflow:auto;padding:10px 12px;display:grid;gap:6px}
+.rig-weights{position:relative;height:260px;border-radius:8px;overflow:hidden}.rig-weights canvas{width:100%;height:100%;display:block}
+.rig-joints{display:flex;flex-wrap:wrap;gap:4px}.rig-joints button{font-size:11px;padding:2px 6px;border-radius:6px;border:1px solid var(--line,#2b3a30);background:transparent;color:inherit;cursor:pointer}.rig-joints button.selected{background:var(--theme-primary,#8a5cf6);color:#fff}
+.rig-import{margin:8px 0}.rig-import .quiet-button{display:inline-block;cursor:pointer}
+.model-overview:has(.rig-weights)>.model-preview{display:none}.model-overview:has(.rig-weights)>.rig-panel{flex:1;max-height:none}.model-overview:has(.rig-weights) .rig-weights{height:min(60vh,520px)}

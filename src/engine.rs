@@ -362,6 +362,7 @@ impl Engine {
             crate::locomotion::observe_physics(&mut self.world)?;
         }
         crate::map::refresh(&mut self.world);
+        crate::animation::step(&mut self.world, self.config.fixed_timestep);
         self.world
             .run_component_schedule(&mut self.schedules.post_fixed)?;
         {

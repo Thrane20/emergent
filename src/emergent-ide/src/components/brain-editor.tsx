@@ -5,6 +5,7 @@ import {FalBalance} from "@/components/fal-balance";
 import {BrainLibrary} from "@/components/brain-library";
 import {FieldInput,type FieldOption} from "@/components/field-input";
 import {ProjectChat} from "@/components/project-chat";
+import {BrainPlaypen,type PlaypenObject} from "@/components/brain-playpen";
 import {useEditorNavigationGuard} from "./editor-navigation";
 import type {PublicAISettings} from "@/lib/ai-settings";
 import {addNode,brainCreationContext,brainProblems,childrenOf,isEmptyBrainDraft,moveNode,newlyCreatedBrainPath,nodeSummary,parseTrace,removeNode,rootOf,setNodeField,shiftNode,type BrainDocument,type BrainNode,type BrainSummary,type BrainTrace,type NodeCatalogue} from "@/lib/brains";
@@ -25,11 +26,11 @@ function previewGroups(brain:BrainDocument){
  return {agents,targets:targets??"target"};
 }
 
-export function BrainEditor({projectId,projectName,scenePath,aiSettings,initialBrains,initial}:{projectId:string;projectName:string;scenePath:string;aiSettings:PublicAISettings;initialBrains:BrainSummary[];initial?:Open}){
+export function BrainEditor({projectId,projectName,scenePath,aiSettings,initialBrains,initial,objects}:{projectId:string;projectName:string;scenePath:string;aiSettings:PublicAISettings;initialBrains:BrainSummary[];initial?:Open;objects:PlaypenObject[]}){
  const [catalogue,setCatalogue]=useState<NodeCatalogue|null>(null),[brains,setBrains]=useState(initialBrains);
  const [open,setOpen]=useState<Open>(initial??blank()),[selected,setSelected]=useState<string|null>(initial?rootOf(initial.brain)?.id??null:null);
  const [dirty,setDirty]=useState(!initial),[busy,setBusy]=useState(false),[error,setError]=useState(""),[status,setStatus]=useState("");
- const [search,setSearch]=useState(""),[view,setView]=useState<"tree"|"preview">("tree"),[instances,setInstances]=useState<Instance[]>([]);
+ const [search,setSearch]=useState(""),[view,setView]=useState<"tree"|"preview"|"3d">("tree"),[instances,setInstances]=useState<Instance[]>([]);
  const [chatBusy,setChatBusy]=useState(false);
  useEditorNavigationGuard(useCallback(()=>!busy&&!chatBusy&&(!dirty||window.confirm("Discard unsaved brain changes?")),[busy,chatBusy,dirty]));
  const scratch=isEmptyBrainDraft(open.path,open.brain);
@@ -110,16 +111,16 @@ export function BrainEditor({projectId,projectName,scenePath,aiSettings,initialB
    </aside>
    <section className="panel brain-workspace">
     <div className="panel-head"><div className="brain-title"><input aria-label="Brain name" value={brain.name} maxLength={64} onChange={event=>change({...brain,name:event.target.value})}/>{dirty&&<span className="kind-badge">UNSAVED</span>}</div>
-     <div className="view-switch">{(["tree","preview"] as const).map(item=><button type="button" key={item} className={view===item?"selected":""} onClick={()=>setView(item)}>{item==="tree"?"Tree":"Preview"}</button>)}</div>
+     <div className="view-switch">{(["tree","preview","3d"] as const).map(item=><button type="button" key={item} className={view===item?"selected":""} onClick={()=>setView(item)}>{item==="tree"?"Tree":item==="preview"?"Preview":"3D preview"}</button>)}</div>
 </div>
     {(error||status)&&<p className={error?"brain-error":"brain-status"} role={error?"alert":"status"}>{error||status}</p>}
     {view==="tree"?<div className="brain-canvas" onClick={event=>{if(event.target===event.currentTarget)setSelected(null);}} onDragOver={event=>event.preventDefault()} onDrop={event=>{const type=event.dataTransfer.getData("application/x-brain-node");if(type&&event.target===event.currentTarget){setSelected(null);if(catalogue){const id=nodeId();attempt(()=>addNode(brain,catalogue,type,undefined,id));setSelected(id);}}}}>
      {!brain.nodes.length&&<div className="brain-empty"><b>Start with a root node.</b><span>Composition nodes (Blend, Priority, Selector) hold other behaviours. Click one in the library, or drag it here.</span></div>}
      {rootOf(brain)&&<ul className="brain-tree"><TreeNode node={rootOf(brain)!} depth={0} brain={brain} catalogue={catalogue} selected={selected} problems={problems} onSelect={setSelected} onEdit={attempt} onAdd={(type,parent)=>{if(!catalogue)return;const id=nodeId();attempt(()=>addNode(brain,catalogue,type,parent,id));setSelected(id);}}/></ul>}
-    </div>:<BrainPreview projectId={projectId} path={open.path} brain={brain} disabled={problems.size>0||!brain.nodes.length}/>}
+    </div>:view==="preview"?<BrainPreview projectId={projectId} path={open.path} brain={brain} disabled={problems.size>0||!brain.nodes.length}/>:<BrainPlaypen projectId={projectId} path={open.path} brain={brain} disabled={problems.size>0||!brain.nodes.length} objects={objects} agentGroup={previewGroups(brain).agents} targetGroup={previewGroups(brain).targets}/>}
     {view==="tree"&&<textarea className="brain-description" aria-label="Brain description" maxLength={500} placeholder="What this brain is for (shown in the library and to the AI)…" value={brain.description} onChange={event=>change({...brain,description:event.target.value})}/>}
     <div className="brain-chat">
-     <ProjectChat projectId={projectId} projectName={projectName} scene={{path:scenePath,name:scenePath.replace(/^.*\//,"").replace(/\.scene\.toml$/,"")}} object={{scope:open.path?`file:${open.path}`:`project:${projectId}`,name:brain.name}} requestContext={scratch?brainCreationContext(brain):undefined} aiSettings={aiSettings} disabled={busy||(!scratch&&dirty)} allowDraftWhileDisabled onBusy={setChatBusy} onApplied={()=>void afterAI()}/>
+     <ProjectChat projectId={projectId} projectName={projectName} scene={{path:scenePath,name:scenePath.replace(/^.*\//,"").replace(/\.scene\.toml$/,"")}} object={{scope:open.path?`file:${open.path}`:`project:${projectId}`,name:brain.name}} requestContext={scratch?brainCreationContext(brain):undefined} aiSettings={aiSettings} defaultExpanded={false} disabled={busy||(!scratch&&dirty)} allowDraftWhileDisabled onBusy={setChatBusy} onApplied={()=>void afterAI()}/>
      {chatBusy?null:scratch?<p className="transform-note">Describe your brain to the AI to create it from scratch.</p>:dirty&&<p className="transform-note">Save the brain to ask the AI to change it.</p>}
     </div>
    </section>

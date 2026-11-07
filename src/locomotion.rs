@@ -104,7 +104,10 @@ pub fn type_catalogue() -> Vec<LocomotionType> {
         ]),
         planned("tracked", "Tracked / skid-steer", c[0], "Tanks and diggers that turn on the spot.", "wheels"),
         planned("hovercraft", "Hovercraft", c[0], "Drifts on a cushion of air; slides wide in turns.", "body"),
-        planned("biped_ik", "Biped (IK walk)", c[1], "Two legs placed with inverse kinematics; needs skeletons and animation.", "legs"),
+        t("biped", "Biped", c[1], "Walks and runs on two legs: moves like Slide without turning itself. Give the model an emergent.animator with a speed blend, Turn to movement and Feet on ground, so clips, facing and foot placement follow its movement.", &["move to", "steer", "brake"], "legs", vec![
+            num("max_speed", "Max speed", 0.0, 20.0, 3.5, "m/s"), num("acceleration", "Acceleration", 0.0, 100.0, 6.0, "m/s²"), num("braking", "Braking", 0.0, 100.0, 10.0, "m/s²"),
+            f("ground", "Stay on the ground", Bool).default(true),
+        ]),
         planned("quadruped", "Quadruped", c[1], "Four legs with gait patterns.", "legs"),
         planned("crawler", "Crawler", c[1], "Many legs; climbs slopes.", "legs"),
         t("drone", "Drone (multirotor)", c[2], "Tilts to move, holds altitude and hovers in place, yaws to face its travel. Horizontal acceleration is limited by the tilt angle.", &["move to", "hover", "climb", "orbit point", "brake"], "rotors", vec![
@@ -379,11 +382,16 @@ impl LocomotionProfile {
                 params.validate().map_err(fail)?;
                 Model::FixedWingPhysics(params)
             }
-            "slide" => Model::Slide {
+            "slide" | "biped" => Model::Slide {
                 max_speed: n("max_speed"),
                 acceleration: n("acceleration"),
                 braking: n("braking"),
-                turn_rate: deg("turn_rate"),
+                // The biped's animator turns the model to its movement.
+                turn_rate: if spec.id == "biped" {
+                    0.0
+                } else {
+                    deg("turn_rate")
+                },
                 ground: v.bool("ground").unwrap_or(true),
             },
             "wheeled" => Model::Wheeled {
@@ -1028,6 +1036,17 @@ fn fly(
         ),
         _ => (None, None, Default::default()),
     };
+    // A drawn traffic pattern for the runway end being landed on replaces the generated circuit.
+    let landing_zone = match (tower_goal, order) {
+        (Some(FlightGoal::Land { zone, .. }), _) | (None, Some(FlightGoal::Land { zone, .. })) => {
+            Some(zone)
+        }
+        _ => None,
+    };
+    let pattern = match (landing_zone, runway) {
+        (Some(zone), Some(runway)) => crate::tower::pattern_for(world, zone, runway.heading),
+        _ => None,
+    };
     let wind = world
         .resource::<crate::Wind>()
         .map_or(Vec3::ZERO, |w| w.velocity);
@@ -1054,6 +1073,19 @@ fn fly(
                 _ => FlightGoal::Park,
             }
         });
+    // A Hold course with no airspeed flies at the profile's cruise speed.
+    let goal = match goal {
+        FlightGoal::Hold {
+            heading,
+            altitude,
+            speed,
+        } if speed <= 0.0 => FlightGoal::Hold {
+            heading,
+            altitude,
+            speed: params.cruise_speed,
+        },
+        goal => goal,
+    };
     let body = BodyInput {
         transform: state.transform,
         velocity: state.linear_velocity,
@@ -1064,10 +1096,15 @@ fn fly(
         revision: state.revision,
         wind,
     };
-    let output = agent
-        .pilot
-        .get_or_insert_with(Default::default)
-        .step(params, goal, runway, gates, &body, dt);
+    let output = agent.pilot.get_or_insert_with(Default::default).step(
+        params,
+        goal,
+        runway,
+        pattern.as_deref(),
+        gates,
+        &body,
+        dt,
+    );
     let telemetry = agent.flight_telemetry().unwrap_or_default();
     agent.activity.throttle = telemetry.throttle;
     agent.activity.brake = telemetry.brake;

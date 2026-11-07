@@ -31,3 +31,17 @@ test("structures save editable topology and local hierarchy, place once, reopen,
  const raw=parse(await readFile(path.join(root,loaded.assetPath),"utf8"));raw.transform={translation:[2,3,4]};await writeFile(path.join(root,loaded.assetPath),stringify(raw));const latest=await readStructureAsset(fresh,loaded.assetPath);const preserve=await prepareStructureSave(fresh,{...update,revision:latest.revision});assert.deepEqual(JSON.parse(JSON.stringify(parse(preserve.changes[1].content).transform)),raw.transform);
  raw.material={shading:"unlit",albedo:[0.4,0.3,0.2]};await writeFile(path.join(root,loaded.assetPath),stringify(raw));const inline=await readStructureAsset(fresh,loaded.assetPath);assert.equal(inline.material,undefined);const retained=await prepareStructureSave(fresh,{...update,revision:inline.revision});assert.deepEqual(JSON.parse(JSON.stringify(parse(retained.changes[1].content).material)),raw.material);
 });
+test("part materials save to the structure sidecar, reopen, and must exist in the library",async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),"emergent-structure-part-material-")),previousRoot=process.env.EMERGENT_PROJECT_PATH,previousData=process.env.EMERGENT_IDE_DATA_DIR;
+ process.env.EMERGENT_PROJECT_PATH=root;process.env.EMERGENT_IDE_DATA_DIR=path.join(root,"data");t.after(async()=>{if(previousRoot===undefined)delete process.env.EMERGENT_PROJECT_PATH;else process.env.EMERGENT_PROJECT_PATH=previousRoot;if(previousData===undefined)delete process.env.EMERGENT_IDE_DATA_DIR;else process.env.EMERGENT_IDE_DATA_DIR=previousData;await rm(root,{recursive:true,force:true});});
+ await mkdir(path.join(root,"assets"));await mkdir(path.join(root,"src"));await writeFile(path.join(root,"emergent.toml"),'id="part-material-test"\nname="Parts"\nasset_roots=["assets"]\nentry_scene="assets/main.scene.toml"');
+ await writeFile(path.join(root,"assets/main.scene.toml"),'schema_version=1\nid="main"\nentities=[]\n');
+ const stone="assets/stone.material.toml",source='schema_version=1\nid="stone"\nname="Stone"\n[material]\nalbedo=[0.2,0.3,0.4]\n';await writeFile(path.join(root,stone),source);
+ const document:StructureDocument={schema_version:1,id:"structure",name:"Hut",parts:[{id:"base",name:"Base",parent:null,transform:identityStructureTransform(),mesh:structurePrimitive("Cube")},{id:"roof",name:"Roof",parent:"base",transform:identityStructureTransform(),mesh:structurePrimitive("Pyramid"),material:stone}]};
+ const project=await readProjectSnapshot(),saved=await prepareStructureSave(project,{document});
+ assert.ok(saved.changes.some(change=>change.path===stone&&change.before===source&&change.content===source),"part material is guarded unchanged");
+ await applyChanges(project,saved.changes);const loaded=await readStructureAsset(await readProjectSnapshot(),saved.result.assetPath);
+ assert.equal(loaded.document.parts[1].material,stone);assert.equal("material" in loaded.document.parts[0],false);
+ const missing=structuredClone(document);missing.parts[1].material="assets/missing.material.toml";
+ await assert.rejects(prepareStructureSave(await readProjectSnapshot(),{document:missing}));
+});

@@ -131,6 +131,18 @@ pub struct Material {
     /// The diffuse image is sampled with mesh texture coordinates instead of triplanar projection.
     uv_mapped: bool,
     pub(crate) terrain: Option<TerrainMaterial>,
+    /// World-space x/z added to mesh-local positions for triplanar images, so meshes
+    /// placed side by side (terrain chunks) continue one pattern. Zero for scene assets.
+    pub(crate) projection_offset: [f64; 2],
+}
+/// Resolved materials for contiguous index ranges of an entity's mesh, drawn in place of
+/// its `Material` (which still covers every other triangle). Renderer-owned resources only.
+#[derive(Clone, Debug, Default, Component)]
+pub struct MaterialSections(pub Vec<MaterialSection>);
+#[derive(Clone, Debug)]
+pub struct MaterialSection {
+    pub indices: std::ops::Range<u32>,
+    pub material: Material,
 }
 /// Authored blend weights at the terrain heightfield resolution, in row-major XZ order.
 #[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
@@ -430,6 +442,7 @@ impl MaterialDefinition {
             diffuse,
             uv_mapped: false,
             noise,
+            projection_offset: [0.; 2],
         })
     }
     /// Constructs a constant material without requiring a project or file system.
@@ -452,6 +465,7 @@ impl MaterialDefinition {
             diffuse: None,
             uv_mapped: false,
             terrain: None,
+            projection_offset: [0.; 2],
         })
     }
 }
@@ -465,6 +479,60 @@ impl Material {
         let mut material = definition.constant()?;
         material.diffuse = Some(image);
         material.uv_mapped = true;
+        Ok(material)
+    }
+    /// A constant material with `image` projected triplanar in mesh-local space.
+    pub fn with_projected_image(
+        definition: MaterialDefinition,
+        image: crate::TextureImage,
+    ) -> Result<Self, MaterialError> {
+        let mut material = definition.constant()?;
+        material.diffuse = Some(image);
+        Ok(material)
+    }
+    /// In-memory blend of 1–4 constant or image layers over a mesh's x/z bounds, with
+    /// `resolution`² RGBA weights (row-major, each texel summing to 255), as produced by
+    /// [`crate::height_band_weights`]. `projection_offset` is the mesh's world x/z, so
+    /// triplanar images continue across adjacent meshes. Layers with noise maps are
+    /// rejected: their masks are relative to each mesh's own bounds and would seam.
+    pub fn terrain_blend(
+        layers: Vec<Material>,
+        resolution: u32,
+        weights: Vec<u8>,
+        projection_offset: [f64; 2],
+    ) -> Result<Self, MaterialError> {
+        let count = layers.len();
+        let valid = (1..=4).contains(&count)
+            && (2..=1024).contains(&resolution)
+            && projection_offset.iter().all(|v| v.is_finite())
+            && layers.iter().all(|m| {
+                m.shader.is_none()
+                    && m.terrain.is_none()
+                    && !m.uv_mapped
+                    && m.noise.iter().all(Option::is_none)
+            })
+            && weights.len() == (resolution as usize).pow(2) * 4
+            && weights.as_chunks::<4>().0.iter().all(|w| {
+                w.iter().map(|n| u32::from(*n)).sum::<u32>() == 255
+                    && w[count..].iter().all(|n| *n == 0)
+            });
+        if !valid {
+            return Err(MaterialError("Terrain blend needs 1–4 constant or projected-image layers without noise maps, 2..1024 square normalized weights and a finite offset.".into()));
+        }
+        let mut material = MaterialDefinition::default().constant()?;
+        material.terrain = Some(TerrainMaterial {
+            // Paths and height rules describe saved paint; in-memory weights carry neither.
+            paint: TerrainPaint {
+                schema_version: 1,
+                resolution,
+                materials: Vec::new(),
+                transitions: [0.; 3],
+                blend: 0.,
+                weights,
+            },
+            layers,
+        });
+        material.projection_offset = projection_offset;
         Ok(material)
     }
     pub fn uv_mapped(&self) -> bool {
@@ -646,6 +714,7 @@ mod tests {
             uv_mapped: false,
             definition: MaterialDefinition::default(),
             noise: [Some(settings), None, None, None],
+            projection_offset: [0.; 2],
         };
         let (side, pixels) = material.bake().unwrap();
         assert_eq!(side, 32);

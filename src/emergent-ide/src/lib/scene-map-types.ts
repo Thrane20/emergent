@@ -9,7 +9,9 @@ export type AirportRunwayView = { id: string; heading: number; active: boolean; 
 export type AirportView = { aerodrome?: string; towered: boolean; holdingFix?: [number, number]; runways: AirportRunwayView[] };
 /** Wind as authored: metres per second, blowing from a compass bearing. */
 export type MapWind = { speed: number; from: number };
-export type SceneMapModel = { scene: string; revision: string; instances: MapInstance[]; airports: AirportView[]; wind: MapWind | null };
+/** Engine-rendered top-down image of every mesh, covering world XZ `min`..`max` (north edge first). */
+export type MapTopDown = { min: [number, number]; max: [number, number]; image: string };
+export type SceneMapModel = { scene: string; revision: string; root: string | null; instances: MapInstance[]; airports: AirportView[]; wind: MapWind | null; topDown?: MapTopDown };
 export type MapItemInput = { kind: "waypoint" | "zone"; x: number; z: number; y?: number; shape?: "circle" | "rect"; radius?: number; width?: number; depth?: number; yaw?: number; name?: string; metadata?: Record<string, string | number | boolean> };
 
 /** Applies a column-major affine 4×4 to a point. */
@@ -72,6 +74,20 @@ export function zoneShape(instance: MapInstance) {
   return f.shape === "rect"
     ? { kind: "rect" as const, x: m[12], z: m[14], yaw, width: number("width", 10) * sx, depth: number("depth", 10) * sz, cost, blocked, layers }
     : { kind: "circle" as const, x: m[12], z: m[14], yaw, radius: number("radius", 5) * Math.max(sx, sz), cost, blocked, layers };
+}
+
+/** A zone drawn at a world size and yaw, as the local fields and yaw under a parent whose world
+ * matrix is `parent` (the inverse of `zoneShape`): drawn sizes stay true under a scaled parent. */
+export function localZone(parent: number[] | null, item: { width?: number; depth?: number; radius?: number; yaw?: number }) {
+  if (!parent) return { width: item.width, depth: item.depth, radius: item.radius, yaw: item.yaw ?? 0 };
+  const sx = Math.hypot(parent[0], parent[2]) || 1, sz = Math.hypot(parent[8], parent[10]) || 1;
+  const yaw = Math.atan2(-parent[2], parent[0]) * 180 / Math.PI;
+  return {
+    width: item.width === undefined ? undefined : item.width / sx,
+    depth: item.depth === undefined ? undefined : item.depth / sz,
+    radius: item.radius === undefined ? undefined : item.radius / Math.max(sx, sz),
+    yaw: (item.yaw ?? 0) - yaw,
+  };
 }
 
 export function waypointLinks(instance: MapInstance) {

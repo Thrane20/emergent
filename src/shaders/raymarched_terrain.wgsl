@@ -13,6 +13,8 @@ fn noise(p:vec3<f32>,salt:u32)->f32 {
  return mix(a,b,f.y);
 }
 fn noise2(p:vec2<f32>,salt:u32)->f32 {return noise(vec3(p.x,0.,p.y),salt);}
+/// Unscaled distance-like gap from the last biome() call, for long adaptive steps.
+var<private> gap: f32;
 fn biome(p:vec3<f32>)->f32 {
  let s=field.params.w;
  var mask=1.;if(field.recipe.z==0u || field.recipe.z==4u || field.recipe.z==5u){mask=smoothstep(0.35,0.65,noise2(p.xz/(s*2.),11u));}
@@ -35,6 +37,7 @@ fn biome(p:vec3<f32>)->f32 {
  }
  var rock=0.;if(field.detail.x>0.){rock=(noise(p/(s*0.08),97u)*2.-1.)*field.detail.x*mask;}
  var d=(p.y-height-rock)/field.detail.z;
+ let terrain=d;
  if(field.recipe.z==8u){d=max(d,-(length(p-vec3(0.,field.params.z*0.25,0.))-max(field.detail.y*3.,24.)));}
  if(field.detail.y>0.) {
   let phase=field.params.y*6.2831855;
@@ -45,7 +48,11 @@ fn biome(p:vec3<f32>)->f32 {
  let lower=vec3(-field.params.x*0.5,-max(field.params.z,64.)*0.5,-field.params.x*0.5);
  let upper=vec3(field.params.x*0.5,12.+field.params.z+field.detail.x,field.params.x*0.5);
  let q=abs(p-(lower+upper)*0.5)-(upper-lower)*0.5;
- return max(d,length(max(q,vec3(0.)))+min(max(q.x,max(q.y,q.z)),0.));
+ let result=max(d,length(max(q,vec3(0.)))+min(max(q.x,max(q.y,q.z)),0.));
+ // Only the height term is scaled by the Lipschitz bound; cave and box terms are already
+ // distances, so the unscaled gap must not inflate them.
+ gap=select(abs(result),abs(terrain)*field.detail.z,result==terrain);
+ return result;
 }
 fn distance(p_world: vec3<f32>) -> f32 {
  if(field.recipe.x==2u) {return biome(p_world);}
@@ -60,6 +67,8 @@ fn distance(p_world: vec3<f32>) -> f32 {
  let arch = length(vec2(length(a.xy)-4.,a.z))-1.;
  return min(carved,arch)*scale;
 }
+const MIN_STEP_PIXELS: f32 = 1.;
+const GAP_STEP: f32 = 0.5;
 struct Vertex { @builtin(position) position: vec4<f32>, @location(0) clip: vec2<f32> };
 @vertex fn vs_main(@builtin(vertex_index) index: u32) -> Vertex {
  let p = array<vec2<f32>,3>(vec2(-1.,-1.),vec2(3.,-1.),vec2(-1.,3.))[index];
@@ -72,6 +81,9 @@ struct Hit { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 };
  let origin = near.xyz/near.w;
  let delta = far.xyz/far.w-origin;
  let direction = normalize(delta);
+ // Ray spread per pixel (radians); derivatives must run before any discard.
+ let pixel = max(length(dpdx(direction)),length(dpdy(direction)));
+ let exact = (field.recipe.w & 2u) != 0u;
  let scale = field.params.x/32.;
  let lower = select(vec3(-16.,-2.,-16.)*scale,vec3(-field.params.x*0.5,-max(field.params.z,64.)*0.5,-field.params.x*0.5),field.recipe.x==2u);
  let upper = select(vec3(16.,6.,16.)*scale,vec3(field.params.x*0.5,12.+field.params.z+field.detail.x,field.params.x*0.5),field.recipe.x==2u);
@@ -88,25 +100,51 @@ struct Hit { @location(0) color: vec4<f32>, @builtin(frag_depth) depth: f32 };
  if(entry>limit) { discard; }
  var t = entry; var found = false; var steps=0u;
  let budget=select(256u,1024u,field.recipe.x==2u);
+ // Over-relaxed sphere tracing (Keinert et al. 2014): step 1.6x the safe radius and
+ // fall back to plain steps once consecutive spheres stop overlapping.
+ var omega=select(1.6,1.,exact); var previous=0.; var step=0.;
+ // Adaptive v2 rays that start outside the solid first take long steps: at least
+ // MIN_STEP_PIXELS footprints, or GAP_STEP of the unscaled field value (the Lipschitz-
+ // scaled radius alone makes near rays creep). Landing inside the solid returns to the
+ // last outside point and finishes with plain safe sphere tracing, so a long step that
+ // crossed a thin rim cannot select a surface behind it. Inside-solid cameras trace plainly.
+ var adaptive = field.recipe.x==2u && !exact && distance(origin+direction*entry)>0.;
+ var outside_t = entry;
  for(var i=0u;i<budget;i++) {
   steps=i+1u;
-  let d = abs(distance(origin+direction*t));
-  if(d<select(0.002,max(0.003,t*0.00003),field.recipe.x==2u)) { found=true; break; }
-  t += d*0.9;
-  if(t>limit) { break; }
+  let signed = distance(origin+direction*t);
+  if(adaptive && signed<0.) {
+   t=outside_t; adaptive=false; omega=1.; previous=0.; step=0.;
+   continue;
+  }
+  outside_t = t;
+  let r = abs(signed)*0.9;
+  let failed = omega>1. && r+previous<step;
+  // Stop within half a pixel's footprint; legacy v1 fixtures keep their fixed tolerance.
+  let tolerance=select(0.002,select(max(0.003,t*pixel*0.5),max(0.003,t*0.00003),exact),field.recipe.x==2u);
+  // r is scaled down by the Lipschitz bound; undo it so the tolerance is a real half pixel.
+  if(!failed && r<select(tolerance*0.9,tolerance*0.9/field.detail.z,field.recipe.x==2u && !exact)) { found=true; break; }
+  // Leave the box only from a verified position: a relaxed step may overshoot a thin
+  // surface and the box exit, and must be stepped back before giving up.
+  if(!failed && t>limit) { break; }
+  if(failed) { step-=omega*step; omega=1.; } else { step=select(r*omega,max(r*omega,max(t*pixel*MIN_STEP_PIXELS,gap*GAP_STEP)),adaptive); }
+  previous=r;
+  t += step;
  }
  if(!found || t>limit) {
-  if(field.recipe.w==1u && !found && t<=limit && steps==budget) {return Hit(vec4(1.,0.,1.,1.),0.);}
+  if((field.recipe.w&1u)==1u && !found && t<=limit && steps==budget) {return Hit(vec4(1.,0.,1.,1.),0.);}
   discard;
  }
- if(field.recipe.w==1u) {
+ if((field.recipe.w&1u)==1u) {
   let heat=clamp(f32(steps)/f32(budget),0.,1.);
   let colour=mix(vec3(0.02,0.15,0.8),vec3(1.,0.05,0.),heat);
   let clip=field.vp*vec4(origin+direction*t,1.);
   return Hit(vec4(colour,1.),clip.z/clip.w);
  }
  let p = origin+direction*t; let e=select(0.002,0.05,field.recipe.x==2u);
- let normal = normalize(vec3(distance(p+vec3(e,0.,0.))-distance(p-vec3(e,0.,0.)),distance(p+vec3(0.,e,0.))-distance(p-vec3(0.,e,0.)),distance(p+vec3(0.,0.,e))-distance(p-vec3(0.,0.,e))));
+ // Tetrahedral gradient: four field evaluations instead of six central differences.
+ let k=vec2(1.,-1.);
+ let normal = normalize(k.xyy*distance(p+k.xyy*e)+k.yyx*distance(p+k.yyx*e)+k.yxy*distance(p+k.yxy*e)+k.xxx*distance(p+k.xxx*e));
  let world_normal=normalize((field.normal_model*vec4(normal,0.)).xyz);
  let shade = 0.2+0.8*max(dot(world_normal,normalize(vec3(-0.4,0.8,0.3))),0.);
  var colour = mix(vec3(0.18,0.28,0.10),vec3(0.5,0.4,0.27),smoothstep(0.,4.,p.y));

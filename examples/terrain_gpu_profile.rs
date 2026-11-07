@@ -1,8 +1,8 @@
 //! Native pass timings with no colour readback, PNG, browser or presentation.
 use emergent::{
     CameraProjection, Color, Geometry, GeometryInstance, GeometryRenderer, LightInstance,
-    LightSource, Mat4, Primitive, RaymarchedBiome, RaymarchedTerrain, ShadowCasting,
-    TerrainSettings, Vec3,
+    LightSource, Mat4, Primitive, RaymarchedBiome, RaymarchedRenderOptions, RaymarchedTerrain,
+    ShadowCasting, TerrainSettings, Vec3,
 };
 use std::{path::PathBuf, time::Instant};
 
@@ -11,8 +11,14 @@ fn camera(
     sample: usize,
     scale: f32,
     cavern: bool,
+    ground: Option<Vec3>,
 ) -> Result<(), emergent::GraphicsError> {
     let angle = sample as f32 / 128. * std::f32::consts::TAU;
+    // Player-height routes: a fixed eye a few metres above the surface turning in place.
+    if let Some(eye) = ground {
+        let look = Vec3::new(angle.sin(), -0.08, angle.cos());
+        return renderer.set_view(eye, eye + look, Vec3::Y);
+    }
     let target = Vec3::new(0., if cavern { 30. } else { 40. }, 0.);
     let radius = if cavern { 20. } else { 650. * scale };
     renderer.set_view(
@@ -44,7 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     renderer.set_projection(CameraProjection::perspective(45., 0.1, 30000.)?);
-    let mut csv=String::from("workload,sample,main_gpu_us,shadow_gpu_us,prepare_cpu_us,encode_cpu_us,completion_cpu_us,total_cpu_us,regions,submitted,scissor_pixels,triangles,mesh_buffer_bytes,diagnostic_bytes\n");
+    let mut csv=String::from("workload,sample,main_gpu_us,shadow_gpu_us,prepare_cpu_us,encode_cpu_us,completion_cpu_us,total_cpu_us,regions,submitted,scissor_pixels,triangles,submitted_triangles,mesh_buffer_bytes,diagnostic_bytes\n");
     for name in [
         "ray-1km",
         "ray-4km",
@@ -53,14 +59,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "heightfield-128",
         "heightfield-512",
         "heightfield-1024",
+        "ray-1km-ground",
+        "ray-4km-ground",
+        "heightfield-1024-ground",
     ] {
+        let base = name.trim_end_matches("-ground");
+        let mut ground = None;
         let mut regions = Vec::new();
         let mut instances = Vec::new();
         let mut triangles = 0;
         let mut mesh_buffer_bytes = 0;
         let setup = Instant::now();
-        if name.starts_with("heightfield") {
-            let resolution = name.rsplit('-').next().unwrap().parse()?;
+        if base.starts_with("heightfield") {
+            let resolution = base.rsplit('-').next().unwrap().parse()?;
             let field = TerrainSettings {
                 size: 1024.,
                 height: 120.,
@@ -68,6 +79,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 ..Default::default()
             }
             .generate()?;
+            if name != base {
+                let n = resolution as usize;
+                let x = n / 2 + n / 8;
+                ground = Some(Vec3::new(
+                    x as f32 * 1024. / (n - 1) as f32 - 512.,
+                    field.values()[x * n + x] + 3.,
+                    x as f32 * 1024. / (n - 1) as f32 - 512.,
+                ));
+            }
             let mesh = field.mesh(Color::WHITE)?;
             triangles = mesh.indices().len() / 3;
             instances.push(GeometryInstance::new(
@@ -79,7 +99,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .unwrap();
         } else {
             let field = RaymarchedTerrain {
-                size: if name == "ray-4km" { 4096. } else { 1024. },
+                size: if base == "ray-4km" { 4096. } else { 1024. },
                 biome: if name == "cavern" {
                     RaymarchedBiome::CaveCavern
                 } else {
@@ -88,6 +108,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cave_radius: if name == "cavern" { 16. } else { 8. },
                 ..Default::default()
             };
+            if name != base {
+                let probe = Vec3::new(128., 0., 128.);
+                let top = probe + Vec3::Y * 2000.;
+                let hit = field
+                    .trace(top, -Vec3::Y)?
+                    .ok_or("Ground probe missed the field")?;
+                ground = Some(top - Vec3::Y * (hit - 3.));
+            }
             for index in 0..if name == "ray-eight-regions" { 8 } else { 1 } {
                 let id = renderer.insert_raymarched_terrain(field)?;
                 if name == "ray-eight-regions" {
@@ -103,37 +131,132 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 regions.push(id);
             }
         }
-        let scale = if name == "ray-4km" {
+        let scale = if base == "ray-4km" {
             3.
         } else if name == "ray-eight-regions" {
             2.
         } else {
             1.
         };
-        camera(&mut renderer, 0, scale, name == "cavern")?;
+        camera(&mut renderer, 0, scale, name == "cavern", ground)?;
         let before = renderer.render_lit_rgba(&instances, &[])?;
+        if regions.is_empty() {
+            // Culling must not change pixels: compare with the unculled path at the first view.
+            renderer.set_mesh_culling(false);
+            let unculled = renderer.render_lit_rgba(&instances, &[])?;
+            renderer.set_mesh_culling(true);
+            assert!(
+                before.rgba == unculled.rgba,
+                "Mesh culling changed capture for {name}"
+            );
+            // Lit, shadowed captures: unlit white meshes would only compare silhouettes.
+            let sun = [LightInstance::new(
+                LightSource::directional(Color::WHITE, 1.)?
+                    .with_shadow_casting(ShadowCasting::Enabled)?,
+                Mat4::from_rotation_x(-0.9) * Mat4::from_rotation_y(0.6),
+            )];
+            renderer.set_mesh_lod(false);
+            let full = renderer.render_lit_rgba(&instances, &sun)?;
+            let full_triangles = renderer.submitted_triangles();
+            renderer.set_mesh_lod(true);
+            let lit = renderer.render_lit_rgba(&instances, &sun)?;
+            let lod_triangles = renderer.submitted_triangles();
+            let before = lit;
+            let pixels = before.rgba.len() / 4;
+            let differing = (0..pixels)
+                .filter(|&i| {
+                    (0..3).any(|c| before.rgba[i * 4 + c].abs_diff(full.rgba[i * 4 + c]) > 8)
+                })
+                .count();
+            println!(
+                "{name}: LOD vs full detail: {:.3}% pixels differ by >8/255; triangles {lod_triangles} vs {full_triangles}",
+                differing as f64 * 100. / pixels as f64
+            );
+            for (suffix, frame) in [("lod", &before), ("full", &full)] {
+                image::save_buffer(
+                    output.join(format!("{name}-{suffix}.png")),
+                    &frame.rgba,
+                    frame.width,
+                    frame.height,
+                    image::ColorType::Rgba8,
+                )?;
+            }
+        }
+        if !regions.is_empty() {
+            // Compare adaptive tracing with the exact tolerance/step path at the first route view.
+            renderer.set_raymarched_render_options(RaymarchedRenderOptions {
+                distance_adaptive: false,
+                ..Default::default()
+            });
+            let exact = renderer.render_lit_rgba(&instances, &[])?;
+            renderer.set_raymarched_render_options(RaymarchedRenderOptions {
+                step_heatmap: true,
+                ..Default::default()
+            });
+            let heat = renderer.render_lit_rgba(&instances, &[])?;
+            image::save_buffer(
+                output.join(format!("{name}-heatmap.png")),
+                &heat.rgba,
+                heat.width,
+                heat.height,
+                image::ColorType::Rgba8,
+            )?;
+            renderer.set_raymarched_render_options(RaymarchedRenderOptions::default());
+            let pixels = before.rgba.len() / 4;
+            let differing = (0..pixels)
+                .filter(|&i| {
+                    (0..3).any(|c| before.rgba[i * 4 + c].abs_diff(exact.rgba[i * 4 + c]) > 8)
+                })
+                .count();
+            let max = before
+                .rgba
+                .iter()
+                .zip(&exact.rgba)
+                .map(|(a, b)| a.abs_diff(*b))
+                .max()
+                .unwrap_or(0);
+            println!("{name}: adaptive vs exact: {:.3}% pixels differ by >8/255, max channel error {max}", differing as f64 * 100. / pixels as f64);
+            for (suffix, frame) in [("adaptive", &before), ("exact", &exact)] {
+                image::save_buffer(
+                    output.join(format!("{name}-{suffix}.png")),
+                    &frame.rgba,
+                    frame.width,
+                    frame.height,
+                    image::ColorType::Rgba8,
+                )?;
+            }
+        }
         println!("{name}: preparation/upload/first capture {:?}; triangles={triangles} mesh_bytes={mesh_buffer_bytes}",setup.elapsed());
         for sample in 0..32 {
-            camera(&mut renderer, sample * 4, scale, name == "cavern")?;
+            camera(&mut renderer, sample * 4, scale, name == "cavern", ground)?;
             renderer.profile_lit_frame(&instances, &[])?;
         }
         let mut gpu = Vec::new();
         let mut cpu = Vec::new();
+        let mut submitted = Vec::new();
         for sample in 0..128 {
-            camera(&mut renderer, sample, scale, name == "cavern")?;
+            camera(&mut renderer, sample, scale, name == "cavern", ground)?;
             let p = renderer
                 .profile_lit_frame(&instances, &[])?
                 .ok_or("Timestamp capability disappeared")?;
             assert!(p.main_gpu_us.is_finite() && p.main_gpu_us >= 0. && p.shadow_passes == 0);
             let stats = renderer.raymarched_frame_stats();
-            csv.push_str(&format!("{name},{sample},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{triangles},{mesh_buffer_bytes},{}\n",p.main_gpu_us,p.shadows_gpu_us,p.prepare_cpu_us,p.encode_cpu_us,p.completion_cpu_us,p.total_cpu_us,stats.regions,stats.submitted,stats.scissor_pixels,p.diagnostic_bytes));
+            csv.push_str(&format!("{name},{sample},{:.3},{:.3},{:.3},{:.3},{:.3},{:.3},{},{},{},{triangles},{},{mesh_buffer_bytes},{}\n",p.main_gpu_us,p.shadows_gpu_us,p.prepare_cpu_us,p.encode_cpu_us,p.completion_cpu_us,p.total_cpu_us,stats.regions,stats.submitted,stats.scissor_pixels,renderer.submitted_triangles(),p.diagnostic_bytes));
+            submitted.push(renderer.submitted_triangles());
             gpu.push(p.main_gpu_us);
             cpu.push(p.total_cpu_us);
         }
         gpu.sort_by(f64::total_cmp);
+        submitted.sort_unstable();
+        if triangles > 0 {
+            println!(
+                "{name}: submitted triangles p50/max {}/{} of {triangles}",
+                submitted[63], submitted[127]
+            );
+        }
         cpu.sort_by(f64::total_cmp);
         println!("{name}: main GPU p50/p95/p99 {:.3}/{:.3}/{:.3} ms; serial CPU wall {:.3}/{:.3}/{:.3} ms",gpu[63]/1000.,gpu[121]/1000.,gpu[126]/1000.,cpu[63]/1000.,cpu[121]/1000.,cpu[126]/1000.);
-        camera(&mut renderer, 0, scale, name == "cavern")?;
+        camera(&mut renderer, 0, scale, name == "cavern", ground)?;
         let after = renderer.render_lit_rgba(&instances, &[])?;
         assert!(
             before.rgba == after.rgba,
@@ -185,6 +308,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
     assert!(renderer.remove(cube));
-    println!("PASS timestamp reuse, 13/6/1/0 shadow pass transitions, resize, unchanged captures and seven traversal workloads");
+    println!("PASS timestamp reuse, 13/6/1/0 shadow pass transitions, resize, unchanged captures, culling-identical mesh captures and ten traversal workloads");
     Ok(())
 }
